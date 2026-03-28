@@ -1,0 +1,13 @@
+{{define "content"}}
+<div class="logo">
+    <h1>authgate</h1>
+    <p>Error</p>
+</div>
+
+<div class="error">
+    <strong>{{.ErrorCode}}</strong>
+    <p style="margin-top: 10px;">{{.ErrorDescription}}</p>
+</div>
+
+<a href="/" class="btn btn-secondary">Go Home</a>
+{{end}}

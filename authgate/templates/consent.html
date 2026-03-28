@@ -1,0 +1,51 @@
+{{define "content"}}
+<div class="logo">
+    <h1>authgate</h1>
+    <p>Authorize {{.ClientName}}</p>
+</div>
+
+<div class="card">
+    <h2>Sign in as</h2>
+    <div style="display: flex; align-items: center; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+        <div style="width: 48px; height: 48px; background: #667eea; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 24px; margin-right: 15px;">
+            {{slice .UserName 0 1}}
+        </div>
+        <div>
+            <div style="font-weight: 600; color: #333;">{{.UserName}}</div>
+            <div style="font-size: 14px; color: #666;">{{.UserEmail}}</div>
+        </div>
+    </div>
+</div>
+
+<div class="scopes">
+    <h2 style="margin-bottom: 15px; font-size: 16px; color: #666;">{{.ClientName}} is requesting access to:</h2>
+    
+    {{range .Scopes}}
+    <div class="scope-item">
+        <div class="scope-icon">
+            {{if eq . "openid"}}🔐{{else if eq . "profile"}}👤{{else if eq . "email"}}✉️{{else}}🔑{{end}}
+        </div>
+        <div class="scope-text">
+            <div class="scope-name">{{.}}</div>
+            <div class="scope-desc">
+                {{if eq . "openid"}}Authenticate your identity{{else if eq . "profile"}}View your profile information{{else if eq . "email"}}View your email address{{else}}Access your {{.}} data{{end}}
+            </div>
+        </div>
+    </div>
+    {{end}}
+</div>
+
+<form method="POST" action="/oauth/consent">
+    <input type="hidden" name="client_id" value="{{.ClientID}}">
+    <input type="hidden" name="state" value="{{.State}}">
+    <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
+    
+    <button type="submit" name="action" value="approve" class="btn btn-primary">
+        Allow Access
+    </button>
+    
+    <button type="submit" name="action" value="deny" class="btn btn-secondary">
+        Deny
+    </button>
+</form>
+{{end}}
