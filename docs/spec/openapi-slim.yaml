@@ -1,0 +1,654 @@
+openapi: 3.0.3
+info:
+  title: authgate API
+  description: |
+    Central authentication service for first-party applications (MVP).
+    
+    **Scope:** 3 statically configured first-party services with web login.
+    **Note:** Device flow marked as optional (Phase 1.5). UserInfo and Revoke deferred to Phase 2.
+    
+    Supports web login via Google OIDC with local JWT validation via JWKS.
+  version: 0.1.0-slim
+  contact:
+    name: authgate Team
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  # OIDC Discovery
+  /.well-known/openid-configuration:
+    get:
+      summary: OIDC Discovery Document
+      description: Returns the OIDC configuration document containing all endpoints and supported features.
+      operationId: getOIDCConfiguration
+      tags:
+        - Discovery
+      responses:
+        '200':
+          description: OIDC configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCConfiguration'
+              example:
+                issuer: "http://localhost:8080"
+                authorization_endpoint: "http://localhost:8080/oauth/authorize"
+                token_endpoint: "http://localhost:8080/oauth/token"
+                jwks_uri: "http://localhost:8080/.well-known/jwks.json"
+                end_session_endpoint: "http://localhost:8080/oauth/logout"
+                response_types_supported: ["code"]
+                grant_types_supported: ["authorization_code", "refresh_token"]
+                code_challenge_methods_supported: ["S256"]
+                subject_types_supported: ["public"]
+                id_token_signing_alg_values_supported: ["RS256"]
+                token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"]
+                claims_supported: ["sub", "iss", "aud", "exp", "iat", "email", "email_verified", "name", "preferred_username"]
+
+  /.well-known/jwks.json:
+    get:
+      summary: JSON Web Key Set
+      description: Returns the public keys for JWT signature verification.
+      operationId: getJWKS
+      tags:
+        - Discovery
+      responses:
+        '200':
+          description: JWKS document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWKS'
+
+  # OAuth2/OIDC Core Endpoints
+  /oauth/authorize:
+    get:
+      summary: Authorization Endpoint
+      description: |
+        Initiates the OAuth2 authorization flow. Redirects to Google OIDC for authentication.
+        
+        **Flow:** Returns 302 redirect (not JSON). Error handling via redirect with error params.
+        
+        **PKCE:** Required for all clients (S256 only).
+      operationId: authorize
+      tags:
+        - OAuth2
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [code]
+          description: Must be 'code' for authorization code flow
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Registered client ID
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+          description: Must match registered redirect URI exactly
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            default: "openid profile email"
+          description: Space-separated list of scopes
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 16
+          description: Opaque value for CSRF protection (min 16 chars entropy)
+        - name: code_challenge
+          in: query
+          required: true
+          schema:
+            type: string
+          description: PKCE code challenge (S256)
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [S256]
+          description: PKCE method (S256 required)
+        - name: nonce
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional nonce for ID token validation
+      responses:
+        '302':
+          description: Redirect to Google OIDC or error redirect
+          headers:
+            Location:
+              schema:
+                type: string
+              description: |
+                Success: Redirect to Google login
+                Error: Redirect to redirect_uri with error params:
+                - `?error=invalid_request&error_description=...&state=...`
+                - `?error=unauthorized_client&state=...`
+                - `?error=access_denied&state=...`
+
+  /oauth/token:
+    post:
+      summary: Token Endpoint
+      description: |
+        Exchange authorization code for tokens or refresh access tokens.
+        
+        **Important:** This endpoint accepts `application/x-www-form-urlencoded` only (not JSON).
+        
+        **Grant types:**
+        - `authorization_code` — Initial token exchange
+        - `refresh_token` — Refresh access token
+      operationId: token
+      tags:
+        - OAuth2
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/AuthorizationCodeRequest'
+                - $ref: '#/components/schemas/RefreshTokenRequest'
+            examples:
+              authorization_code:
+                summary: Authorization Code Exchange
+                value:
+                  grant_type: "authorization_code"
+                  code: "abc123..."
+                  redirect_uri: "https://service-a.example.com/callback"
+                  code_verifier: "pkce_verifier..."
+                  client_id: "service-a-web"
+                  client_secret: "secret..."
+              refresh_token:
+                summary: Refresh Token Exchange
+                value:
+                  grant_type: "refresh_token"
+                  refresh_token: "opaque_refresh_token..."
+                  client_id: "service-a-web"
+                  client_secret: "secret..."
+      responses:
+        '200':
+          description: Token response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              examples:
+                authorization_code:
+                  summary: Initial token exchange
+                  value:
+                    access_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    token_type: "Bearer"
+                    expires_in: 900
+                    refresh_token: "opaque_refresh_token_string"
+                    id_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    scope: "openid profile email"
+                refresh_token:
+                  summary: Token refresh
+                  value:
+                    access_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    token_type: "Bearer"
+                    expires_in: 900
+                    refresh_token: "new_rotated_refresh_token_string"
+                    scope: "openid profile email"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /oauth/logout:
+    get:
+      summary: Logout
+      description: |
+        Initiates logout. Clears central session and redirects.
+        
+        **Note:** Services should clear their local session first, then redirect here.
+      operationId: logout
+      tags:
+        - OAuth2
+      parameters:
+        - name: post_logout_redirect_uri
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+          description: Where to redirect after logout (must be pre-registered)
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+          description: State to return after logout
+      responses:
+        '302':
+          description: Redirect to post_logout_redirect_uri or default logout page
+          headers:
+            Location:
+              schema:
+                type: string
+
+  # Device Authorization Flow (Optional - Phase 1.5)
+  /oauth/device/authorize:
+    post:
+      summary: '[OPTIONAL] Device Authorization Request'
+      description: |
+        **Phase 1.5:** Initiates the device authorization flow for CLI applications.
+        
+        Skip this endpoint if no CLI clients in MVP.
+      operationId: deviceAuthorize
+      tags:
+        - Device Flow
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - client_id
+              properties:
+                client_id:
+                  type: string
+                  description: Registered client ID (required)
+                scope:
+                  type: string
+                  description: Space-separated scopes
+      responses:
+        '200':
+          description: Device authorization response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceAuthorizationResponse'
+              example:
+                device_code: "GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS"
+                user_code: "WDJB-MJHT"
+                verification_uri: "http://localhost:8080/device"
+                verification_uri_complete: "http://localhost:8080/device?user_code=WDJB-MJHT"
+                expires_in: 1800
+                interval: 5
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /device:
+    get:
+      summary: '[OPTIONAL] Device Verification Page'
+      description: |
+        **Phase 1.5:** HTML page for user to enter user_code and approve device.
+      operationId: deviceVerificationPage
+      tags:
+        - Device Flow
+      parameters:
+        - name: user_code
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: HTML verification page
+          content:
+            text/html:
+              schema:
+                type: string
+
+    post:
+      summary: '[OPTIONAL] Submit Device Approval'
+      description: |
+        **Phase 1.5:** Submit user approval for device authorization.
+      operationId: deviceApprovalSubmit
+      tags:
+        - Device Flow
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - user_code
+                - action
+              properties:
+                user_code:
+                  type: string
+                  description: User-entered code
+                action:
+                  type: string
+                  enum: [approve, deny]
+                  description: User action
+      responses:
+        '302':
+          description: Redirect to success or error page
+          headers:
+            Location:
+              schema:
+                type: string
+
+  # Health Check
+  /health:
+    get:
+      summary: Health Check
+      description: Returns service health status.
+      operationId: health
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /ready:
+    get:
+      summary: Readiness Check
+      description: Returns whether the service is ready to accept traffic.
+      operationId: ready
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ready"
+                  checks:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        example: "connected"
+        '503':
+          description: Service is not ready
+
+components:
+  schemas:
+    OIDCConfiguration:
+      type: object
+      required:
+        - issuer
+        - authorization_endpoint
+        - token_endpoint
+        - jwks_uri
+      properties:
+        issuer:
+          type: string
+          format: uri
+        authorization_endpoint:
+          type: string
+          format: uri
+        token_endpoint:
+          type: string
+          format: uri
+        jwks_uri:
+          type: string
+          format: uri
+        end_session_endpoint:
+          type: string
+          format: uri
+        response_types_supported:
+          type: array
+          items:
+            type: string
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+        code_challenge_methods_supported:
+          type: array
+          items:
+            type: string
+          description: PKCE methods supported (S256 required)
+        subject_types_supported:
+          type: array
+          items:
+            type: string
+        id_token_signing_alg_values_supported:
+          type: array
+          items:
+            type: string
+        token_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+        claims_supported:
+          type: array
+          items:
+            type: string
+
+    JWKS:
+      type: object
+      required:
+        - keys
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              kty:
+                type: string
+              use:
+                type: string
+              kid:
+                type: string
+              alg:
+                type: string
+              n:
+                type: string
+              e:
+                type: string
+
+    AuthorizationCodeRequest:
+      type: object
+      required:
+        - grant_type
+        - code
+        - redirect_uri
+        - code_verifier
+        - client_id
+      properties:
+        grant_type:
+          type: string
+          enum: [authorization_code]
+        code:
+          type: string
+          description: Authorization code from callback
+        redirect_uri:
+          type: string
+          description: Must match original authorize request
+        code_verifier:
+          type: string
+          description: PKCE code verifier
+        client_id:
+          type: string
+        client_secret:
+          type: string
+          description: Required for confidential clients
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - grant_type
+        - refresh_token
+        - client_id
+      properties:
+        grant_type:
+          type: string
+          enum: [refresh_token]
+        refresh_token:
+          type: string
+          description: Opaque refresh token
+        client_id:
+          type: string
+        client_secret:
+          type: string
+          description: Required for confidential clients
+        scope:
+          type: string
+          description: Optional scope narrowing
+
+    TokenResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          description: JWT access token (always returned)
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          description: Access token lifetime in seconds (900 = 15 min)
+        refresh_token:
+          type: string
+          description: |
+            Opaque refresh token.
+            - Returned on authorization_code grant
+            - Returned on refresh_token grant (rotated)
+            - Not returned for public clients if not supported
+        id_token:
+          type: string
+          description: |
+            JWT ID token.
+            - Returned when 'openid' scope requested
+            - Contains user claims
+        scope:
+          type: string
+          description: Granted scopes (may be subset of requested)
+
+    DeviceAuthorizationResponse:
+      type: object
+      required:
+        - device_code
+        - user_code
+        - verification_uri
+        - expires_in
+      properties:
+        device_code:
+          type: string
+          description: Device code for polling (long-lived secret)
+        user_code:
+          type: string
+          description: Short code for user to enter (display only)
+        verification_uri:
+          type: string
+          format: uri
+          description: URL where user enters code
+        verification_uri_complete:
+          type: string
+          format: uri
+          description: URL with pre-filled user_code (optional)
+        expires_in:
+          type: integer
+          description: Device code expiration in seconds (1800 = 30 min)
+        interval:
+          type: integer
+          description: Polling interval in seconds (5 = default)
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_request
+            - invalid_client
+            - invalid_grant
+            - unauthorized_client
+            - unsupported_grant_type
+            - invalid_scope
+            - access_denied
+            - server_error
+            - temporarily_unavailable
+            - authorization_pending
+            - slow_down
+            - expired_token
+        error_description:
+          type: string
+        error_uri:
+          type: string
+          format: uri
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            invalid_grant_type:
+              summary: Invalid grant type
+              value:
+                error: "unsupported_grant_type"
+                error_description: "Grant type 'password' not supported"
+            missing_param:
+              summary: Missing required parameter
+              value:
+                error: "invalid_request"
+                error_description: "Missing required parameter: code"
+
+    Unauthorized:
+      description: Authentication failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            invalid_code:
+              summary: Invalid authorization code
+              value:
+                error: "invalid_grant"
+                error_description: "Invalid or expired authorization code"
+            invalid_refresh:
+              summary: Invalid refresh token
+              value:
+                error: "invalid_grant"
+                error_description: "Refresh token has been revoked"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token
+
+# Note: These are Phase 2 endpoints, not in MVP
+# /oauth/userinfo - Deferred, services validate JWT locally via JWKS
+# /oauth/revoke - Deferred, refresh tokens can be revoked by rotation

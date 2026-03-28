@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: authgate
+      POSTGRES_PASSWORD: authgate
+      POSTGRES_DB: authgate
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authgate"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mock-idp:
+    build:
+      context: ./mock-idp
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    environment:
+      PORT: "8082"
+
+  authgate:
+    build:
+      context: ./authgate
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://authgate:authgate@postgres:5432/authgate?sslmode=disable"
+      SESSION_SECRET: "dev-secret-change-in-production"
+      BASE_URL: "http://localhost:8080"
+      PUBLIC_URL: "http://localhost:8080"
+      UPSTREAM_PROVIDER: "mock"
+      MOCK_IDP_URL: "http://mock-idp:8082"
+      MOCK_IDP_PUBLIC_URL: "http://localhost:8082"
+      ACCESS_TOKEN_TTL: "900"
+      REFRESH_TOKEN_TTL: "2592000"
+      SESSION_TTL: "86400"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock-idp:
+        condition: service_started
+    volumes:
+      - ./authgate/migrations:/app/migrations:ro
+
+  service-a:
+    build:
+      context: ./service-a
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: "8081"
+      AUTHGATE_URL: "http://authgate:8080"
+      AUTHGATE_PUBLIC_URL: "http://localhost:8080"
+      CLIENT_ID: "service-a-web"
+      CLIENT_SECRET: "dev-secret"
+      BASE_URL: "http://localhost:8081"
+      SESSION_SECRET: "service-a-secret"
+    depends_on:
+      - authgate
+
+volumes:
+  postgres_data:
