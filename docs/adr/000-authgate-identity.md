@@ -10,7 +10,7 @@ Accepted (2026-03-29)
 
 ## 목표
 
-authgate 하나만 운영하면, 앞으로 만드는 모든 서비스의 인증이 해결된다.
+새 서비스는 authgate를 재사용하여 인증을 공통화한다. 서비스별 인증 구현은 하지 않는다.
 새 서비스를 추가할 때 authgate 코드 변경은 0줄 — DB에 클라이언트 1개 등록하면 끝이다.
 서비스는 어떤 언어/프레임워크든 상관없다. JWKS로 토큰을 검증하면 된다.
 
@@ -46,13 +46,21 @@ authgate는 여러 앱이 공유하는 중앙 인증 게이트웨이이다.
 
 | 토큰 | 발급 | 보관 | 용도 |
 |------|------|------|------|
-| **access_token** | authgate | 앱 서버 | API 호출 시 `Authorization: Bearer` 헤더로 전달 |
-| **id_token** | authgate | 프론트엔드 | 로그인된 사용자 확인용. API 호출에 사용하면 안 됨 |
-| **refresh_token** | authgate | 앱 서버 | 만료된 access_token 갱신 시 authgate에 제출. 앱이 직접 만들거나 검증하지 않음 |
+| **access_token** | authgate | 클라이언트 또는 앱 서버 | API 호출 시 `Authorization: Bearer` 헤더로 전달 |
+| **id_token** | authgate | OIDC 클라이언트 | 로그인된 사용자 식별 확인용. API 호출에 사용하면 안 됨 |
+| **refresh_token** | authgate | 신뢰 가능한 저장소 | 만료된 access_token 갱신 시 authgate에 제출. 앱이 직접 만들거나 검증하지 않음 |
+
+### 플로우별 토큰 보관
+
+| 토큰 | 브라우저 (웹 앱) | Device (CLI) | MCP (AI 도구) |
+|------|----------------|-------------|--------------|
+| **access_token** | 앱 서버 (세션/메모리) | 로컬 secure storage (`~/.config/`) | AI 도구 내부 메모리 |
+| **id_token** | 프론트엔드 (사용자 표시용) | 보통 사용 안 함 | AI 도구가 사용자 확인용 |
+| **refresh_token** | 앱 서버 (DB/세션) | 로컬 secure storage (`~/.config/`) | AI 도구 내부 storage |
 
 토큰 lifecycle 전체가 authgate 책임이다:
-- **발급**: authgate → 앱
-- **갱신**: 앱이 refresh_token을 authgate `/token` 엔드포인트에 제출 → 새 access_token + 새 refresh_token 수신
+- **발급**: authgate → 클라이언트
+- **갱신**: 클라이언트가 refresh_token을 authgate `/token` 엔드포인트에 제출 → 새 access_token + 새 refresh_token 수신
 - **회전**: authgate가 구 refresh_token 폐기 + 신 refresh_token 발급 (자동)
 - **폐기**: 만료/revoke 시 authgate가 처리
 
@@ -60,16 +68,22 @@ authgate는 여러 앱이 공유하는 중앙 인증 게이트웨이이다.
 
 authgate는 토큰에 **최소한의 신원 클레임만** 넣는다.
 
+authgate는 **app-per-client 모델**을 사용하며, access_token의 `aud`는 대상 앱의 client_id로 발급한다.
+
 ```json
 {
+  "iss": "https://auth.example.com",
   "sub": "user-uuid-123",
-  "email": "kim@gmail.com",
-  "name": "김철수",
   "aud": "my-app",
   "exp": 1234567890,
-  "scope": "openid profile email"
+  "iat": 1234567000,
+  "scope": "openid profile email",
+  "email": "kim@gmail.com",
+  "name": "김철수"
 }
 ```
+
+`sub`는 필수 클레임이며, `email`과 `name`은 앱 통합 편의를 위해 제공하는 선택적 클레임이다.
 
 **넣지 않는 것:**
 - 앱별 권한 (role, is_admin)
