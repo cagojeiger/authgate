@@ -17,6 +17,8 @@ type GoogleProvider struct {
 	client       *http.Client
 }
 
+func (g *GoogleProvider) Name() string { return "google" }
+
 func (g *GoogleProvider) httpClient() *http.Client {
 	if g.client != nil {
 		return g.client

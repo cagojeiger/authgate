@@ -124,7 +124,7 @@ func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode
 	}
 
 	// Look up user
-	user, err := s.store.GetUserByProviderIdentity(ctx, "google", userInfo.Sub)
+	user, err := s.store.GetUserByProviderIdentity(ctx, s.provider.Name(), userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
 		return &DevicePageResult{Action: DeviceError, Error: "signup_required: please sign up via browser first", ErrorCode: http.StatusForbidden}
 	}

@@ -143,21 +143,33 @@ func (s *Storage) RecoverUser(ctx context.Context, userID string) error {
 
 func (s *Storage) AcceptTerms(ctx context.Context, userID, termsVersion, privacyVersion string) error {
 	now := s.clock.Now()
-	_, err := s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE users SET terms_version = $1, terms_accepted_at = $2, privacy_version = $3, privacy_accepted_at = $2, updated_at = $2
 		 WHERE id = $4`,
 		termsVersion, now, privacyVersion, userID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Storage) CompleteAuthRequest(ctx context.Context, authRequestID, userID string) error {
 	now := s.clock.Now()
-	_, err := s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE auth_requests SET subject = $1, auth_time = $2, done = true WHERE id = $3`,
 		userID, now, authRequestID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, userID string, scopes []string) error {

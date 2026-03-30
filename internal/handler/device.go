@@ -110,6 +110,9 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	result := h.deviceService.HandleDeviceApprove(r.Context(), userCode, action, sessionID, r.RemoteAddr, r.UserAgent())
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if !result.Success && result.ErrorCode != 0 {
+		w.WriteHeader(result.ErrorCode)
+	}
 	pages.RenderResult(w, pages.ResultData{
 		Success: result.Success,
 		Message: result.Message,
@@ -118,7 +121,9 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 
 func generateCSRFToken() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }
 

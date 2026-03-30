@@ -20,6 +20,8 @@ type MockProvider struct {
 	RedirectURI string
 }
 
+func (m *MockProvider) Name() string { return "mock" }
+
 func (m *MockProvider) AuthURL(state string) string {
 	params := url.Values{
 		"redirect_uri": {m.RedirectURI},
@@ -85,6 +87,8 @@ func (m *MockProvider) Exchange(ctx context.Context, code string) (*UserInfo, er
 type FakeProvider struct {
 	User *UserInfo
 }
+
+func (f *FakeProvider) Name() string { return "google" }
 
 func (f *FakeProvider) AuthURL(state string) string {
 	return "/fake-auth?state=" + state

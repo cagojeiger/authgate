@@ -160,7 +160,9 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 	}
 
 	// Look up user by provider identity
-	user, err := s.store.GetUserByProviderIdentity(ctx, "google", userInfo.Sub)
+	provider := s.providerForChannel(channel)
+	providerName := provider.Name()
+	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
 		if channel != guard.ChannelBrowser {
 			return &CallbackResult{Action: ActionError, Error: "signup_required", ErrorCode: http.StatusForbidden}
@@ -168,7 +170,7 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 		// New user — signup (Spec 001)
 		user, err = s.store.CreateUserWithIdentity(ctx,
 			userInfo.Email, userInfo.EmailVerified, userInfo.Name, userInfo.Picture,
-			"google", userInfo.Sub, userInfo.Email,
+			providerName, userInfo.Sub, userInfo.Email,
 		)
 		if errors.Is(err, storage.ErrEmailConflict) {
 			return &CallbackResult{Action: ActionError, Error: "email_conflict", ErrorCode: http.StatusConflict}

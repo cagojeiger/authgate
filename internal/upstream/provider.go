@@ -12,10 +12,11 @@ type UserInfo struct {
 }
 
 // Provider abstracts the upstream IdP (Google, Mock).
-// 2 methods: AuthURL to start login, Exchange to complete it.
 type Provider interface {
+	// Name returns the provider identifier stored in user_identities.provider.
+	Name() string
+
 	// AuthURL returns the URL to redirect the user to for authentication.
-	// state is passed through and returned in the callback.
 	AuthURL(state string) string
 
 	// Exchange trades an authorization code for user info.
