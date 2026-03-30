@@ -90,15 +90,9 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 			return &LoginResult{Action: ActionError, Error: "failed to recover account", ErrorCode: http.StatusInternalServerError}
 		}
 		s.store.AuditLog(ctx, &user.ID, "auth.deletion_cancelled", "", "", nil)
-		// Re-fetch user after recovery (avoid stale state)
-		recoveredUser, err := s.store.GetValidSession(ctx, "")
-		if err != nil {
-			// Session lookup may not work here — update in-memory instead
-			user.Status = "active"
-		} else {
-			user = recoveredUser
-		}
-		// Re-check with fresh state (no recursion)
+		// Update in-memory state after recovery (avoid stale state, no recursion)
+		user.Status = "active"
+		// Re-check with fresh state
 		freshUI := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
 		freshState := guard.DeriveLoginState(freshUI, s.termsVersion, s.privacyVersion)
 		if freshState == guard.OnboardingComplete {
@@ -144,6 +138,9 @@ func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, 
 			userInfo.Email, userInfo.EmailVerified, userInfo.Name, userInfo.Picture,
 			"google", userInfo.Sub, userInfo.Email,
 		)
+		if errors.Is(err, storage.ErrEmailConflict) {
+			return &CallbackResult{Action: ActionError, Error: "email_conflict", ErrorCode: http.StatusConflict}
+		}
 		if err != nil {
 			return &CallbackResult{Action: ActionError, Error: fmt.Sprintf("signup failed: %v", err), ErrorCode: http.StatusInternalServerError}
 		}
@@ -194,8 +191,8 @@ func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, 
 }
 
 // HandleTermsSubmit processes POST /login/terms
-func (s *LoginService) HandleTermsSubmit(ctx context.Context, authRequestID, sessionID string, termsAgree, ageConfirm bool, ipAddress, userAgent string) *CallbackResult {
-	if !termsAgree || !ageConfirm {
+func (s *LoginService) HandleTermsSubmit(ctx context.Context, authRequestID, sessionID string, termsAgree, privacyAgree, ageConfirm bool, ipAddress, userAgent string) *CallbackResult {
+	if !termsAgree || !privacyAgree || !ageConfirm {
 		return &CallbackResult{Action: ActionShowTerms, AuthRequestID: authRequestID, SessionID: sessionID, Error: "Please accept all terms and confirm your age."}
 	}
 

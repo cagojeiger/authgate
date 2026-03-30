@@ -128,7 +128,7 @@ func TestHandleTermsSubmit_Success(t *testing.T) {
 		t.Fatalf("create auth request: %v", err)
 	}
 
-	result := svc.HandleTermsSubmit(ctx, arID, sessionID, true, true, "127.0.0.1", "test-agent")
+	result := svc.HandleTermsSubmit(ctx, arID, sessionID, true, true, true, "127.0.0.1", "test-agent")
 
 	if result.Action != ActionAutoApprove {
 		t.Errorf("action = %v, want AutoApprove", result.Action)
@@ -139,7 +139,7 @@ func TestHandleTermsSubmit_MissingCheckbox_ShowTermsAgain(t *testing.T) {
 	svc, _ := setupLoginService(t)
 	ctx := context.Background()
 
-	result := svc.HandleTermsSubmit(ctx, "req-123", "session-123", false, true, "", "")
+	result := svc.HandleTermsSubmit(ctx, "req-123", "session-123", false, true, true, "", "")
 
 	if result.Action != ActionShowTerms {
 		t.Errorf("action = %v, want ShowTerms (checkbox missing)", result.Action)

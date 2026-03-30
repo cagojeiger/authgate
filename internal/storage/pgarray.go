@@ -32,7 +32,13 @@ func (a StringArray) Value() (driver.Value, error) {
 	if a == nil {
 		return nil, nil
 	}
-	return "{" + strings.Join(a, ",") + "}", nil
+	quoted := make([]string, len(a))
+	for i, v := range a {
+		escaped := strings.ReplaceAll(v, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+		quoted[i] = `"` + escaped + `"`
+	}
+	return "{" + strings.Join(quoted, ",") + "}", nil
 }
 
 // parsePostgresArray parses PostgreSQL array literal like {a,b,c}

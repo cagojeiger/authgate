@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -25,6 +26,9 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, email string, emai
 		userID, email, emailVerified, name, avatarURL, now,
 	)
 	if err != nil {
+		if isUniqueViolation(err, "users_email_key") {
+			return nil, ErrEmailConflict
+		}
 		return nil, err
 	}
 
@@ -162,6 +166,12 @@ func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, user
 		}
 	}
 	return nil
+}
+
+// isUniqueViolation checks if a PostgreSQL error is a unique constraint violation.
+func isUniqueViolation(err error, constraintName string) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "23505") || strings.Contains(msg, constraintName)
 }
 
 // SetUserStatus sets a user's status directly. For testing and admin operations.

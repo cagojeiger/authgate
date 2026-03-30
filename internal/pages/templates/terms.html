@@ -25,7 +25,8 @@
   {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
   <form method="POST" action="/login/terms">
     <input type="hidden" name="authRequestID" value="{{.AuthRequestID}}">
-    <label><input type="checkbox" name="terms_agree" required> I agree to the Terms of Service and Privacy Policy</label>
+    <label><input type="checkbox" name="terms_agree" required> I agree to the Terms of Service</label>
+    <label><input type="checkbox" name="privacy_agree" required> I agree to the Privacy Policy</label>
     <label><input type="checkbox" name="age_confirm" required> I confirm that I am 13 years or older</label>
     <button type="submit">Continue</button>
   </form>

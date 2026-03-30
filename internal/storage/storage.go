@@ -17,7 +17,10 @@ import (
 	"github.com/kangheeyong/authgate/internal/idgen"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound      = errors.New("not found")
+	ErrEmailConflict = errors.New("email_conflict")
+)
 
 // StateChecker validates user state for refresh grants.
 // Injected from main.go using guard.DeriveLoginState — storage never imports guard.
@@ -150,17 +153,6 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	}
 	defer tx.Rollback()
 
-	// If rotating an existing refresh token, revoke old one
-	if currentRefreshToken != "" {
-		oldHash := hashToken(currentRefreshToken)
-		_, err = tx.ExecContext(ctx,
-			`UPDATE refresh_tokens SET revoked_at = $1, used_at = $1 WHERE token_hash = $2 AND revoked_at IS NULL`,
-			now, oldHash)
-		if err != nil {
-			return "", "", time.Time{}, err
-		}
-	}
-
 	// Determine family_id, user_id, client_id, scopes from request
 	familyID := s.idgen.NewUUID()
 	userID := request.GetSubject()
@@ -173,16 +165,29 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	} else if rtr, ok := request.(op.RefreshTokenRequest); ok {
 		clientID = rtr.GetClientID()
 		scopes = rtr.GetScopes()
-		// Inherit family_id from existing token
-		oldHash := hashToken(currentRefreshToken)
-		var fid string
-		err = tx.QueryRowContext(ctx, `SELECT family_id FROM refresh_tokens WHERE token_hash = $1`, oldHash).Scan(&fid)
-		if err == nil {
-			familyID = fid
+		// Read family_id BEFORE revoking old token to preserve the chain
+		if currentRefreshToken != "" {
+			oldHash := hashToken(currentRefreshToken)
+			var fid string
+			err = tx.QueryRowContext(ctx, `SELECT family_id FROM refresh_tokens WHERE token_hash = $1`, oldHash).Scan(&fid)
+			if err == nil {
+				familyID = fid
+			}
 		}
 	} else if das, ok := request.(*op.DeviceAuthorizationState); ok {
 		clientID = das.ClientID
 		scopes = das.Scopes
+	}
+
+	// Revoke old refresh token AFTER reading family_id
+	if currentRefreshToken != "" {
+		oldHash := hashToken(currentRefreshToken)
+		_, err = tx.ExecContext(ctx,
+			`UPDATE refresh_tokens SET revoked_at = $1, used_at = $1 WHERE token_hash = $2 AND revoked_at IS NULL`,
+			now, oldHash)
+		if err != nil {
+			return "", "", time.Time{}, err
+		}
 	}
 
 	_, err = tx.ExecContext(ctx,

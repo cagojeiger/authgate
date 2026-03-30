@@ -91,12 +91,13 @@ func (h *LoginHandler) HandleTermsSubmit(w http.ResponseWriter, r *http.Request)
 
 	authRequestID := r.FormValue("authRequestID")
 	termsAgree := r.FormValue("terms_agree") == "on"
+	privacyAgree := r.FormValue("privacy_agree") == "on"
 	ageConfirm := r.FormValue("age_confirm") == "on"
 	sessionID := getSessionCookie(r)
 	ipAddress := r.RemoteAddr
 	userAgent := r.UserAgent()
 
-	result := h.loginService.HandleTermsSubmit(r.Context(), authRequestID, sessionID, termsAgree, ageConfirm, ipAddress, userAgent)
+	result := h.loginService.HandleTermsSubmit(r.Context(), authRequestID, sessionID, termsAgree, privacyAgree, ageConfirm, ipAddress, userAgent)
 
 	switch result.Action {
 	case service.ActionShowTerms:
