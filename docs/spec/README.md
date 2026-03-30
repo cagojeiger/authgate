@@ -47,7 +47,7 @@ authgate가 제공하는 전체 서비스 경험을 정의한다.
   │                 ↓
   └── 기존 유저 → 002 브라우저 로그인 → 토큰 발급
 
-가입 완료 후 (active + terms + privacy 동의)
+가입 완료 후 (DeriveLoginState = onboarding_complete)
   │
   ├── 003 Device 로그인 가능
   ├── 004 MCP 로그인 가능

@@ -209,6 +209,8 @@ FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ```
 
+**CASCADE는 `DELETE FROM users` 시에만 동작한다.** authgate는 계정 삭제 시 `UPDATE users SET status='deleted'`를 사용하므로 CASCADE가 트리거되지 않는다. 연관 데이터는 Spec 006 3단계에서 명시적으로 DELETE한다.
+
 ## client_id 참조 규칙
 
 `auth_requests.client_id`, `device_codes.client_id`, `refresh_tokens.client_id`는 `oauth_clients.client_id`를 참조하지만 **FK를 걸지 않는다.**

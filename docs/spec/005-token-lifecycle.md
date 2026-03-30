@@ -43,14 +43,14 @@ sequenceDiagram
     AG->>AG: DB 조회 (token_hash, revoked_at IS NULL, expires_at > NOW)
     AG->>AG: 계정 상태 확인
 
-    alt 유효 + onboarding_complete (I6)
+    alt 유효 + DeriveLoginState = onboarding_complete
         AG->>AG: 구 토큰 revoke (revoked_at = NOW)
         AG->>AG: 신 refresh_token 생성 (family_id 상속)
         AG->>AG: 신 access_token JWT 서명
         AG-->>App: 200 {access_token, refresh_token} (둘 다 새 것)
     else 만료/폐기된 토큰
         AG-->>App: 400 {error: "invalid_grant"}
-    else 계정 비정상 (disabled/deleted/pending_deletion/onboarding 미완료)
+    else DeriveLoginState != onboarding_complete
         AG-->>App: 400 {error: "invalid_grant"}
     end
 ```
@@ -113,17 +113,17 @@ sequenceDiagram
 
 ## 계정 상태별 토큰 동작
 
-[ADR-000](../adr/000-authgate-identity.md)의 불변식 I5, I6과 일치:
+[ADR-000 DeriveLoginState](../adr/000-authgate-identity.md)와 일치:
 
-| 상태 | 토큰 갱신 (refresh) | 기존 access_token | 설명 |
-|------|-------------------|------------------|------|
-| **active** (onboarding_complete) | 허용 | 유효 (만료까지) | 정상 |
-| **active** (onboarding 미완료) | 차단 | 유효 (만료까지) | 가입 미완료 |
-| **disabled** | 차단 | 유효 (만료까지, 최대 15분) | 관리자 정지 |
-| **pending_deletion** | 차단 | 유효 (만료까지, 최대 15분) | 삭제 유예 중 |
-| **deleted** | 차단 | 유효 (만료까지, 최대 15분) | PII 스크러빙 완료 |
+| DeriveLoginState | 토큰 갱신 (refresh) | 기존 access_token | 설명 |
+|-----------------|-------------------|------------------|------|
+| `onboarding_complete` | 허용 | 유효 (만료까지) | 정상 |
+| `reconsent_required` | 차단 | 유효 (만료까지) | 버전 변경, 재동의 필요 |
+| `initial_onboarding_incomplete` | 차단 | 유효 (만료까지) | 최초 가입 미완료 |
+| `recoverable_browser_only` | 차단 | 유효 (만료까지, 최대 15분) | 삭제 유예 중 |
+| `inactive` | 차단 | 유효 (만료까지, 최대 15분) | 정지/삭제 |
 
-refresh 허용 조건: `onboarding_complete = true` (ADR-000 I6). 약관/개인정보 버전이 변경되면 재동의 전까지 refresh도 차단된다.
+refresh 허용 조건: `DeriveLoginState = onboarding_complete`. 약관/개인정보 버전이 변경되면 `reconsent_required`가 되어 재동의 전까지 refresh도 차단된다.
 
 **access_token(JWT)은 stateless라 서버에서 즉시 폐기할 수 없다.**
 disabled/deleted 계정의 access_token은 만료(15분)를 기다린다.

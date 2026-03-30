@@ -98,7 +98,7 @@ sequenceDiagram
         AG->>AG: audit: auth.login
     end
 
-    Note over U,G: 5-1. 계정 상태 확인 (GuardLoginChannel)
+    Note over U,G: 5-1. 계정 상태 확인 (DeriveLoginState + GuardLoginChannel)
     alt pending_deletion
         AG->>AG: 원자적 복구 (아래 규칙 참조)
         AG->>AG: audit: auth.deletion_cancelled
@@ -141,7 +141,7 @@ sequenceDiagram
 
 | 상황 | 사용자가 보는 것 | 리다이렉트 수 |
 |------|----------------|-------------|
-| 세션 있음 + 약관 동의 완료 | 로그인 클릭 → 바로 완료 | 4 |
+| 세션 있음 + onboarding_complete | 로그인 클릭 → 바로 완료 | 4 |
 | 세션 없음 + 기존 유저 | 로그인 클릭 → Google → 완료 | 6 |
 | 세션 없음 + 신규 유저 | 로그인 클릭 → Google → 약관 → 완료 | 6 + 약관 페이지 1회 |
 
@@ -176,6 +176,7 @@ sequenceDiagram
 | DB 오류 (유저 조회) | `internal_error` | 500 | 가입 시도 안 함 |
 | 이메일 충돌 | `email_conflict` | 409 | 같은 email, 다른 Google sub |
 | 계정 비활성 (disabled/deleted) | `account_inactive` | 403 | 로그인 차단 |
+| pending_deletion | — | — | 에러가 아닌 복구 경로. 자동으로 active 복구 후 진행 (GuardLoginChannel) |
 | 약관/연령 미충족 | — | 200 | 약관 페이지 재표시 |
 | 만료된 auth_request | `invalid_request` | 400 | CompleteAuthRequest 시 expires_at 초과 |
 | PKCE code_verifier 불일치 | `invalid_grant` | 400 | zitadel이 처리 |
