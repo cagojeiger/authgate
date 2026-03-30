@@ -32,7 +32,7 @@ type AuthRequestModel struct {
 	ID                  string
 	ClientID            string
 	RedirectURI         string
-	Scopes              oidc.SpaceDelimitedArray
+	Scopes              StringArray
 	State               string
 	Nonce               string
 	CodeChallenge       string
@@ -89,7 +89,7 @@ type RefreshTokenModel struct {
 	FamilyID  string
 	UserID    string
 	ClientID  string
-	Scopes    []string
+	Scopes    StringArray
 	ExpiresAt time.Time
 	RevokedAt *time.Time
 	UsedAt    *time.Time
@@ -111,9 +111,9 @@ type ClientModel struct {
 	SecretHash           *string
 	Type                 string
 	Name                 string
-	RedirectURIList      []string
-	AllowedScopeList     []string
-	AllowedGrantTypeList []string
+	RedirectURIList      StringArray
+	AllowedScopeList     StringArray
+	AllowedGrantTypeList StringArray
 }
 
 func (c *ClientModel) GetID() string                { return c.ID }
@@ -173,7 +173,7 @@ func (c *ClientModel) ClockSkew() time.Duration             { return 0 }
 type DeviceCodeModel struct {
 	ID       string
 	ClientID string
-	Scopes   []string
+	Scopes   StringArray
 	State    string
 	Subject  *string
 	ExpiresAt time.Time

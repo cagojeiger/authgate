@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: authgate
+      POSTGRES_USER: authgate
+      POSTGRES_PASSWORD: authgate
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authgate"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  authgate:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://authgate:authgate@db:5432/authgate?sslmode=disable
+      SESSION_SECRET: test-secret-32-chars-long-enough!
+      PUBLIC_URL: http://localhost:8080
+      DEV_MODE: "true"
+      UPSTREAM_PROVIDER: mock
+    ports:
+      - "8080:8080"
