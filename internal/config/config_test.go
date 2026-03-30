@@ -118,6 +118,35 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 }
 
+func TestLoad_DevModeFalseShortSessionSecret(t *testing.T) {
+	clearEnv()
+	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	os.Setenv("SESSION_SECRET", "short") // < 32 chars
+	os.Setenv("PUBLIC_URL", "http://localhost")
+	os.Setenv("DEV_MODE", "false")
+	os.Setenv("UPSTREAM_PROVIDER", "google")
+	os.Setenv("GOOGLE_CLIENT_ID", "id")
+	os.Setenv("GOOGLE_SECRET", "secret")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error: SESSION_SECRET < 32 chars in production")
+	}
+}
+
+func TestLoad_DevModeTrueAllowsShortSecret(t *testing.T) {
+	clearEnv()
+	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	os.Setenv("SESSION_SECRET", "short")
+	os.Setenv("PUBLIC_URL", "http://localhost")
+	os.Setenv("DEV_MODE", "true")
+
+	_, err := Load()
+	if err != nil {
+		t.Fatalf("dev mode should allow short secret: %v", err)
+	}
+}
+
 func TestLoad_Success(t *testing.T) {
 	clearEnv()
 	setMinimal()
