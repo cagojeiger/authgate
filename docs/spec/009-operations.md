@@ -262,7 +262,7 @@ SELECT * FROM audit_log WHERE event_type = 'auth.inactive_user' ORDER BY created
 | 엔드포인트 | 용도 | 정상 응답 |
 |-----------|------|----------|
 | `GET /health` | liveness (프로세스 살아있나) | 200 `{"status":"healthy"}` |
-| `GET /ready` | readiness (DB 연결 포함) | 200 `{"status":"ready"}` |
+| `GET /ready` | readiness (DB 연결 포함) | 200 `{"status":"ready"}` / 실패 시 503 `{"status":"not ready"}` |
 
 ### 감시해야 할 것
 

@@ -188,13 +188,14 @@ session이 있어도 토큰이 없을 수 있다. 이는 정상이다:
 | POST `/login/terms` | 허용 | 허용 | 허용(복구 중) | 차단 |
 | POST `/oauth/token` (code) | 허용 | 차단 | 차단 | 차단 |
 | POST `/oauth/token` (refresh) | 허용 | 차단 | 차단 | 차단 |
-| POST `/oauth/device/authorize` | 허용 | 허용* | 허용* | 차단 |
+| POST `/oauth/device/authorize` | 허용 | 허용* | 허용* | 차단** |
 | GET `/device` | 허용 | 허용* | 허용* | 차단 |
 | POST `/device/approve` | 허용 | 차단 | 차단 | 차단 |
 | DELETE `/account` | 허용 | 허용 | 멱등 | 차단 |
 | GET `/.well-known/*` | 허용 | 허용 | 허용 | 허용 |
 
 `*` Device 시작 자체는 허용하지만, approve/callback에서 DeriveLoginState를 검사한다.
+`**` zitadel이 직접 처리하므로 authgate가 이 시점에서 상태 검사 불가. callback/approve 시점에서 차단한다.
 
 ### GuardLoginChannel — 공통 채널 가드
 

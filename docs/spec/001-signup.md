@@ -198,7 +198,7 @@ Google 인증에 성공하면 누구나 가입할 수 있다.
 
 | 이벤트 | 시점 | 필드 |
 |--------|------|------|
-| `auth.signup` | 계정 생성 직후 (약관 전) | user_id, ip |
+| `auth.signup` | 계정 생성 직후 (약관 전) | user_id, ip, user_agent |
 | `auth.terms_accepted` | 약관 동의 완료 | user_id, terms_version, privacy_version, ip |
 
 ## 다른 스펙과의 관계

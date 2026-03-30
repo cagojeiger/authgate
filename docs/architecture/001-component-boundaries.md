@@ -110,7 +110,7 @@ zitadel이 소유하지 않는 HTTP 엔드포인트를 처리한다. **얇은 HT
 | **책임** | HTTP 요청/응답 바인딩, 쿠키/세션 처리, service 호출 |
 | **스펙 근거** | [Spec 002](../spec/002-browser-login.md), [003](../spec/003-device-login.md), [004](../spec/004-mcp-login.md), [006](../spec/006-account-lifecycle.md) |
 | **의존** | service |
-| **엔드포인트** | `/login`, `/login/callback`, `/login/terms`, `/device`, `/device/approve`, `/device/auth/callback`, `/account`, `/health`, `/ready` |
+| **엔드포인트** | `/login`, `/login/callback`, `/login/terms`, `/device`, `/device/approve`, `/device/auth/callback`, `/mcp/login`, `/mcp/callback`, `/account`, `/health`, `/ready` |
 
 handler는 **HTTP를 파싱하고 service에 위임**한다. 비즈니스 로직을 직접 수행하지 않는다.
 
@@ -248,12 +248,11 @@ authgate/
 │   ├── storage/
 │   │   ├── storage.go           # op.Storage 구현 (zitadel 인터페이스)
 │   │   ├── users.go             # users + user_identities CRUD
-│   │   ├── sessions.go          # sessions CRUD
-│   │   ├── tokens.go            # refresh_tokens CRUD + rotation
-│   │   ├── clients.go           # oauth_clients 조회
+│   │   ├── models.go            # DB 모델 구조체
+│   │   ├── pgarray.go           # PostgreSQL 배열 타입 헬퍼
 │   │   ├── keys.go              # signing key 관리
-│   │   ├── device.go            # device_codes CRUD
-│   │   └── audit.go             # audit_log 기록
+│   │   ├── audit.go             # audit_log 기록
+│   │   └── bcrypt.go            # bcrypt 해시 유틸리티
 │   ├── service/
 │   │   ├── login.go             # 로그인 orchestration (가입 포함)
 │   │   ├── device.go            # Device 승인 orchestration
@@ -262,8 +261,8 @@ authgate/
 │   ├── handler/
 │   │   ├── login.go             # /login, /login/callback, /login/terms
 │   │   ├── device.go            # /device, /device/approve, /device/auth/callback
-│   │   ├── account.go           # DELETE /account
-│   │   └── health.go            # /health, /ready
+│   │   └── account.go           # DELETE /account
+│   │   # /health, /ready → cmd/authgate/main.go에 인라인
 │   ├── guard/
 │   │   └── guard.go             # DeriveLoginState, GuardLoginChannel
 │   ├── upstream/

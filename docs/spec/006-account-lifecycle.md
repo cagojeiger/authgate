@@ -71,7 +71,7 @@ sequenceDiagram
     AG->>DB: UPDATE refresh_tokens SET revoked_at=NOW() WHERE user_id=$1
     AG->>DB: COMMIT
     AG->>AG: audit: auth.deletion_requested
-    AG-->>U: 200 {"status": "pending_deletion", "message": "30일 후 삭제. 로그인하면 취소."}
+    AG-->>U: 200 {"status": "pending_deletion", "message": "Account scheduled for deletion in 30 days. Login to cancel."}
 ```
 
 **삭제 요청 즉시 refresh_token 전부 revoke.** 기존 access_token은 만료(15분)를 기다린다.
