@@ -223,6 +223,46 @@ GuardLoginChannel(user, channel):
   return allow  // onboarding_complete
 ```
 
+### 계정 Lifecycle 사이클 규칙
+
+authgate의 가입-사용-탈퇴-재가입 전체 사이클은 닫힌 구조다. 예외 경로는 없다.
+
+```
+[미가입]
+  → 브라우저 가입만 가능 (Spec 001)
+  → Device/MCP로는 가입 불가
+
+[initial_onboarding_incomplete]
+  → 브라우저만 계속 진행 가능 (약관 동의)
+  → Device/MCP/refresh 불가
+  → 7일 후 cleanup 대상
+
+[onboarding_complete]
+  → 모든 로그인 채널 허용
+  → 약관 버전 변경 시 reconsent_required로 전이
+
+[reconsent_required]
+  → 브라우저만 재동의 가능
+  → Device/MCP/refresh 불가
+  → cleanup 비대상 (정상 유저)
+
+[recoverable_browser_only] (pending_deletion)
+  → 브라우저 로그인으로만 복구 가능
+  → Device/MCP/refresh 불가
+  → 30일 후 deleted로 전이
+
+[inactive] (deleted)
+  → 복구 불가. 재활성화 경로 없음.
+  → 동일 Google 계정으로 로그인해도 기존 계정으로 복구되지 않음.
+  → user_identities가 삭제되어 ErrNotFound → Spec 001 신규 가입으로 재진입.
+  → 새 user_id, 새 약관 동의, 이전 데이터와 무관.
+```
+
+이 사이클의 핵심 불변식:
+1. **가입은 브라우저 전용.** Device/MCP에서 신규 가입은 발생하지 않는다.
+2. **deleted는 종단 상태.** 어떤 로그인에서도 deleted → active 전이는 불가능하다.
+3. **재가입은 신규 가입과 동일.** 이전 계정의 user_id, 데이터, 동의 기록과 연결되지 않는다.
+
 ### 앱의 JWT 검증 요구사항
 
 앱은 authgate의 JWKS를 사용해 JWT 서명을 검증하며, 최소한 다음을 확인해야 한다:
