@@ -195,11 +195,11 @@ ID와 토큰을 생성한다. 테스트에서 **예측 가능한 값**을 만들
 
 | 항목 | 설명 |
 |------|------|
-| **책임** | UUID, opaque token, device_code, user_code 생성 |
-| **인터페이스** | `IDGenerator` (메서드: `NewUUID`, `NewOpaqueToken`, `NewDeviceCode`, `NewUserCode`) |
+| **책임** | UUID, opaque token 생성. device_code/user_code는 zitadel이 자체 생성하므로 idgen 범위 밖. |
+| **인터페이스** | `IDGenerator` (메서드: `NewUUID`, `NewOpaqueToken`) |
 | **구현체** | `CryptoGenerator` (프로덕션: crypto/rand), `SequentialGenerator` (테스트: 예측 가능한 순차 값) |
 | **의존** | 없음 |
-| **사용처** | storage (session_id, token_id, refresh_token 생성), service (device_code 발급) |
+| **사용처** | storage (session_id, token_id, refresh_token 생성) |
 
 프로덕션에서는 128bit+ 엔트로피를 보장하고, 테스트에서는 `token-1`, `token-2` 같은 순차 값으로 assertion을 쉽게 한다.
 
