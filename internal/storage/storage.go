@@ -33,6 +33,8 @@ type Storage struct {
 	stateChecker    StateChecker
 	signingKey      *rsa.PrivateKey
 	signingKeyID    string
+	previousKey     *rsa.PrivateKey
+	previousKeyID   string
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
 }
@@ -48,10 +50,17 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 	}
 }
 
-// SetSigningKey sets the RSA signing key used for JWT issuance.
+// SetSigningKey sets the current RSA signing key used for JWT issuance.
 func (s *Storage) SetSigningKey(key *rsa.PrivateKey, keyID string) {
 	s.signingKey = key
 	s.signingKeyID = keyID
+}
+
+// SetPreviousKey sets the previous signing key for 2-slot rotation.
+// JWKS will return both keys; JWTs are signed with the current key only.
+func (s *Storage) SetPreviousKey(key *rsa.PrivateKey, keyID string) {
+	s.previousKey = key
+	s.previousKeyID = keyID
 }
 
 // hashToken returns SHA-256 hex hash of a token string.
@@ -340,13 +349,22 @@ func (s *Storage) KeySet(ctx context.Context) ([]op.Key, error) {
 	if s.signingKey == nil {
 		return nil, nil
 	}
-	return []op.Key{
+	keys := []op.Key{
 		&publicKeyModel{
 			id:        s.signingKeyID,
 			algorithm: jose.RS256,
 			key:       &s.signingKey.PublicKey,
 		},
-	}, nil
+	}
+	// 2-slot rotation: include previous key if set
+	if s.previousKey != nil {
+		keys = append(keys, &publicKeyModel{
+			id:        s.previousKeyID,
+			algorithm: jose.RS256,
+			key:       &s.previousKey.PublicKey,
+		})
+	}
+	return keys, nil
 }
 
 // --- op.Storage: OPStorage ---
