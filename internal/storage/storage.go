@@ -24,20 +24,24 @@ var ErrNotFound = errors.New("not found")
 type StateChecker func(user *User) error
 
 type Storage struct {
-	db           *sql.DB
-	clock        clock.Clock
-	idgen        idgen.IDGenerator
-	stateChecker StateChecker
-	signingKey   *rsa.PrivateKey
-	signingKeyID string
+	db              *sql.DB
+	clock           clock.Clock
+	idgen           idgen.IDGenerator
+	stateChecker    StateChecker
+	signingKey      *rsa.PrivateKey
+	signingKeyID    string
+	accessTokenTTL  time.Duration
+	refreshTokenTTL time.Duration
 }
 
-func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker) *Storage {
+func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
 	return &Storage{
-		db:           db,
-		clock:        clk,
-		idgen:        gen,
-		stateChecker: checker,
+		db:              db,
+		clock:           clk,
+		idgen:           gen,
+		stateChecker:    checker,
+		accessTokenTTL:  accessTTL,
+		refreshTokenTTL: refreshTTL,
 	}
 }
 
@@ -124,13 +128,13 @@ func (s *Storage) DeleteAuthRequest(ctx context.Context, id string) error {
 
 func (s *Storage) CreateAccessToken(ctx context.Context, request op.TokenRequest) (string, time.Time, error) {
 	tokenID := s.idgen.NewUUID()
-	expiration := s.clock.Now().Add(15 * time.Minute)
+	expiration := s.clock.Now().Add(s.accessTokenTTL)
 	return tokenID, expiration, nil
 }
 
 func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.TokenRequest, currentRefreshToken string) (string, string, time.Time, error) {
 	tokenID := s.idgen.NewUUID()
-	expiration := s.clock.Now().Add(15 * time.Minute)
+	expiration := s.clock.Now().Add(s.accessTokenTTL)
 
 	newRefresh, err := s.idgen.NewOpaqueToken()
 	if err != nil {
@@ -185,7 +189,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 		s.idgen.NewUUID(), newHash, familyID, userID, clientID, scopes,
-		now.Add(30*24*time.Hour), now,
+		now.Add(s.refreshTokenTTL), now,
 	)
 	if err != nil {
 		return "", "", time.Time{}, err
@@ -249,7 +253,18 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		}
 	}
 
-	tx.Commit()
+	// Atomically claim the token within the FOR UPDATE transaction.
+	// This prevents race conditions: a concurrent request will see used_at != nil
+	// and trigger family revoke (reuse detection) above.
+	_, err = tx.ExecContext(ctx,
+		`UPDATE refresh_tokens SET used_at = $1 WHERE id = $2`, now, rt.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
 	return &rt, nil
 }
 

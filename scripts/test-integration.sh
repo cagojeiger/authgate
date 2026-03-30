@@ -76,7 +76,7 @@ fi
 
 # Health
 HEALTH=$(curl -sf "$BASE_URL/health" 2>/dev/null || echo "")
-echo "$HEALTH" | grep -q "ok"; check "/health" $?
+echo "$HEALTH" | grep -q "healthy"; check "/health" $?
 
 READY=$(curl -sf "$BASE_URL/ready" 2>/dev/null || echo "")
 echo "$READY" | grep -q "ready"; check "/ready" $?

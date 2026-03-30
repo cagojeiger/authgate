@@ -56,6 +56,9 @@ func Load() (*Config, error) {
 
 	// Production guards
 	if !c.DevMode {
+		if len(c.SessionSecret) < 32 {
+			return nil, fmt.Errorf("DEV_MODE=false requires SESSION_SECRET of at least 32 characters")
+		}
 		if c.UpstreamProvider != "google" {
 			return nil, fmt.Errorf("DEV_MODE=false requires UPSTREAM_PROVIDER=google (got %q)", c.UpstreamProvider)
 		}

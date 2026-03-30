@@ -64,7 +64,7 @@ func main() {
 		return nil
 	}
 
-	store := storage.New(db, clk, gen, stateChecker)
+	store := storage.New(db, clk, gen, stateChecker, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 
 	// Signing key
 	key, err := storage.LoadOrGenerateKey("signing_key.pem")
@@ -127,7 +127,7 @@ func main() {
 	// Health endpoints
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
+		w.Write([]byte(`{"status":"healthy"}`))
 	})
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		if err := db.PingContext(r.Context()); err != nil {
