@@ -53,6 +53,7 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 **입력**: `authRequestID` (hidden), `terms_agree` (checkbox), `privacy_agree` (checkbox), `age_confirm` (checkbox)
 **성공 시**: `AcceptTerms(terms_version, privacy_version)` → `autoApprove` → 토큰 발급
 **실패 시**: 체크박스 미선택 → 200 + 같은 페이지 재표시 (에러 메시지 포함)
+**`age_confirm` 처리**: 별도 영구 컬럼으로 저장하지 않는다. 토큰 발급 전 게이트 검증 조건으로만 사용한다. 동의하지 않으면 약관 페이지를 통과할 수 없다.
 
 ### 디바이스 코드 입력 페이지
 
@@ -102,7 +103,7 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 └──────────────────────────────────┘
 ```
 
-**전제 조건**: 유효한 세션 쿠키 필요 (없으면 로그인 페이지로 redirect, user_code 보존하여 로그인 후 복귀)
+**전제 조건**: 유효한 세션 쿠키 필요. 없으면 Google 로그인으로 redirect → `/device/auth/callback` 복귀 → `/device?user_code=XXXX` 재진입. `user_code`는 state 파라미터에 보존된다.
 **입력**: `user_code` (hidden), `action` (approve/deny)
 **성공 시**: 결과 페이지
 

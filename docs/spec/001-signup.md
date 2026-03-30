@@ -110,7 +110,7 @@ sequenceDiagram
 
 ### 가입 미완료 레코드 정리
 
-사용자가 약관 페이지에서 이탈하면 `terms_accepted_at = NULL`인 유저가 남는다.
+사용자가 약관 페이지에서 이탈하면 `terms_accepted_at IS NULL` 또는 `privacy_accepted_at IS NULL`인 유저가 남는다.
 
 - 이 유저가 **다시 로그인하면**: `GetUserByProviderIdentity` → 기존 유저 발견 → 약관 페이지 재표시 → 동의하면 완료
 - **영구 이탈 시**: cleanup 정책으로 처리
@@ -119,7 +119,7 @@ sequenceDiagram
 -- cleanup (선택적, 운영 판단):
 -- 생성 후 7일 경과 + 약관 미동의 유저 삭제
 DELETE FROM users
-WHERE terms_accepted_at IS NULL
+WHERE (terms_accepted_at IS NULL OR privacy_accepted_at IS NULL)
   AND created_at < NOW() - INTERVAL '7 days';
 ```
 
@@ -138,13 +138,15 @@ WHERE terms_accepted_at IS NULL
 
 ```
 users:
-  id:               UUID (자동 생성) → 토큰의 sub 클레임
-  email:            Google 이메일 (표시용)
-  email_verified:   Google 검증 결과
-  name:             Google 프로필 이름
-  status:           'active'
-  terms_version:    NULL (약관 동의 후 설정)
-  terms_accepted_at: NULL (약관 동의 후 설정)
+  id:                  UUID (자동 생성) → 토큰의 sub 클레임
+  email:               Google 이메일 (표시용)
+  email_verified:      Google 검증 결과
+  name:                Google 프로필 이름
+  status:              'active'
+  terms_version:       NULL (약관 동의 후 설정)
+  terms_accepted_at:   NULL (약관 동의 후 설정)
+  privacy_version:     NULL (개인정보 동의 후 설정)
+  privacy_accepted_at: NULL (개인정보 동의 후 설정)
 
 user_identities:
   user_id:          위 users.id
