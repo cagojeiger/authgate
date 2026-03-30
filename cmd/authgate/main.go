@@ -139,8 +139,12 @@ func main() {
 	// Service layer
 	loginService := service.NewLoginService(store, idpProvider, cfg.TermsVersion, cfg.PrivacyVersion, cfg.SessionTTL)
 
+	// Device service
+	deviceService := service.NewDeviceService(store, idpProvider, cfg.TermsVersion, cfg.PrivacyVersion, cfg.PublicURL, cfg.SessionTTL)
+
 	// Handler layer
 	loginHandler := handler.NewLoginHandler(loginService, cfg.DevMode)
+	deviceHandler := handler.NewDeviceHandler(deviceService, cfg.DevMode)
 
 	// Mux: zitadel owns /.well-known/*, /authorize, /oauth/*, etc.
 	// authgate adds /login, /device, /account, /health, /ready
@@ -159,6 +163,11 @@ func main() {
 			loginHandler.HandleTermsSubmit(w, r)
 		}
 	})
+
+	// authgate device routes
+	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
+	mux.HandleFunc("/device/approve", deviceHandler.HandleDeviceApprove)
+	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
 
 	// Health endpoints
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

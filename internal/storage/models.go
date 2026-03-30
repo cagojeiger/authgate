@@ -171,9 +171,11 @@ func (c *ClientModel) ClockSkew() time.Duration             { return 0 }
 // --- DeviceCode Model ---
 
 type DeviceCodeModel struct {
-	ID       string
-	ClientID string
-	Scopes   StringArray
+	ID         string
+	DeviceCode string
+	UserCode   string
+	ClientID   string
+	Scopes     StringArray
 	State    string
 	Subject  *string
 	ExpiresAt time.Time

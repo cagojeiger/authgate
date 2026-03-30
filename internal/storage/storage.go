@@ -504,6 +504,50 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 	}, nil
 }
 
+// --- Device code business operations (called by service, not by zitadel) ---
+
+// GetDeviceCodeByUserCode looks up a device code by user_code for the approval page.
+func (s *Storage) GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*DeviceCodeModel, error) {
+	dc := &DeviceCodeModel{}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, device_code, user_code, client_id, scopes, state, subject, expires_at, auth_time
+		 FROM device_codes WHERE user_code = $1`, userCode,
+	).Scan(&dc.ID, &dc.DeviceCode, &dc.UserCode, &dc.ClientID, &dc.Scopes, &dc.State,
+		&dc.Subject, &dc.ExpiresAt, &dc.AuthTime)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return dc, err
+}
+
+// ApproveDeviceCode sets a device code to approved state with subject and auth_time.
+func (s *Storage) ApproveDeviceCode(ctx context.Context, userCode, subject string) error {
+	now := s.clock.Now()
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE device_codes SET state = 'approved', subject = $1, auth_time = $2
+		 WHERE user_code = $3 AND state = 'pending' AND expires_at > $2`,
+		subject, now, userCode,
+	)
+	if err != nil {
+		return err
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return errors.New("device code not found, expired, or already processed")
+	}
+	return nil
+}
+
+// DenyDeviceCode sets a device code to denied state.
+func (s *Storage) DenyDeviceCode(ctx context.Context, userCode string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE device_codes SET state = 'denied'
+		 WHERE user_code = $1 AND state = 'pending'`,
+		userCode,
+	)
+	return err
+}
+
 // Compile-time interface checks
 var (
 	_ op.Storage                      = (*Storage)(nil)
