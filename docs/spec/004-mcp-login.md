@@ -22,7 +22,7 @@ authgate 입장에서는 같은 코드 경로를 탄다. `/login` 및 `/login/ca
 - authgate에서 zitadel/oidc는 **내장 라이브러리**다. 별도 서버가 아니다.
 - MCP 클라이언트(AI 도구)가 OAuth 2.1을 지원해야 함
 - authgate에 해당 MCP 클라이언트가 `oauth_clients`에 등록되어 있어야 함
-- `DeriveLoginState = onboarding_complete` (Spec 001 경유, [ADR-000](../adr/000-authgate-identity.md) 정의)
+- **성공적으로 MCP 토큰을 발급받으려면** `DeriveLoginState = onboarding_complete`여야 함 (Spec 001 경유, [ADR-000](../adr/000-authgate-identity.md) 정의)
 - 사용자가 브라우저 접근 가능해야 함
 
 ## 관련 엔드포인트
@@ -93,19 +93,19 @@ sequenceDiagram
     alt 세션 있음 + DeriveLoginState = onboarding_complete
         AG->>AG: auto-approve → 5단계로
     else 세션 있음 + DeriveLoginState != onboarding_complete
-        AG-->>U: 403 signup_required 또는 account_inactive
+        AG-->>U: 403 (GuardLoginChannel 결과: signup_required 또는 account_inactive)
         Note over AG: MCP는 Browser onboarding 채널이 아님
     else 세션 없음
         AG->>U: 302 → Google
         U->>G: Google 인증
         G->>U: 302 → /login/callback
         U->>AG: callback → 기존 유저 확인 → DeriveLoginState + GuardLoginChannel
-        Note over AG: onboarding_complete일 때만<br/>세션 생성 + CompleteAuthRequest 진행
+        Note over AG: onboarding_complete일 때만<br/>세션 생성 + auth_request 완료 상태 반영 진행
         Note over AG: ErrNotFound → "브라우저에서 먼저 가입" 에러
     end
 
-    Note over AI,G: 4. auth_request 완료
-    AG->>AG: CompleteAuthRequest
+    Note over AI,G: 4. auth_request 완료 상태 반영
+    AG->>AG: auth_request에 subject 연결 + 로그인 완료 상태 반영
     AG->>U: 302 → /oauth/callback → 302 → localhost:PORT/callback?code=auth_code&state=...
 
     Note over AI,G: 5. 토큰 교환 (AI 도구 ↔ authgate)
