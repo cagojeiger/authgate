@@ -90,8 +90,24 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 			return &LoginResult{Action: ActionError, Error: "failed to recover account", ErrorCode: http.StatusInternalServerError}
 		}
 		s.store.AuditLog(ctx, &user.ID, "auth.deletion_cancelled", "", "", nil)
-		// After recovery, check terms
-		return s.handleExistingSession(ctx, user, authRequestID)
+		// Re-fetch user after recovery (avoid stale state)
+		recoveredUser, err := s.store.GetValidSession(ctx, "")
+		if err != nil {
+			// Session lookup may not work here — update in-memory instead
+			user.Status = "active"
+		} else {
+			user = recoveredUser
+		}
+		// Re-check with fresh state (no recursion)
+		freshUI := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
+		freshState := guard.DeriveLoginState(freshUI, s.termsVersion, s.privacyVersion)
+		if freshState == guard.OnboardingComplete {
+			if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
+				return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
+			}
+			return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
+		}
+		return &LoginResult{Action: ActionShowTerms, AuthRequestID: authRequestID}
 
 	default: // Inactive
 		return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
@@ -151,6 +167,9 @@ func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, 
 			return &CallbackResult{Action: ActionError, Error: "recovery failed", ErrorCode: http.StatusInternalServerError}
 		}
 		s.store.AuditLog(ctx, &user.ID, "auth.deletion_cancelled", ipAddress, userAgent, nil)
+		// Update in-memory state after recovery
+		user.Status = "active"
+		ui = userToGuardInfo(user, s.termsVersion, s.privacyVersion)
 		// Fall through to create session
 	}
 
@@ -160,7 +179,7 @@ func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, 
 		return &CallbackResult{Action: ActionError, Error: "session creation failed", ErrorCode: http.StatusInternalServerError}
 	}
 
-	// Check if terms needed
+	// Check if terms needed (using fresh ui after possible recovery)
 	state := guard.DeriveLoginState(ui, s.termsVersion, s.privacyVersion)
 	if state == guard.InitialOnboardingIncomplete || state == guard.ReconsentRequired {
 		return &CallbackResult{Action: ActionShowTerms, AuthRequestID: authRequestID, SessionID: sessionID}

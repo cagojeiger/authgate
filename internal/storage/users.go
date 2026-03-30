@@ -164,6 +164,15 @@ func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, user
 	return nil
 }
 
+// SetUserStatus sets a user's status directly. For testing and admin operations.
+func (s *Storage) SetUserStatus(ctx context.Context, userID, status string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE users SET status = $1, updated_at = $2 WHERE id = $3`,
+		status, s.clock.Now(), userID,
+	)
+	return err
+}
+
 // DisableUser sets a user's status to disabled.
 func (s *Storage) DisableUser(ctx context.Context, userID string) error {
 	_, err := s.db.ExecContext(ctx,

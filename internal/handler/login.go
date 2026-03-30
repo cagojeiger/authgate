@@ -71,6 +71,17 @@ func (h *LoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HandleTermsPage handles GET /login/terms — renders the terms page directly.
+func (h *LoginHandler) HandleTermsPage(w http.ResponseWriter, r *http.Request) {
+	authRequestID := r.URL.Query().Get("authRequestID")
+	if authRequestID == "" {
+		h.renderError(w, http.StatusBadRequest, "missing authRequestID")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	pages.RenderTerms(w, pages.TermsData{AuthRequestID: authRequestID})
+}
+
 // HandleTermsSubmit handles POST /login/terms
 func (h *LoginHandler) HandleTermsSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {

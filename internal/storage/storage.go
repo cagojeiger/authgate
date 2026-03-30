@@ -276,15 +276,23 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 }
 
 func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID string, clientID string) *oidc.Error {
-	h := hashToken(tokenOrTokenID)
 	now := s.clock.Now()
-	_, err := s.db.ExecContext(ctx,
+
+	// Try as raw token (hash it) first
+	h := hashToken(tokenOrTokenID)
+	res, _ := s.db.ExecContext(ctx,
 		`UPDATE refresh_tokens SET revoked_at = $1 WHERE token_hash = $2 AND revoked_at IS NULL`,
 		now, h)
-	if err != nil {
-		// RFC 7009: always return 200
+	if rows, _ := res.RowsAffected(); rows > 0 {
 		return nil
 	}
+
+	// Try as token ID (UUID) directly
+	s.db.ExecContext(ctx,
+		`UPDATE refresh_tokens SET revoked_at = $1 WHERE id::text = $2 AND revoked_at IS NULL`,
+		now, tokenOrTokenID)
+
+	// RFC 7009: always return 200 regardless of whether anything was revoked
 	return nil
 }
 

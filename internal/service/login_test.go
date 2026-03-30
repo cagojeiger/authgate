@@ -149,6 +149,54 @@ func TestHandleTermsSubmit_MissingCheckbox_ShowTermsAgain(t *testing.T) {
 	}
 }
 
+func TestHandleCallback_PendingDeletion_RecoveryAndTerms(t *testing.T) {
+	svc, store := setupLoginService(t)
+	ctx := context.Background()
+
+	// Create user with terms accepted, then set to pending_deletion
+	user, err := store.CreateUserWithIdentity(ctx, "pending@example.com", true, "Pending", "", "google", "google-sub-123", "pending@example.com")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	// Don't accept terms — user should need terms after recovery
+	store.SetUserStatus(ctx, user.ID, "pending_deletion")
+
+	result := svc.HandleCallback(ctx, "fake-code", "req-pending", "127.0.0.1", "test-agent")
+
+	// Should recover and then show terms (not infinite loop, not auto-approve)
+	if result.Action != ActionShowTerms {
+		t.Errorf("action = %v, want ShowTerms (recovered but needs terms)", result.Action)
+	}
+	if result.SessionID == "" {
+		t.Error("session should be created after recovery")
+	}
+}
+
+func TestHandleCallback_PendingDeletion_RecoveryWithTerms_AutoApprove(t *testing.T) {
+	svc, store := setupLoginService(t)
+	ctx := context.Background()
+
+	// Create user with terms accepted, then set to pending_deletion
+	user, err := store.CreateUserWithIdentity(ctx, "pending-ok@example.com", true, "PendingOK", "", "google", "google-sub-123", "pending-ok@example.com")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
+	store.SetUserStatus(ctx, user.ID, "pending_deletion")
+
+	arID, err := store.CreateTestAuthRequest(ctx, "pending-recovery")
+	if err != nil {
+		t.Fatalf("create auth request: %v", err)
+	}
+
+	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test-agent")
+
+	// Should recover and auto-approve (terms already accepted)
+	if result.Action != ActionAutoApprove {
+		t.Errorf("action = %v, want AutoApprove (recovered with terms done)", result.Action)
+	}
+}
+
 func TestHandleCallback_InactiveUser_Error(t *testing.T) {
 	svc, store := setupLoginService(t)
 	ctx := context.Background()

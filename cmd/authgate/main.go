@@ -154,7 +154,7 @@ func main() {
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
 	mux.HandleFunc("/login/terms", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			loginHandler.HandleLogin(w, r)
+			loginHandler.HandleTermsPage(w, r)
 		} else {
 			loginHandler.HandleTermsSubmit(w, r)
 		}
