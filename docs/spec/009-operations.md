@@ -16,8 +16,15 @@ authgate를 처음 배포할 때 필요한 것:
 
 2. Google OAuth 자격증명 발급
    → Google Cloud Console에서 OAuth 2.0 Client ID 생성
-   → redirect_uri: https://<authgate-domain>/login/callback
+   → **승인된 리디렉션 URI** (Google에 등록하는 것):
+     - `https://<authgate-domain>/login/callback` (브라우저/MCP 로그인용)
+     - `https://<authgate-domain>/device/auth/callback` (Device 로그인용)
    → GOOGLE_CLIENT_ID, GOOGLE_SECRET 획득
+
+   **주의: 이것은 Google upstream redirect_uri다.**
+   `oauth_clients` 테이블의 `redirect_uris`와 다른 것이다.
+   - Google redirect_uri = "Google이 authgate로 돌려보내는 경로"
+   - oauth_clients redirect_uri = "authgate가 각 앱으로 돌려보내는 경로"
 
 3. 시크릿 생성
    → SESSION_SECRET: openssl rand -base64 32
