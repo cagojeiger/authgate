@@ -122,12 +122,17 @@ IdP 추가는 `upstream.Provider` 인터페이스를 구현하면 된다.
 
 ### 계정 상태별 authgate 동작
 
-| 상태 | 로그인 | 토큰 갱신 | 설명 |
-|------|--------|----------|------|
-| **active** | 허용 | 허용 | 정상 |
-| **disabled** | 차단 | 차단 | 관리자가 정지 |
-| **pending_deletion** | 허용 (→ active로 복구) | 차단 | 30일 유예 중 |
-| **deleted** | 차단 | 차단 | PII 스크러빙 완료 |
+`active`는 "정지/삭제되지 않은 계정"을 뜻한다. 토큰 발급 가능 여부는 `terms_accepted_at`도 함께 판단한다.
+
+| 상태 | 브라우저 로그인 | CLI/MCP 로그인 | 토큰 갱신 | 설명 |
+|------|-------------|--------------|----------|------|
+| **active** (terms 완료) | 허용 | 허용 | 허용 | 완전한 정상 상태 |
+| **active** (terms 미완료) | 허용 → 약관 표시 | 차단 (signup_required) | 차단 | 가입 온보딩 미완료 |
+| **disabled** | 차단 | 차단 | 차단 | 관리자가 정지 |
+| **pending_deletion** | 허용 → active 복구 | 차단 (account_inactive) | 차단 | 30일 유예. 브라우저만 복구 가능 |
+| **deleted** | 차단 | 차단 | 차단 | PII 스크러빙 완료. 재가입만 가능 |
+
+토큰 발급 조건: `status = 'active'` AND `terms_accepted_at IS NOT NULL` AND `privacy_accepted_at IS NOT NULL`
 
 ### 앱의 JWT 검증 요구사항
 
@@ -139,6 +144,30 @@ IdP 추가는 `upstream.Provider` 인터페이스를 구현하면 된다.
 - 서명 — JWKS의 공개키로 RS256 검증
 
 JWKS는 캐시하되 키 회전을 지원해야 한다. 검증 실패 시 fallback 없이 거부한다.
+
+## authgate가 저장하는 데이터
+
+| 데이터 | 목적 | 수명 |
+|--------|------|------|
+| **users** | 신원 (sub, email, name, status) | 영구 (삭제 시 PII 스크러빙) |
+| **user_identities** | IdP 매핑 (Google sub ↔ 로컬 user) | 영구 (삭제 시 CASCADE) |
+| **sessions** | 로그인 상태 | 24시간 (기본) |
+| **refresh_tokens** | 토큰 갱신 권한 (해시 저장) | 30일 (기본) |
+| **oauth_clients** | 등록된 앱 (client_id, redirect_uri) | 영구 |
+| **auth_requests** | 로그인 진행 중 상태 | 10분 (임시) |
+| **device_codes** | CLI 로그인 진행 중 상태 | 5분 (임시) |
+| **audit_log** | 운영 이벤트 (로그인, 가입, 탈퇴) | 보존 정책에 따름 |
+
+## authgate가 저장하지 않는 데이터
+
+| 데이터 | 이유 |
+|--------|------|
+| access_token | JWT — stateless, DB 저장 불필요 |
+| 비밀번호 | Google에 위임. 직접 저장하지 않음 |
+| 앱별 권한/역할 | 각 앱이 자체 DB에서 관리 |
+| 유저 프로필 (주소, 전화번호 등) | 앱의 도메인 데이터 |
+| 구독/결제 상태 | 앱의 비즈니스 데이터 |
+| 기능 플래그 | 앱의 제품 데이터 |
 
 ## Non-Goals
 
