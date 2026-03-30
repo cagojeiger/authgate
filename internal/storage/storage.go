@@ -236,6 +236,9 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 			`UPDATE refresh_tokens SET revoked_at = $1 WHERE family_id = $2 AND revoked_at IS NULL`,
 			now, rt.FamilyID)
 		tx.Commit()
+		// Audit: reuse detected + family revoked
+		s.AuditLog(ctx, &rt.UserID, "auth.refresh_reuse_detected", "", "", map[string]any{"family_id": rt.FamilyID})
+		s.AuditLog(ctx, &rt.UserID, "auth.refresh_family_revoked", "", "", map[string]any{"family_id": rt.FamilyID})
 		return nil, op.ErrInvalidRefreshToken
 	}
 
@@ -262,7 +265,7 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	// This prevents race conditions: a concurrent request will see used_at != nil
 	// and trigger family revoke (reuse detection) above.
 	_, err = tx.ExecContext(ctx,
-		`UPDATE refresh_tokens SET used_at = $1 WHERE id = $2`, now, rt.ID)
+		`UPDATE refresh_tokens SET used_at = $1, revoked_at = $1 WHERE id = $2`, now, rt.ID)
 	if err != nil {
 		return nil, err
 	}

@@ -182,6 +182,12 @@ func main() {
 		Handler: mux,
 	}
 
+	// Cleanup service
+	cleanupSvc := service.NewCleanupService(db, clk, 10*time.Minute)
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	defer cleanupCancel()
+	go cleanupSvc.Start(cleanupCtx)
+
 	// Graceful shutdown
 	go func() {
 		sigCh := make(chan os.Signal, 1)
