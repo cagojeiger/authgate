@@ -12,6 +12,7 @@
 | 001 | [상태 매트릭스](001-state-matrix.md) | `DeriveLoginState`와 `GuardLoginChannel`의 공통 판정 검증 |
 | 002 | [채널 플로우 테스트](002-channel-flows.md) | Browser / Device / MCP / Refresh / Delete 플로우별 검증 |
 | 003 | [E2E 사이클 테스트](003-e2e-cycles.md) | 가입 → 사용 → 재동의 → 탈퇴 → 복구/삭제 → 재가입 전체 사이클 검증 |
+| 004 | [감사 이벤트 테스트](004-audit-events.md) | `audit_log.event_type`와 metadata 기록 검증 |
 
 ## 구조
 
@@ -24,6 +25,9 @@
 
 3. 시작부터 끝까지 사이클이 닫히는가?
    -> 003-e2e-cycles.md
+
+4. 중요한 보안/운영 이벤트가 빠짐없이 기록되는가?
+   -> 004-audit-events.md
 ```
 
 ## 테스트 원칙

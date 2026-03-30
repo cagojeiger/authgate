@@ -91,6 +91,30 @@ authgate의 핵심 철학인 "가입 → 사용 → 재동의 → 탈퇴 → 복
 | 4 | Spec 001 신규 가입 서브플로우 진입 | 새 `user_id` 발급 | deleted row와 분리 |
 | 5 | 약관 재동의 | 완료 | 새 계정 |
 
+### E2E 6: 복구 후 로그인 완료 실패와 재시도
+
+| 단계 | 입력 | 기대 결과 | 검증 포인트 |
+|------|------|----------|-------------|
+| 1 | `pending_deletion` 사용자 | Browser 로그인 | active 복구 + 세션 생성 |
+| 2 | `CompleteAuthRequest` 또는 후속 로그인 완료 단계 실패 | 이번 시도 실패 | 복구는 유지 |
+| 3 | 동일 사용자가 다시 Browser 로그인 | 즉시 정상 완료 | 재시도 멱등성 |
+
+### E2E 7: cleanup job 멱등성
+
+| 단계 | 입력 | 기대 결과 | 검증 포인트 |
+|------|------|----------|-------------|
+| 1 | `initial_onboarding_incomplete`, 7일 경과 | onboarding cleanup 1회 실행 | 삭제 |
+| 2 | 동일 cleanup 재실행 | 추가 손상 없음 | 멱등 |
+| 3 | `pending_deletion`, 30일 경과 | deletion cleanup 1회 실행 | identities/sessions/tokens 삭제 + users scrub |
+| 4 | 동일 cleanup 재실행 | 추가 손상 없음 | 멱등 |
+
+### E2E 8: cleanup job 롤백
+
+| 단계 | 입력 | 기대 결과 | 검증 포인트 |
+|------|------|----------|-------------|
+| 1 | `pending_deletion`, 30일 경과 | deletion cleanup 실행 중 중간 실패 | 전체 롤백 |
+| 2 | DB 재조회 | 일부만 삭제된 상태 없음 | 단일 트랜잭션 보장 |
+
 ## 사이클 불변식
 
 ```text
@@ -106,6 +130,6 @@ authgate의 핵심 철학인 "가입 → 사용 → 재동의 → 탈퇴 → 복
 
 | 우선순위 | 테스트 |
 |---------|--------|
-| P0 | E2E 1, E2E 4, E2E 5 |
-| P1 | E2E 2, E2E 3 |
-| P2 | race condition 및 audit 검증 |
+| P0 | E2E 1, E2E 4, E2E 5, E2E 6 |
+| P1 | E2E 2, E2E 3, E2E 7 |
+| P2 | E2E 8, race condition 및 audit 검증 |
