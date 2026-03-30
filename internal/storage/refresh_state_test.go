@@ -5,6 +5,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,4 +171,123 @@ func TestRefreshStateCheck_AllStates(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAuthCodeStateCheck_AllStates(t *testing.T) {
+	db := testutil.SetupPostgres(t)
+	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	gen := idgen.CryptoGenerator{}
+	ctx := context.Background()
+
+	const termsV = "2026-03-28"
+	const privacyV = "2026-03-28"
+
+	checker := func(user *User) error {
+		ui := &guard.UserInfo{
+			Status:            user.Status,
+			TermsAcceptedAt:   user.TermsAcceptedAt,
+			PrivacyAcceptedAt: user.PrivacyAcceptedAt,
+		}
+		if user.TermsVersion != nil {
+			ui.TermsVersion = *user.TermsVersion
+		}
+		if user.PrivacyVersion != nil {
+			ui.PrivacyVersion = *user.PrivacyVersion
+		}
+		state := guard.DeriveLoginState(ui, termsV, privacyV)
+		if state != guard.OnboardingComplete {
+			return fmt.Errorf("login state: %s", state)
+		}
+		return nil
+	}
+
+	store := New(db, clk, gen, checker, 15*time.Minute, 30*24*time.Hour)
+
+	tests := []struct {
+		name      string
+		setup     func(userID string)
+		wantError bool
+		wantState string
+	}{
+		{
+			name: "onboarding_complete - allow",
+			setup: func(id string) {
+				store.AcceptTerms(ctx, id, termsV, privacyV)
+			},
+			wantError: false,
+		},
+		{
+			name:      "initial_onboarding_incomplete - reject",
+			setup:     func(id string) {},
+			wantError: true,
+			wantState: "initial_onboarding_incomplete",
+		},
+		{
+			name: "reconsent_required - reject",
+			setup: func(id string) {
+				store.AcceptTerms(ctx, id, "old-version", "old-version")
+			},
+			wantError: true,
+			wantState: "reconsent_required",
+		},
+		{
+			name: "recoverable_browser_only - reject",
+			setup: func(id string) {
+				store.AcceptTerms(ctx, id, termsV, privacyV)
+				store.SetUserStatus(ctx, id, "pending_deletion")
+			},
+			wantError: true,
+			wantState: "recoverable_browser_only",
+		},
+		{
+			name: "inactive (disabled) - reject",
+			setup: func(id string) {
+				store.AcceptTerms(ctx, id, termsV, privacyV)
+				store.SetUserStatus(ctx, id, "disabled")
+			},
+			wantError: true,
+			wantState: "inactive",
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			email := fmt.Sprintf("authcode-state-%d@test.com", i)
+			sub := fmt.Sprintf("authcode-state-sub-%d", i)
+
+			user, err := store.CreateUserWithIdentity(ctx, email, true, "Test", "", "google", sub, email)
+			if err != nil {
+				t.Fatalf("create user: %v", err)
+			}
+
+			tt.setup(user.ID)
+
+			authRequestID, err := store.CreateTestAuthRequest(ctx, fmt.Sprintf("authcode-%d", i))
+			if err != nil {
+				t.Fatalf("create auth request: %v", err)
+			}
+			if err := store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
+				t.Fatalf("complete auth request: %v", err)
+			}
+			code := fmt.Sprintf("authcode-state-code-%d", i)
+			if err := store.SaveAuthCode(ctx, authRequestID, code); err != nil {
+				t.Fatalf("save auth code: %v", err)
+			}
+
+			_, err = store.AuthRequestByCode(ctx, code)
+			if tt.wantError && err == nil {
+				t.Errorf("expected error for %s, got nil", tt.wantState)
+			}
+			if !tt.wantError && err != nil {
+				t.Errorf("expected success, got error: %v", err)
+			}
+			if tt.wantError && err != nil && err.Error() != "login state: "+tt.wantState && !containsInvalidGrant(err.Error()) {
+				t.Errorf("expected invalid_grant-style error for %s, got %v", tt.wantState, err)
+			}
+		})
+	}
+}
+
+func containsInvalidGrant(msg string) bool {
+	return strings.Contains(msg, "invalid_grant")
 }

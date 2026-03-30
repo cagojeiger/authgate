@@ -167,6 +167,23 @@ func TestDeviceCallback_NewUser_SignupRequired(t *testing.T) {
 	}
 }
 
+// device-003: initial_onboarding_incomplete callback -> signup_required
+func TestDevice003_InitialIncompleteCallback_Rejected(t *testing.T) {
+	svc, store := setupDeviceExtTest(t, "dev-incomplete-sub")
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "device-incomplete-cb@test.com", true, "Test", "", "google", "dev-incomplete-sub", "dic@test.com")
+	_ = user
+
+	result := svc.HandleDeviceCallback(ctx, "fake-code", "INCM-CB", "127.0.0.1", "test")
+	if result.Action != DeviceError {
+		t.Errorf("action = %v, want DeviceError (initial incomplete on device callback)", result.Action)
+	}
+	if result.ErrorCode != 403 {
+		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
+	}
+}
+
 func TestDeviceCallback_ExistingUser_RedirectBack(t *testing.T) {
 	svc, store := setupDeviceService(t)
 	ctx := context.Background()

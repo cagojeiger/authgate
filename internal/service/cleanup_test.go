@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -184,23 +185,50 @@ func TestE2E8_CleanupRollback(t *testing.T) {
 	db.ExecContext(ctx, `UPDATE users SET status='pending_deletion', deletion_scheduled_at=$1 WHERE id=$2`,
 		clk.Now().Add(-1*time.Hour), user.ID)
 
-	// Run cleanup normally — should succeed
-	svc := NewCleanupService(db, clk, time.Hour)
-	svc.RunOnce(ctx)
-
-	// Verify cleanup succeeded
-	var status string
-	db.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
-	if status != "deleted" {
-		t.Fatalf("status = %q, want deleted", status)
+	// Create child records that would be removed during cleanup.
+	sessionID, err := store.CreateSession(ctx, user.ID, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
+		 VALUES (uuid_generate_v4(), $1, uuid_generate_v4(), $2, 'test-client', '{openid}', $3, $4)`,
+		"rollback-token-hash", user.ID, clk.Now().Add(30*24*time.Hour), clk.Now(),
+	)
+	if err != nil {
+		t.Fatalf("insert refresh token: %v", err)
 	}
 
-	// Run cleanup again on already-deleted user — should be idempotent, no error
+	simulatedErr := errors.New("simulated cleanup failure")
+	svc := NewCleanupService(db, clk, time.Hour)
+	svc.deleteUserHook = func(ctx context.Context, tx *sql.Tx, userID string) error {
+		return simulatedErr
+	}
 	svc.RunOnce(ctx)
 
-	// Verify no further damage
+	// Verify everything rolled back: user is still pending_deletion, child records still exist.
+	var status string
 	db.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
-	if status != "deleted" {
-		t.Errorf("status after re-cleanup = %q, want deleted (idempotent)", status)
+	if status != "pending_deletion" {
+		t.Fatalf("status = %q, want pending_deletion after rollback", status)
+	}
+
+	var identityCount, sessionCount, refreshCount, auditCount int
+	db.QueryRowContext(ctx, `SELECT count(*) FROM user_identities WHERE user_id = $1`, user.ID).Scan(&identityCount)
+	db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE id = $1 AND user_id = $2`, sessionID, user.ID).Scan(&sessionCount)
+	db.QueryRowContext(ctx, `SELECT count(*) FROM refresh_tokens WHERE user_id = $1`, user.ID).Scan(&refreshCount)
+	db.QueryRowContext(ctx, `SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = 'auth.deletion_completed'`, user.ID).Scan(&auditCount)
+
+	if identityCount != 1 {
+		t.Errorf("identity count = %d, want 1 after rollback", identityCount)
+	}
+	if sessionCount != 1 {
+		t.Errorf("session count = %d, want 1 after rollback", sessionCount)
+	}
+	if refreshCount != 1 {
+		t.Errorf("refresh token count = %d, want 1 after rollback", refreshCount)
+	}
+	if auditCount != 0 {
+		t.Errorf("audit count = %d, want 0 after rollback", auditCount)
 	}
 }

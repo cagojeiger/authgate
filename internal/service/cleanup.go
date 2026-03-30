@@ -10,9 +10,10 @@ import (
 )
 
 type CleanupService struct {
-	db       *sql.DB
-	clock    clock.Clock
-	interval time.Duration
+	db             *sql.DB
+	clock          clock.Clock
+	interval       time.Duration
+	deleteUserHook func(ctx context.Context, tx *sql.Tx, userID string) error
 }
 
 func NewCleanupService(db *sql.DB, clk clock.Clock, interval time.Duration) *CleanupService {
@@ -141,6 +142,11 @@ func (c *CleanupService) deleteUser(ctx context.Context, userID string, now time
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
 		return err
+	}
+	if c.deleteUserHook != nil {
+		if err := c.deleteUserHook(ctx, tx, userID); err != nil {
+			return err
+		}
 	}
 
 	// PII scrub + status transition

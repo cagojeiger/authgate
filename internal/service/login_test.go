@@ -37,14 +37,14 @@ func setupLoginService(t *testing.T) (*LoginService, *storage.Storage) {
 		},
 	}
 
-	svc := NewLoginService(store, fakeProvider, termsV, privacyV, 24*time.Hour)
+	svc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
 	return svc, store
 }
 
 func TestHandleLogin_NoSession_RedirectsToIdP(t *testing.T) {
 	svc, _ := setupLoginService(t)
 
-	result := svc.HandleLogin(context.Background(), "req-123", "")
+	result := svc.HandleLogin(context.Background(), "req-123", "", "127.0.0.1", "test")
 
 	if result.Action != ActionRedirectToIdP {
 		t.Errorf("action = %v, want RedirectToIdP", result.Action)
@@ -57,7 +57,7 @@ func TestHandleLogin_NoSession_RedirectsToIdP(t *testing.T) {
 func TestHandleLogin_MissingAuthRequestID_Error(t *testing.T) {
 	svc, _ := setupLoginService(t)
 
-	result := svc.HandleLogin(context.Background(), "", "")
+	result := svc.HandleLogin(context.Background(), "", "", "", "")
 
 	if result.Action != ActionError {
 		t.Errorf("action = %v, want Error", result.Action)

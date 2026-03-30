@@ -75,6 +75,8 @@ CREATE TABLE oauth_clients (
     client_id           TEXT NOT NULL UNIQUE,
     client_secret_hash  TEXT,
     client_type         TEXT NOT NULL CHECK (client_type IN ('confidential', 'public')),
+    login_channel       TEXT NOT NULL DEFAULT 'browser'
+                        CHECK (login_channel IN ('browser', 'mcp')),
     name                TEXT NOT NULL,
     redirect_uris       TEXT[] NOT NULL DEFAULT '{}',
     allowed_scopes      TEXT[] NOT NULL DEFAULT '{}',

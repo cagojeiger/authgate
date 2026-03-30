@@ -14,19 +14,24 @@ import (
 
 type LoginService struct {
 	store          *storage.Storage
-	provider       upstream.Provider
+	browserProvider upstream.Provider
+	mcpProvider     upstream.Provider
 	termsVersion   string
 	privacyVersion string
 	sessionTTL     time.Duration
 }
 
-func NewLoginService(store *storage.Storage, provider upstream.Provider, termsVersion, privacyVersion string, sessionTTL time.Duration) *LoginService {
+func NewLoginService(store *storage.Storage, browserProvider, mcpProvider upstream.Provider, termsVersion, privacyVersion string, sessionTTL time.Duration) *LoginService {
+	if mcpProvider == nil {
+		mcpProvider = browserProvider
+	}
 	return &LoginService{
-		store:          store,
-		provider:       provider,
-		termsVersion:   termsVersion,
-		privacyVersion: privacyVersion,
-		sessionTTL:     sessionTTL,
+		store:           store,
+		browserProvider: browserProvider,
+		mcpProvider:     mcpProvider,
+		termsVersion:    termsVersion,
+		privacyVersion:  privacyVersion,
+		sessionTTL:      sessionTTL,
 	}
 }
 
@@ -49,7 +54,16 @@ const (
 )
 
 // HandleLogin processes GET /login?authRequestID=xxx
-func (s *LoginService) HandleLogin(ctx context.Context, authRequestID, sessionID string) *LoginResult {
+func (s *LoginService) HandleLogin(ctx context.Context, authRequestID, sessionID, ipAddress, userAgent string) *LoginResult {
+	return s.handleLogin(ctx, authRequestID, sessionID, ipAddress, userAgent, guard.ChannelBrowser)
+}
+
+// HandleMCPLogin processes GET /mcp/login?authRequestID=xxx
+func (s *LoginService) HandleMCPLogin(ctx context.Context, authRequestID, sessionID, ipAddress, userAgent string) *LoginResult {
+	return s.handleLogin(ctx, authRequestID, sessionID, ipAddress, userAgent, guard.ChannelMCP)
+}
+
+func (s *LoginService) handleLogin(ctx context.Context, authRequestID, sessionID, ipAddress, userAgent string, channel guard.Channel) *LoginResult {
 	if authRequestID == "" {
 		return &LoginResult{Action: ActionError, Error: "missing authRequestID", ErrorCode: http.StatusBadRequest}
 	}
@@ -59,51 +73,57 @@ func (s *LoginService) HandleLogin(ctx context.Context, authRequestID, sessionID
 		user, err := s.store.GetValidSession(ctx, sessionID)
 		if err == nil {
 			// Session exists — check login state
-			return s.handleExistingSession(ctx, user, authRequestID)
+			return s.handleExistingSession(ctx, user, authRequestID, ipAddress, userAgent, channel)
 		}
 		// Session invalid/expired — fall through to IdP redirect
 	}
 
 	// No valid session — redirect to upstream IdP
-	authURL := s.provider.AuthURL(authRequestID)
+	authURL := s.providerForChannel(channel).AuthURL(authRequestID)
 	return &LoginResult{Action: ActionRedirectToIdP, RedirectURL: authURL}
 }
 
-func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authRequestID string) *LoginResult {
+func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authRequestID, ipAddress, userAgent string, channel guard.Channel) *LoginResult {
 	ui := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
-	state := guard.DeriveLoginState(ui, s.termsVersion, s.privacyVersion)
+	result := guard.GuardLoginChannel(ui, channel, s.termsVersion, s.privacyVersion)
 
-	switch state {
-	case guard.OnboardingComplete:
+	switch result {
+	case guard.Allow:
 		// Auto-approve: complete auth request
 		if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
 			return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 		}
 		return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
 
-	case guard.InitialOnboardingIncomplete, guard.ReconsentRequired:
+	case guard.ShowTerms:
 		return &LoginResult{Action: ActionShowTerms, AuthRequestID: authRequestID}
 
-	case guard.RecoverableBrowserOnly:
+	case guard.RecoverThenContinue:
 		// Recover from pending_deletion
 		if err := s.store.RecoverUser(ctx, user.ID); err != nil {
 			return &LoginResult{Action: ActionError, Error: "failed to recover account", ErrorCode: http.StatusInternalServerError}
 		}
-		s.store.AuditLog(ctx, &user.ID, "auth.deletion_cancelled", "", "", nil)
-		// Update in-memory state after recovery (avoid stale state, no recursion)
-		user.Status = "active"
-		// Re-check with fresh state
-		freshUI := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
+		s.store.AuditLog(ctx, &user.ID, "auth.deletion_cancelled", ipAddress, userAgent, nil)
+		// DB re-read after recovery for fresh state
+		freshUser, err := s.store.GetUserByID(ctx, user.ID)
+		if err != nil {
+			return &LoginResult{Action: ActionError, Error: "failed to read user after recovery", ErrorCode: http.StatusInternalServerError}
+		}
+		freshUI := userToGuardInfo(freshUser, s.termsVersion, s.privacyVersion)
 		freshState := guard.DeriveLoginState(freshUI, s.termsVersion, s.privacyVersion)
 		if freshState == guard.OnboardingComplete {
-			if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
+			if err := s.store.CompleteAuthRequest(ctx, authRequestID, freshUser.ID); err != nil {
 				return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 			}
 			return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
 		}
 		return &LoginResult{Action: ActionShowTerms, AuthRequestID: authRequestID}
 
-	default: // Inactive
+	case guard.SignupRequired:
+		return &LoginResult{Action: ActionError, Error: "signup_required", ErrorCode: http.StatusForbidden}
+
+	default:
+		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status})
 		return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
 }
@@ -120,12 +140,21 @@ type CallbackResult struct {
 
 // HandleCallback processes GET /login/callback?code=xxx&state=authRequestID
 func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, ipAddress, userAgent string) *CallbackResult {
+	return s.handleCallback(ctx, code, authRequestID, ipAddress, userAgent, guard.ChannelBrowser)
+}
+
+// HandleMCPCallback processes GET /mcp/callback?code=xxx&state=authRequestID
+func (s *LoginService) HandleMCPCallback(ctx context.Context, code, authRequestID, ipAddress, userAgent string) *CallbackResult {
+	return s.handleCallback(ctx, code, authRequestID, ipAddress, userAgent, guard.ChannelMCP)
+}
+
+func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, ipAddress, userAgent string, channel guard.Channel) *CallbackResult {
 	if code == "" || authRequestID == "" {
 		return &CallbackResult{Action: ActionError, Error: "missing code or state", ErrorCode: http.StatusBadRequest}
 	}
 
 	// Exchange code for user info
-	userInfo, err := s.provider.Exchange(ctx, code)
+	userInfo, err := s.providerForChannel(channel).Exchange(ctx, code)
 	if err != nil {
 		return &CallbackResult{Action: ActionError, Error: fmt.Sprintf("upstream_error: %v", err), ErrorCode: http.StatusInternalServerError}
 	}
@@ -133,6 +162,9 @@ func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, 
 	// Look up user by provider identity
 	user, err := s.store.GetUserByProviderIdentity(ctx, "google", userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
+		if channel != guard.ChannelBrowser {
+			return &CallbackResult{Action: ActionError, Error: "signup_required", ErrorCode: http.StatusForbidden}
+		}
 		// New user — signup (Spec 001)
 		user, err = s.store.CreateUserWithIdentity(ctx,
 			userInfo.Email, userInfo.EmailVerified, userInfo.Name, userInfo.Picture,
@@ -148,15 +180,16 @@ func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, 
 	} else if err != nil {
 		return &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	} else {
-		s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": "browser"})
+		s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": channelName(channel)})
 	}
 
 	// Guard check (DeriveLoginState + GuardLoginChannel)
 	ui := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
-	result := guard.GuardLoginChannel(ui, guard.ChannelBrowser, s.termsVersion, s.privacyVersion)
+	result := guard.GuardLoginChannel(ui, channel, s.termsVersion, s.privacyVersion)
 
 	switch result {
 	case guard.AccountInactive:
+		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status})
 		return &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 
 	case guard.RecoverThenContinue:
@@ -164,10 +197,16 @@ func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, 
 			return &CallbackResult{Action: ActionError, Error: "recovery failed", ErrorCode: http.StatusInternalServerError}
 		}
 		s.store.AuditLog(ctx, &user.ID, "auth.deletion_cancelled", ipAddress, userAgent, nil)
-		// Update in-memory state after recovery
-		user.Status = "active"
+		// DB re-read after recovery for fresh state
+		user, err = s.store.GetUserByID(ctx, user.ID)
+		if err != nil {
+			return &CallbackResult{Action: ActionError, Error: "failed to read user after recovery", ErrorCode: http.StatusInternalServerError}
+		}
 		ui = userToGuardInfo(user, s.termsVersion, s.privacyVersion)
 		// Fall through to create session
+
+	case guard.SignupRequired:
+		return &CallbackResult{Action: ActionError, Error: "signup_required", ErrorCode: http.StatusForbidden}
 	}
 
 	// Create session
@@ -178,7 +217,7 @@ func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, 
 
 	// Check if terms needed (using fresh ui after possible recovery)
 	state := guard.DeriveLoginState(ui, s.termsVersion, s.privacyVersion)
-	if state == guard.InitialOnboardingIncomplete || state == guard.ReconsentRequired {
+	if channel == guard.ChannelBrowser && (state == guard.InitialOnboardingIncomplete || state == guard.ReconsentRequired) {
 		return &CallbackResult{Action: ActionShowTerms, AuthRequestID: authRequestID, SessionID: sessionID}
 	}
 
@@ -188,6 +227,24 @@ func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, 
 	}
 
 	return &CallbackResult{Action: ActionAutoApprove, AuthRequestID: authRequestID, SessionID: sessionID}
+}
+
+func (s *LoginService) providerForChannel(channel guard.Channel) upstream.Provider {
+	if channel == guard.ChannelMCP {
+		return s.mcpProvider
+	}
+	return s.browserProvider
+}
+
+func channelName(channel guard.Channel) string {
+	switch channel {
+	case guard.ChannelMCP:
+		return "mcp"
+	case guard.ChannelDevice:
+		return "device"
+	default:
+		return "browser"
+	}
 }
 
 // HandleTermsSubmit processes POST /login/terms

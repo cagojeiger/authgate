@@ -102,6 +102,7 @@ func (s *DeviceService) HandleDevicePage(ctx context.Context, userCode, sessionI
 	case guard.SignupRequired:
 		return &DevicePageResult{Action: DeviceError, Error: "signup_required: please complete signup in browser first", ErrorCode: http.StatusForbidden}
 	default:
+		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", "", "", map[string]any{"status": user.Status, "channel": "device"})
 		return &DevicePageResult{Action: DeviceError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
 }
@@ -131,6 +132,7 @@ func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode
 	ui := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
 	result := guard.GuardLoginChannel(ui, guard.ChannelDevice, s.termsVersion, s.privacyVersion)
 	if result != guard.Allow {
+		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "device"})
 		return &DevicePageResult{Action: DeviceError, Error: "signup_required", ErrorCode: http.StatusForbidden}
 	}
 

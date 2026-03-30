@@ -126,6 +126,18 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
+	if err != nil {
+		return nil, err
+	}
+	if s.stateChecker != nil && ar.Subject != nil && *ar.Subject != "" {
+		user, err := s.GetUserByID(ctx, *ar.Subject)
+		if err != nil {
+			return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "subject lookup failed"}
+		}
+		if err := s.stateChecker(user); err != nil {
+			return nil, &oidc.Error{ErrorType: "invalid_grant", Description: err.Error()}
+		}
+	}
 	return ar, err
 }
 
@@ -375,9 +387,9 @@ func (s *Storage) KeySet(ctx context.Context) ([]op.Key, error) {
 func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.Client, error) {
 	c := &ClientModel{}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, client_id, client_secret_hash, client_type, name, redirect_uris, allowed_scopes, allowed_grant_types
+		`SELECT id, client_id, client_secret_hash, client_type, login_channel, name, redirect_uris, allowed_scopes, allowed_grant_types
 		 FROM oauth_clients WHERE client_id = $1`, clientID,
-	).Scan(&c.UUID, &c.ID, &c.SecretHash, &c.Type, &c.Name, &c.RedirectURIList,
+	).Scan(&c.UUID, &c.ID, &c.SecretHash, &c.Type, &c.LoginChannel, &c.Name, &c.RedirectURIList,
 		&c.AllowedScopeList, &c.AllowedGrantTypeList)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

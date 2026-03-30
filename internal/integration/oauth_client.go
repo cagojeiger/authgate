@@ -19,6 +19,7 @@ type OAuthClient struct {
 	BaseURL       string
 	ClientID      string
 	RedirectURI   string
+	AuthgateCallbackPath string
 	CodeVerifier  string
 	CodeChallenge string
 	Client        *http.Client
@@ -26,6 +27,11 @@ type OAuthClient struct {
 
 // NewOAuthClient creates a test OAuth client with PKCE.
 func NewOAuthClient(t *testing.T, baseURL string) *OAuthClient {
+	return NewOAuthClientFor(t, baseURL, "test-client", "/login/callback")
+}
+
+// NewOAuthClientFor creates a test OAuth client with PKCE for a specific OAuth client/channel.
+func NewOAuthClientFor(t *testing.T, baseURL, clientID, authgateCallbackPath string) *OAuthClient {
 	t.Helper()
 
 	jar, _ := cookiejar.New(nil)
@@ -48,13 +54,14 @@ func NewOAuthClient(t *testing.T, baseURL string) *OAuthClient {
 	codeChallenge := base64.RawURLEncoding.EncodeToString(h[:])
 
 	return &OAuthClient{
-		t:             t,
-		BaseURL:       baseURL,
-		ClientID:      "test-client",
-		RedirectURI:   baseURL + "/callback",
-		CodeVerifier:  codeVerifier,
-		CodeChallenge: codeChallenge,
-		Client:        client,
+		t:                   t,
+		BaseURL:             baseURL,
+		ClientID:            clientID,
+		RedirectURI:         baseURL + "/callback",
+		AuthgateCallbackPath: authgateCallbackPath,
+		CodeVerifier:        codeVerifier,
+		CodeChallenge:       codeChallenge,
+		Client:              client,
 	}
 }
 

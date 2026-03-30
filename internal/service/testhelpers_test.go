@@ -64,7 +64,7 @@ func setupGapTest(t *testing.T) (*LoginService, *DeviceService, *AccountService,
 	fakeProvider := &upstream.FakeProvider{
 		User: &upstream.UserInfo{Sub: "gap-sub", Email: "gap@test.com", EmailVerified: true, Name: "Gap User"},
 	}
-	loginSvc := NewLoginService(store, fakeProvider, termsV, privacyV, 24*time.Hour)
+	loginSvc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
 	deviceSvc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour)
 	accountSvc := NewAccountService(db, clk)
 	return loginSvc, deviceSvc, accountSvc, store, db, clk
@@ -81,6 +81,6 @@ func setupLoginServiceWithSub(t *testing.T, sub, email string) (*LoginService, *
 	fakeProvider := &upstream.FakeProvider{
 		User: &upstream.UserInfo{Sub: sub, Email: email, EmailVerified: true, Name: "Test User"},
 	}
-	svc := NewLoginService(store, fakeProvider, termsV, privacyV, 24*time.Hour)
+	svc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
 	return svc, store
 }

@@ -110,6 +110,7 @@ type ClientModel struct {
 	ID                   string
 	SecretHash           *string
 	Type                 string
+	LoginChannel         string
 	Name                 string
 	RedirectURIList      StringArray
 	AllowedScopeList     StringArray
@@ -142,6 +143,9 @@ func (c *ClientModel) GrantTypes() []oidc.GrantType {
 	return types
 }
 func (c *ClientModel) LoginURL(authRequestID string) string {
+	if c.LoginChannel == "mcp" {
+		return "/mcp/login?authRequestID=" + authRequestID
+	}
 	return "/login?authRequestID=" + authRequestID
 }
 func (c *ClientModel) AccessTokenType() op.AccessTokenType {

@@ -78,8 +78,12 @@ func SetupTestServer(t *testing.T) *TestServer {
 	t.Cleanup(srv.Close)
 
 	// Register test client in DB
-	db.Exec(`INSERT INTO oauth_clients (client_id, client_type, name, redirect_uris, allowed_scopes, allowed_grant_types)
-		VALUES ('test-client', 'public', 'Test', $1, '{openid,profile,email,offline_access}', '{authorization_code,refresh_token,urn:ietf:params:oauth:grant-type:device_code}')
+	db.Exec(`INSERT INTO oauth_clients (client_id, client_type, login_channel, name, redirect_uris, allowed_scopes, allowed_grant_types)
+		VALUES ('test-client', 'public', 'browser', 'Test', $1, '{openid,profile,email,offline_access}', '{authorization_code,refresh_token,urn:ietf:params:oauth:grant-type:device_code}')
+		ON CONFLICT (client_id) DO NOTHING`,
+		storage.StringArray{srv.URL + "/callback"})
+	db.Exec(`INSERT INTO oauth_clients (client_id, client_type, login_channel, name, redirect_uris, allowed_scopes, allowed_grant_types)
+		VALUES ('mcp-client', 'public', 'mcp', 'MCP Test', $1, '{openid,profile,email,offline_access}', '{authorization_code,refresh_token}')
 		ON CONFLICT (client_id) DO NOTHING`,
 		storage.StringArray{srv.URL + "/callback"})
 
@@ -114,7 +118,7 @@ func SetupTestServer(t *testing.T) *TestServer {
 	}
 
 	// Services
-	loginSvc := service.NewLoginService(store, fakeProvider, TestTermsVersion, TestPrivacyVersion, 24*time.Hour)
+	loginSvc := service.NewLoginService(store, fakeProvider, fakeProvider, TestTermsVersion, TestPrivacyVersion, 24*time.Hour)
 	deviceSvc := service.NewDeviceService(store, fakeProvider, TestTermsVersion, TestPrivacyVersion, srv.URL, 24*time.Hour)
 	accountSvc := service.NewAccountService(db, clk)
 
@@ -127,6 +131,8 @@ func SetupTestServer(t *testing.T) *TestServer {
 	mux.Handle("/", provider)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
+	mux.HandleFunc("/mcp/login", loginHandler.HandleMCPLogin)
+	mux.HandleFunc("/mcp/callback", loginHandler.HandleMCPCallback)
 	mux.HandleFunc("/login/terms", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			loginHandler.HandleTermsPage(w, r)

@@ -92,6 +92,24 @@ func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*
 	return u, err
 }
 
+// GetUserByID returns a user by ID. Public wrapper for DB-level re-read after mutations.
+func (s *Storage) GetUserByID(ctx context.Context, userID string) (*User, error) {
+	u := &User{}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, email, email_verified, name, avatar_url, status,
+		        terms_version, terms_accepted_at, privacy_version, privacy_accepted_at,
+		        created_at, updated_at
+		 FROM users WHERE id = $1`, userID,
+	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name, &u.AvatarURL, &u.Status,
+		&u.TermsVersion, &u.TermsAcceptedAt, &u.PrivacyVersion, &u.PrivacyAcceptedAt,
+		&u.CreatedAt, &u.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return u, err
+}
+
 // RecoverUser atomically recovers a pending_deletion user to active.
 // Uses SELECT FOR UPDATE to prevent race conditions.
 func (s *Storage) RecoverUser(ctx context.Context, userID string) error {
@@ -197,9 +215,9 @@ func (s *Storage) DisableUser(ctx context.Context, userID string) error {
 func (s *Storage) CreateTestAuthRequest(ctx context.Context, label string) (string, error) {
 	id := s.idgen.NewUUID()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO auth_requests (id, client_id, redirect_uri, scopes, expires_at, created_at)
-		 VALUES ($1, 'test-app', 'http://localhost/callback', '{openid}', $2, $3)`,
-		id, s.clock.Now().Add(10*time.Minute), s.clock.Now(),
+		`INSERT INTO auth_requests (id, client_id, redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method, expires_at, created_at)
+		 VALUES ($1, 'test-app', 'http://localhost/callback', '{openid}', $2, 'test-nonce', 'E9Melhoa2OwvFrEMT', 'S256', $3, $4)`,
+		id, label, s.clock.Now().Add(10*time.Minute), s.clock.Now(),
 	)
 	return id, err
 }

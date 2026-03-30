@@ -28,7 +28,7 @@ func setupAccountTest(t *testing.T) (*AccountService, *LoginService, *storage.St
 	}
 
 	accountSvc := NewAccountService(db, clk)
-	loginSvc := NewLoginService(store, fakeProvider, termsV, privacyV, 24*time.Hour)
+	loginSvc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
 	return accountSvc, loginSvc, store, db, clk
 }
 
@@ -218,8 +218,8 @@ func TestAccount004_PendingDeletion_DeviceRejected(t *testing.T) {
 	}
 }
 
-// account-004b: pending_deletion + MCP login → recovery (browser path)
-func TestAccount004b_PendingDeletion_MCPRecovery(t *testing.T) {
+// account-004b: pending_deletion + MCP login → account_inactive
+func TestAccount004b_PendingDeletion_MCPRejected(t *testing.T) {
 	loginSvc, _, _, store, _, _ := setupGapTest(t)
 	ctx := context.Background()
 
@@ -227,12 +227,13 @@ func TestAccount004b_PendingDeletion_MCPRecovery(t *testing.T) {
 	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
 	store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
-	// MCP uses browser path → recovery happens
 	arID, _ := store.CreateTestAuthRequest(ctx, "pd-mcp")
-	result := loginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+	result := loginSvc.HandleMCPCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
 
-	// Browser path recovers pending_deletion
-	if result.Action != ActionAutoApprove {
-		t.Errorf("action = %v, want AutoApprove (MCP uses browser path, recovery + terms done)", result.Action)
+	if result.Action != ActionError {
+		t.Errorf("action = %v, want Error (pending_deletion via MCP)", result.Action)
+	}
+	if result.ErrorCode != 403 {
+		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
 	}
 }

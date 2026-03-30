@@ -19,10 +19,10 @@ DeriveLoginState(user)
 
 | 현재 상태 | Browser | Device | MCP | Refresh | 기대 결과 |
 |----------|---------|--------|-----|---------|----------|
-| `inactive` | 차단 | 차단 | 차단 | 차단 | `account_inactive` / `invalid_grant` |
-| `recoverable_browser_only` | 복구 후 진행 | 차단 | 차단 | 차단 | Browser만 복구 허용 |
-| `initial_onboarding_incomplete` | 약관 페이지 | 차단 | 차단 | 차단 | Browser만 온보딩 계속 |
-| `reconsent_required` | 약관 재동의 | 차단 | 차단 | 차단 | Browser만 재동의 허용 |
+| `inactive` | 차단 | 차단 | 차단 | 차단 | Browser/Device/MCP는 `account_inactive`, Refresh는 최종적으로 `invalid_grant` |
+| `recoverable_browser_only` | 복구 후 진행 | 차단 | 차단 | 차단 | Browser만 복구 허용, Refresh는 최종적으로 `invalid_grant` |
+| `initial_onboarding_incomplete` | 약관 페이지 | 차단 | 차단 | 차단 | Browser만 온보딩 계속, Refresh는 최종적으로 `invalid_grant` |
+| `reconsent_required` | 약관 재동의 | 차단 | 차단 | 차단 | Browser만 재동의 허용, Refresh는 최종적으로 `invalid_grant` |
 | `onboarding_complete` | 허용 | 허용 | 허용 | 허용 | 정상 |
 
 ## 단위 테스트 리스트
@@ -51,7 +51,7 @@ DeriveLoginState(user)
 | `guard-005` | `initial_onboarding_incomplete` | `browser` | `show_terms` | Browser만 약관 |
 | `guard-006` | `initial_onboarding_incomplete` | `mcp` | `signup_required` | MCP 차단 |
 | `guard-007` | `reconsent_required` | `browser` | `show_terms` | 재동의 |
-| `guard-008` | `reconsent_required` | `refresh` | `invalid_grant` | refresh 차단 |
+| `guard-008` | `reconsent_required` | `refresh` | `signup_required` | guard 레벨에서는 refresh도 차단 상태로 판정, 최종 OAuth 응답은 별도 refresh 테스트에서 `invalid_grant` 검증 |
 | `guard-009` | `onboarding_complete` | `browser` | `allow` | 정상 허용 |
 | `guard-010` | `onboarding_complete` | `device` | `allow` | 정상 허용 |
 

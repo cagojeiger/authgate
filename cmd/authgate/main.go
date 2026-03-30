@@ -121,26 +121,48 @@ func main() {
 	}
 
 	// Upstream IdP
-	var idpProvider upstream.Provider
+	var browserProvider upstream.Provider
+	var mcpProvider upstream.Provider
+	var deviceProvider upstream.Provider
 	if cfg.UpstreamProvider == "google" {
-		idpProvider = &upstream.GoogleProvider{
+		browserProvider = &upstream.GoogleProvider{
 			ClientID:     cfg.GoogleClientID,
 			ClientSecret: cfg.GoogleSecret,
 			RedirectURI:  cfg.PublicURL + "/login/callback",
 		}
+		mcpProvider = &upstream.GoogleProvider{
+			ClientID:     cfg.GoogleClientID,
+			ClientSecret: cfg.GoogleSecret,
+			RedirectURI:  cfg.PublicURL + "/mcp/callback",
+		}
+		deviceProvider = &upstream.GoogleProvider{
+			ClientID:     cfg.GoogleClientID,
+			ClientSecret: cfg.GoogleSecret,
+			RedirectURI:  cfg.PublicURL + "/device/auth/callback",
+		}
 	} else {
-		idpProvider = &upstream.MockProvider{
+		browserProvider = &upstream.MockProvider{
 			MockIDPURL:       cfg.MockIDPURL,
 			MockIDPPublicURL: cfg.MockIDPPublicURL,
 			RedirectURI:      cfg.PublicURL + "/login/callback",
 		}
+		mcpProvider = &upstream.MockProvider{
+			MockIDPURL:       cfg.MockIDPURL,
+			MockIDPPublicURL: cfg.MockIDPPublicURL,
+			RedirectURI:      cfg.PublicURL + "/mcp/callback",
+		}
+		deviceProvider = &upstream.MockProvider{
+			MockIDPURL:       cfg.MockIDPURL,
+			MockIDPPublicURL: cfg.MockIDPPublicURL,
+			RedirectURI:      cfg.PublicURL + "/device/auth/callback",
+		}
 	}
 
 	// Service layer
-	loginService := service.NewLoginService(store, idpProvider, cfg.TermsVersion, cfg.PrivacyVersion, cfg.SessionTTL)
+	loginService := service.NewLoginService(store, browserProvider, mcpProvider, cfg.TermsVersion, cfg.PrivacyVersion, cfg.SessionTTL)
 
 	// Device service
-	deviceService := service.NewDeviceService(store, idpProvider, cfg.TermsVersion, cfg.PrivacyVersion, cfg.PublicURL, cfg.SessionTTL)
+	deviceService := service.NewDeviceService(store, deviceProvider, cfg.TermsVersion, cfg.PrivacyVersion, cfg.PublicURL, cfg.SessionTTL)
 
 	// Account service
 	accountService := service.NewAccountService(db, clk)
@@ -160,6 +182,8 @@ func main() {
 	// authgate login routes
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
+	mux.HandleFunc("/mcp/login", loginHandler.HandleMCPLogin)
+	mux.HandleFunc("/mcp/callback", loginHandler.HandleMCPCallback)
 	mux.HandleFunc("/login/terms", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			loginHandler.HandleTermsPage(w, r)

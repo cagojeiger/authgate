@@ -26,7 +26,7 @@ func (h *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	authRequestID := r.URL.Query().Get("authRequestID")
 	sessionID := getSessionCookie(r)
 
-	result := h.loginService.HandleLogin(r.Context(), authRequestID, sessionID)
+	result := h.loginService.HandleLogin(r.Context(), authRequestID, sessionID, r.RemoteAddr, r.UserAgent())
 
 	switch result.Action {
 	case service.ActionRedirectToIdP:
@@ -42,6 +42,28 @@ func (h *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	case service.ActionError:
 		h.renderError(w, result.ErrorCode, result.Error)
+	}
+}
+
+// HandleMCPLogin handles GET /mcp/login?authRequestID=xxx
+func (h *LoginHandler) HandleMCPLogin(w http.ResponseWriter, r *http.Request) {
+	authRequestID := r.URL.Query().Get("authRequestID")
+	sessionID := getSessionCookie(r)
+
+	result := h.loginService.HandleMCPLogin(r.Context(), authRequestID, sessionID, r.RemoteAddr, r.UserAgent())
+
+	switch result.Action {
+	case service.ActionRedirectToIdP:
+		http.Redirect(w, r, result.RedirectURL, http.StatusFound)
+
+	case service.ActionAutoApprove:
+		http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
+
+	case service.ActionError:
+		h.renderError(w, result.ErrorCode, result.Error)
+
+	default:
+		h.renderError(w, http.StatusInternalServerError, "invalid mcp login action")
 	}
 }
 
@@ -68,6 +90,31 @@ func (h *LoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	case service.ActionError:
 		h.renderError(w, result.ErrorCode, result.Error)
+	}
+}
+
+// HandleMCPCallback handles GET /mcp/callback?code=xxx&state=authRequestID
+func (h *LoginHandler) HandleMCPCallback(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	authRequestID := r.URL.Query().Get("state")
+	ipAddress := r.RemoteAddr
+	userAgent := r.UserAgent()
+
+	result := h.loginService.HandleMCPCallback(r.Context(), code, authRequestID, ipAddress, userAgent)
+
+	if result.SessionID != "" {
+		h.setSessionCookie(w, result.SessionID)
+	}
+
+	switch result.Action {
+	case service.ActionAutoApprove:
+		http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
+
+	case service.ActionError:
+		h.renderError(w, result.ErrorCode, result.Error)
+
+	default:
+		h.renderError(w, http.StatusInternalServerError, "invalid mcp callback action")
 	}
 }
 
