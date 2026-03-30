@@ -193,7 +193,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		s.idgen.NewUUID(), newHash, familyID, userID, clientID, scopes,
+		s.idgen.NewUUID(), newHash, familyID, userID, clientID, StringArray(scopes),
 		now.Add(s.refreshTokenTTL), now,
 	)
 	if err != nil {
@@ -232,11 +232,16 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 
 	// Already used/revoked → reuse detection → family revoke
 	if rt.RevokedAt != nil || rt.UsedAt != nil {
-		tx.ExecContext(ctx,
+		_, revokeErr := tx.ExecContext(ctx,
 			`UPDATE refresh_tokens SET revoked_at = $1 WHERE family_id = $2 AND revoked_at IS NULL`,
 			now, rt.FamilyID)
-		tx.Commit()
-		// Audit: reuse detected + family revoked
+		if revokeErr != nil {
+			return nil, op.ErrInvalidRefreshToken
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			return nil, op.ErrInvalidRefreshToken
+		}
+		// Audit only after successful commit
 		s.AuditLog(ctx, &rt.UserID, "auth.refresh_reuse_detected", "", "", map[string]any{"family_id": rt.FamilyID})
 		s.AuditLog(ctx, &rt.UserID, "auth.refresh_family_revoked", "", "", map[string]any{"family_id": rt.FamilyID})
 		return nil, op.ErrInvalidRefreshToken
@@ -417,7 +422,7 @@ func (s *Storage) StoreDeviceAuthorization(ctx context.Context, clientID, device
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO device_codes (id, device_code, user_code, client_id, scopes, state, expires_at, created_at)
 		 VALUES ($1,$2,$3,$4,$5,'pending',$6,$7)`,
-		s.idgen.NewUUID(), deviceCode, userCode, clientID, scopes, expires, s.clock.Now(),
+		s.idgen.NewUUID(), deviceCode, userCode, clientID, StringArray(scopes), expires, s.clock.Now(),
 	)
 	return err
 }

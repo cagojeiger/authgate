@@ -90,7 +90,27 @@ func (c *CleanupService) runAll(ctx context.Context) {
 		slog.Info("device_codes cleanup", "deleted", n)
 	}
 
-	// 5. Onboarding cleanup: active users with NULL terms for 7+ days
+	// 5. Deletion cleanup: pending_deletion users past scheduled date → PII scrub
+	rows, err := c.db.QueryContext(ctx,
+		`SELECT id FROM users WHERE status = 'pending_deletion' AND deletion_scheduled_at < $1`, now)
+	if err != nil {
+		slog.Error("deletion cleanup query", "error", err)
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var userID string
+			if err := rows.Scan(&userID); err != nil {
+				continue
+			}
+			if err := c.deleteUser(ctx, userID, now); err != nil {
+				slog.Error("deletion cleanup", "user_id", userID, "error", err)
+			} else {
+				slog.Info("deletion cleanup", "user_id", userID)
+			}
+		}
+	}
+
+	// 6. Onboarding cleanup: active users with NULL terms for 7+ days
 	if res, err := c.db.ExecContext(ctx,
 		`DELETE FROM users WHERE status = 'active'
 		 AND (terms_accepted_at IS NULL OR privacy_accepted_at IS NULL)
@@ -101,6 +121,51 @@ func (c *CleanupService) runAll(ctx context.Context) {
 	} else if n, _ := res.RowsAffected(); n > 0 {
 		slog.Info("onboarding cleanup", "deleted", n)
 	}
+}
+
+// deleteUser performs Spec 006 stage 3: explicit DELETE of child records + PII scrub.
+// CASCADE is NOT triggered because we UPDATE (not DELETE) the users row.
+func (c *CleanupService) deleteUser(ctx context.Context, userID string, now time.Time) error {
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Delete child records explicitly (UPDATE doesn't trigger CASCADE)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_identities WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+
+	// PII scrub + status transition
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE users SET
+		  email = 'deleted-' || id::text || '@deleted.invalid',
+		  name = NULL, avatar_url = NULL,
+		  status = 'deleted', deleted_at = $1,
+		  deletion_requested_at = NULL, deletion_scheduled_at = NULL
+		 WHERE id = $2 AND status = 'pending_deletion'`,
+		now, userID,
+	); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// Audit after successful commit
+	c.db.ExecContext(ctx,
+		`INSERT INTO audit_log (user_id, event_type, created_at) VALUES ($1, 'auth.deletion_completed', $2)`,
+		userID, now,
+	)
+	return nil
 }
 
 // RunOnce executes all cleanup jobs once. For testing.

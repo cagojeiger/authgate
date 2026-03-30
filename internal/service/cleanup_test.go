@@ -100,6 +100,57 @@ func TestCleanup_OnboardingIncomplete(t *testing.T) {
 	}
 }
 
+func TestCleanup_DeletionPIIScrub(t *testing.T) {
+	db, store, clk := setupCleanupTest(t)
+	ctx := context.Background()
+
+	// Create user, accept terms, then set to pending_deletion with past scheduled date
+	user, _ := store.CreateUserWithIdentity(ctx, "delete-me@test.com", true, "Delete Me", "", "google", "delete-sub", "d@test.com")
+	store.AcceptTerms(ctx, user.ID, "2026-03-28", "2026-03-28")
+	db.ExecContext(ctx,
+		`UPDATE users SET status = 'pending_deletion', deletion_scheduled_at = $1 WHERE id = $2`,
+		clk.Now().Add(-1*time.Hour), user.ID, // scheduled in the past
+	)
+
+	// Create session and identity that should be cleaned up
+	store.CreateSession(ctx, user.ID, 24*time.Hour)
+
+	svc := NewCleanupService(db, clk, time.Hour)
+	svc.RunOnce(ctx)
+
+	// User should be scrubbed
+	var status, email string
+	var name sql.NullString
+	db.QueryRowContext(ctx, `SELECT status, email, name FROM users WHERE id = $1`, user.ID).Scan(&status, &email, &name)
+	if status != "deleted" {
+		t.Errorf("status = %q, want deleted", status)
+	}
+	if email == "delete-me@test.com" {
+		t.Error("email should be scrubbed")
+	}
+	if name.Valid {
+		t.Error("name should be NULL after scrub")
+	}
+
+	// Child records should be gone
+	var identityCount, sessionCount int
+	db.QueryRowContext(ctx, `SELECT count(*) FROM user_identities WHERE user_id = $1`, user.ID).Scan(&identityCount)
+	db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE user_id = $1`, user.ID).Scan(&sessionCount)
+	if identityCount != 0 {
+		t.Errorf("expected 0 identities, got %d", identityCount)
+	}
+	if sessionCount != 0 {
+		t.Errorf("expected 0 sessions, got %d", sessionCount)
+	}
+
+	// Audit event should exist
+	var auditCount int
+	db.QueryRowContext(ctx, `SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = 'auth.deletion_completed'`, user.ID).Scan(&auditCount)
+	if auditCount != 1 {
+		t.Errorf("expected 1 deletion_completed audit, got %d", auditCount)
+	}
+}
+
 func TestCleanup_ReconsentNotDeleted(t *testing.T) {
 	db, store, clk := setupCleanupTest(t)
 	ctx := context.Background()
