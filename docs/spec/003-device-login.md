@@ -9,7 +9,7 @@ CLI 도구나 입력 제한 장치에서 브라우저를 통해 인증하고 acc
 
 - authgate에서 zitadel/oidc는 **내장 라이브러리**다. 별도 서버가 아니다.
 - 앱이 `oauth_clients` 테이블에 등록 (grant_type에 device_code 포함)
-- **사용자가 이미 가입 완료** (Spec 001 경유, `terms_accepted_at IS NOT NULL`)
+- **사용자가 이미 가입 완료** (Spec 001 경유, `terms_accepted_at IS NOT NULL` AND `privacy_accepted_at IS NOT NULL`)
 - 사용자가 브라우저 접근 가능해야 함
 
 ## 관련 엔드포인트

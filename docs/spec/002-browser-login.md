@@ -66,8 +66,11 @@ sequenceDiagram
 
     Note over U,G: 3. 세션 확인
     U->>AG: GET /login?authRequestID=xxx
-    alt 유효한 세션 쿠키 + 약관 동의 완료
+    alt 유효한 세션 + 가입 완료 (terms+privacy 동의)
         AG->>AG: auto-approve → 7단계로
+    else 유효한 세션 + 약관/개인정보 미완료 (재동의 필요)
+        AG-->>U: terms.html (약관 재동의 페이지)
+        U->>AG: POST /login/terms → 6단계로
     else 세션 없음
         AG->>U: 302 → Google OAuth
     end

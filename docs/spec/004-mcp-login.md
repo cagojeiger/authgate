@@ -90,8 +90,11 @@ sequenceDiagram
     AG->>U: 302 → /login?authRequestID=xxx
 
     U->>AG: GET /login?authRequestID=xxx
-    alt 세션 있음 + 약관 동의 완료
+    alt 세션 있음 + 가입 완료 (terms+privacy 동의)
         AG->>AG: auto-approve → 5단계로
+    else 세션 있음 + 약관/개인정보 미완료
+        AG-->>U: terms.html (재동의)
+        U->>AG: POST /login/terms
     else 세션 없음
         AG->>U: 302 → Google
         U->>G: Google 인증

@@ -49,10 +49,10 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 └──────────────────────────────────┘
 ```
 
-**표시 조건**: `HasAcceptedTerms(userID, currentVersion) == false`
-**입력**: `authRequestID` (hidden), `terms_agree` (checkbox), `age_confirm` (checkbox)
-**성공 시**: `AcceptTerms` → `autoApprove` → 토큰 발급
-**실패 시**: 체크박스 미선택 → 400 에러
+**표시 조건**: 가입 온보딩 미완료 (`terms_accepted_at IS NULL` OR `privacy_accepted_at IS NULL` OR 버전 불일치)
+**입력**: `authRequestID` (hidden), `terms_agree` (checkbox), `privacy_agree` (checkbox), `age_confirm` (checkbox)
+**성공 시**: `AcceptTerms(terms_version, privacy_version)` → `autoApprove` → 토큰 발급
+**실패 시**: 체크박스 미선택 → 200 + 같은 페이지 재표시 (에러 메시지 포함)
 
 ### 디바이스 코드 입력 페이지
 

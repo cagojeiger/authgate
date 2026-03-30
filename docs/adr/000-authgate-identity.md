@@ -60,7 +60,7 @@ authgate는 여러 앱이 공유하는 중앙 인증 게이트웨이이다.
 
 토큰 lifecycle 전체가 authgate 책임이다:
 - **발급**: authgate → 클라이언트
-- **갱신**: 클라이언트가 refresh_token을 authgate `/token` 엔드포인트에 제출 → 새 access_token + 새 refresh_token 수신
+- **갱신**: 클라이언트가 refresh_token을 authgate `/oauth/token` 엔드포인트에 제출 → 새 access_token + 새 refresh_token 수신
 - **회전**: authgate가 구 refresh_token 폐기 + 신 refresh_token 발급 (자동)
 - **폐기**: 만료/revoke 시 authgate가 처리
 
