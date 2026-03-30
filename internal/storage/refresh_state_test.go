@@ -14,6 +14,50 @@ import (
 	"github.com/kangheeyong/authgate/internal/testutil"
 )
 
+// refresh-007: revoked token → family revoke + invalid_grant
+func TestRefreshReuseDetection_FamilyRevoke(t *testing.T) {
+	db := testutil.SetupPostgres(t)
+	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	gen := idgen.CryptoGenerator{}
+	noopChecker := func(user *User) error { return nil }
+	store := New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "reuse@test.com", true, "Test", "", "google", "reuse-sub", "ru@test.com")
+	store.AcceptTerms(ctx, user.ID, "2026-03-28", "2026-03-28")
+
+	// Insert two tokens in the same family
+	now := clk.Now()
+	familyID := gen.NewUUID()
+	token1 := "reuse-token-1"
+	token2 := "reuse-token-2"
+	hash1 := hashToken(token1)
+	hash2 := hashToken(token2)
+
+	db.ExecContext(ctx,
+		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, revoked_at, used_at, created_at)
+		 VALUES (uuid_generate_v4(), $1, $2, $3, 'test', '{openid}', $4, $5, $5, $6)`,
+		hash1, familyID, user.ID, now.Add(30*24*time.Hour), now, now) // token1: already used/revoked
+
+	db.ExecContext(ctx,
+		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
+		 VALUES (uuid_generate_v4(), $1, $2, $3, 'test', '{openid}', $4, $5)`,
+		hash2, familyID, user.ID, now.Add(30*24*time.Hour), now) // token2: current valid
+
+	// Attempt to reuse token1 (already used)
+	_, err := store.TokenRequestByRefreshToken(ctx, token1)
+	if err == nil {
+		t.Fatal("expected error for reused token")
+	}
+
+	// token2 should now also be revoked (family revoke)
+	var revokedAt *time.Time
+	db.QueryRowContext(ctx, `SELECT revoked_at FROM refresh_tokens WHERE token_hash = $1`, hash2).Scan(&revokedAt)
+	if revokedAt == nil {
+		t.Error("token2 should be revoked after family revoke (reuse detection)")
+	}
+}
+
 func TestRefreshStateCheck_AllStates(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
