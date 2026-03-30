@@ -44,8 +44,8 @@ MCP:     /mcp/login -> /mcp/callback
 | GET | `/.well-known/oauth-authorization-server` | zitadel 라이브러리 | RFC 8414 Discovery (MCP 클라이언트 우선 시도) |
 | GET | `/.well-known/openid-configuration` | zitadel 라이브러리 | OIDC Discovery (fallback) |
 | GET | `/oauth/authorize` | zitadel 라이브러리 | 인증 시작 (PKCE + resource 파라미터) |
-| GET | `/mcp/login` | authgate 핸들러 | 세션 확인 → Google redirect |
-| GET | `/mcp/callback` | authgate 핸들러 | Google 코드 교환 → 유저 조회 → auto-approve 또는 차단 |
+| GET | `/mcp/login` | authgate 핸들러 | 세션 확인 → IdP redirect |
+| GET | `/mcp/callback` | authgate 핸들러 | IdP 코드 교환 → 유저 조회 → auto-approve 또는 차단 |
 | POST | `/oauth/token` | zitadel 라이브러리 | code + code_verifier → 토큰 발급 |
 | GET | `/.well-known/jwks.json` | zitadel 라이브러리 | 공개키 |
 
@@ -80,7 +80,7 @@ sequenceDiagram
     participant AI as AI 도구 (Claude/Cursor)
     participant AG as authgate
     participant U as 사용자 브라우저
-    participant G as Google
+    participant G as IdP
 
     Note over AI,G: 1. Discovery
     AI->>AG: GET /.well-known/oauth-authorization-server
@@ -106,8 +106,8 @@ sequenceDiagram
         AG-->>U: 403 (GuardLoginChannel 결과: signup_required 또는 account_inactive)
         Note over AG: MCP는 Browser onboarding 채널이 아님
     else 세션 없음
-        AG->>U: 302 → Google
-        U->>G: Google 인증
+        AG->>U: 302 → IdP
+        U->>G: IdP 인증
         G->>U: 302 → /mcp/callback
         U->>AG: GET /mcp/callback?code=...&state=authRequestID
         AG->>AG: 기존 유저 확인 → DeriveLoginState + GuardLoginChannel(mcp)
@@ -197,7 +197,7 @@ MCP spec: SHOULD (권장)
 | redirect_uri 불일치 | `invalid_request` | 400 | localhost 또는 HTTPS만 |
 | 가입 미완료 사용자 (`initial_onboarding_incomplete`) | `signup_required` | 403 | 브라우저 가입 먼저 필요 |
 | 재동의 필요 사용자 (`reconsent_required`) | `signup_required` | 403 | 브라우저에서 먼저 재동의 필요 |
-| Google 서버 오류 | `upstream_error` | 500 | Google 연동 실패 |
+| IdP 서버 오류 | `upstream_error` | 500 | IdP 연동 실패 |
 | 비활성/복구 필요 계정 | `account_inactive` | 403 | disabled/deleted/pending_deletion |
 | resource 파라미터 | — | — | 무시 (에러 없음) |
 | code_verifier 불일치 | `invalid_grant` | 400 | zitadel이 처리 |

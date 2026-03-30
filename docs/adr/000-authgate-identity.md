@@ -95,13 +95,13 @@ authgate는 **app-per-client 모델**을 사용하며, access_token의 `aud`는 
 
 ### IdP 정책
 
-authgate는 **OIDC 기반 인증 게이트웨이**이다. 현재 지원 IdP는 Google.
+authgate는 **OIDC 기반 인증 게이트웨이**이다. 현재: OIDC Discovery 기반 단일 IdP 연동 (설정으로 Google, Mock 등 교체).
 
 ```
 목적:    OIDC 호환 IdP를 통한 인증
-현재:    Google OAuth (프로덕션), Mock IdP (개발용)
-구조:    upstream.Provider 인터페이스 (2 메서드)
-확장:    Apple, Kakao, GitHub 등 OIDC IdP 추가 가능 (~60줄/IdP)
+현재:    OIDC Discovery 기반 단일 IdP 연동 (설정으로 Google, Mock 등 교체)
+구조:    upstream.Provider 인터페이스 (3 메서드: Name, AuthURL, Exchange) + OIDC Discovery 자동 연동
+확장:    OIDC Discovery 지원 IdP라면 OIDC_ISSUER_URL 변경만으로 교체 가능
 제한:    동시 멀티 IdP 지원은 하지 않음 (MUST NOT)
 ```
 
@@ -113,7 +113,7 @@ IdP 추가는 `upstream.Provider` 인터페이스를 구현하면 된다.
 
 | 영역 | 항목 |
 |------|------|
-| 인증 | OIDC IdP 로그인 (현재 Google) |
+| 인증 | OIDC IdP 로그인 (설정 기반) |
 | 신원 | 로컬 user id + IdP subject 매핑 |
 | 토큰 | access_token, refresh_token, id_token 발급/갱신/폐기 |
 | 계정 | 상태 관리 + 삭제 (30일 유예 + PII 스크러빙) |
@@ -254,7 +254,7 @@ authgate의 가입-사용-탈퇴-재가입 전체 사이클은 닫힌 구조다.
 
 [inactive] (deleted)
   → 복구 불가. 재활성화 경로 없음.
-  → 동일 Google 계정으로 로그인해도 기존 계정으로 복구되지 않음.
+  → 동일 IdP 계정으로 로그인해도 기존 계정으로 복구되지 않음.
   → user_identities가 삭제되어 ErrNotFound → Spec 001 신규 가입으로 재진입.
   → 새 user_id, 새 약관 동의, 이전 데이터와 무관.
 ```
@@ -280,7 +280,7 @@ JWKS는 캐시하되 키 회전을 지원해야 한다. 검증 실패 시 fallba
 | 데이터 | 목적 | 수명 |
 |--------|------|------|
 | **users** | 신원 (sub, email, name, status) | 영구 (삭제 시 PII 스크러빙) |
-| **user_identities** | IdP 매핑 (Google sub ↔ 로컬 user) | 영구 (삭제 시 CASCADE) |
+| **user_identities** | IdP 매핑 (IdP sub ↔ 로컬 user) | 영구 (삭제 시 CASCADE) |
 | **sessions** | 로그인 상태 | 24시간 (기본) |
 | **refresh_tokens** | 토큰 갱신 권한 (해시 저장) | 30일 (기본) |
 | **oauth_clients** | 등록된 앱 (client_id, redirect_uri) | 영구 |

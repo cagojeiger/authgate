@@ -38,7 +38,7 @@ erDiagram
     user_identities {
         uuid id PK
         uuid user_id FK
-        text provider "google"
+        text provider "OIDC issuer에서 파생 (예: google, mock 등)"
         text provider_user_id UK
         text provider_email
         jsonb provider_raw
@@ -129,7 +129,7 @@ erDiagram
 | 테이블 | 목적 | 수명 | 삭제 정책 |
 |--------|------|------|----------|
 | **users** | 신원 (sub, email, name, status) | 영구 | PII 스크러빙 (30일 유예 후) |
-| **user_identities** | IdP 매핑 (Google sub ↔ 로컬 user) | 영구 | CASCADE (users 삭제 시) |
+| **user_identities** | IdP 매핑 (IdP sub ↔ 로컬 user) | 영구 | CASCADE (users 삭제 시) |
 | **oauth_clients** | 등록된 앱 | 영구 | 수동 관리 |
 
 ### 세션/토큰 데이터

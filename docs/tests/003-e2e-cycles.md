@@ -33,7 +33,7 @@ authgate의 핵심 철학인 "가입 → 사용 → 재동의 → 탈퇴 → 복
    |
    +--> 30일 경과 cleanup -> [deleted]
                               |
-                              | 같은 Google로 Browser 로그인
+                              | 같은 IdP 계정으로 Browser 로그인
                               v
                            [미가입처럼 처리]
 ```
@@ -44,7 +44,7 @@ authgate의 핵심 철학인 "가입 → 사용 → 재동의 → 탈퇴 → 복
 
 | 단계 | 입력 | 기대 결과 | 검증 포인트 |
 |------|------|----------|-------------|
-| 1 | 미가입 Google 사용자 Browser 로그인 | Spec 001 진입 | Browser만 가입 |
+| 1 | 미가입 IdP 사용자 Browser 로그인 | Spec 001 진입 | Browser만 가입 |
 | 2 | 약관/개인정보/연령 동의 | `onboarding_complete` | 정상 완료 |
 | 3 | 동일 사용자 Browser 재로그인 | auto-approve | 기존 유저 경로 |
 | 4 | 동일 사용자 Device 로그인 | 성공 | 후속 채널 허용 |
@@ -87,7 +87,7 @@ authgate의 핵심 철학인 "가입 → 사용 → 재동의 → 탈퇴 → 복
 |------|------|----------|-------------|
 | 1 | `onboarding_complete` 사용자 | `DELETE /account` | `pending_deletion` |
 | 2 | 30일 경과 + deletion cleanup | `user_identities/sessions/refresh_tokens` 삭제 + `users.status='deleted'` | 명시적 cleanup |
-| 3 | 같은 Google로 Browser 로그인 | `GetUserByProviderIdentity -> ErrNotFound` | 기존 계정 아님 |
+| 3 | 같은 IdP 계정으로 Browser 로그인 | `GetUserByProviderIdentity -> ErrNotFound` | 기존 계정 아님 |
 | 4 | Spec 001 신규 가입 서브플로우 진입 | 새 `user_id` 발급 | deleted row와 분리 |
 | 5 | 약관 재동의 | 완료 | 새 계정 |
 

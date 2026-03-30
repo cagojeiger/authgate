@@ -11,7 +11,7 @@ authgate가 제공하는 전체 서비스 경험을 정의한다.
 
 | # | 스펙 | 설명 | 대상 |
 |---|------|------|------|
-| 001 | [가입](001-signup.md) | Google 로그인 → 계정 생성 → 약관 동의 → 연령 확인 | 신규 사용자 |
+| 001 | [가입](001-signup.md) | OIDC IdP 로그인 → 계정 생성 → 약관 동의 → 연령 확인 | 신규 사용자 |
 | 002 | [브라우저 로그인](002-browser-login.md) | 웹 앱에서 Auth Code + PKCE로 토큰 발급 | 웹 앱 사용자 |
 | 003 | [Device 로그인](003-device-login.md) | CLI에서 Device Code로 토큰 발급 | CLI 사용자 |
 | 004 | [MCP 로그인](004-mcp-login.md) | AI 도구에서 OAuth 2.1로 토큰 발급 | AI 도구 (Claude, Cursor) |
@@ -25,7 +25,6 @@ authgate가 제공하는 전체 서비스 경험을 정의한다.
 | 007 | [데이터 모델](007-data-model.md) | 테이블 구조, 관계, 인덱스, 보안 규칙 | 구현자 |
 | 008 | [페이지](008-pages.md) | authgate가 제공하는 HTML 페이지 목록 + UI 스펙 | 구현자 + 디자이너 |
 | 009 | [운영](009-operations.md) | 초기 설정, 시크릿 관리, 키 로테이션, 일상 운영 | 운영자 |
-| 010 | [Mock IdP](010-mock-idp.md) | E2E 테스트/로컬 개발용 Google OAuth 시뮬레이터 | 구현자 + 테스터 |
 
 ## 구조
 

@@ -2,14 +2,14 @@
 
 ## 개요
 
-웹 앱 사용자가 브라우저에서 Google 계정으로 로그인하고 access_token + refresh_token을 받는 플로우.
+웹 앱 사용자가 브라우저에서 OIDC IdP 계정으로 로그인하고 access_token + refresh_token을 받는 플로우.
 신규 사용자면 [Spec 001 (가입)](001-signup.md) 서브플로우를 거친 후 토큰을 발급한다.
 
 ## 전제
 
 - authgate에서 zitadel/oidc는 **내장 라이브러리**다. 별도 서버가 아니다. 모든 엔드포인트는 authgate의 단일 주소에서 제공된다.
 - 앱이 `oauth_clients` 테이블에 등록되어 있어야 함
-- authgate에 Google OAuth 자격증명이 설정되어 있어야 함
+- authgate에 OIDC 자격증명이 설정되어 있어야 함 (OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET)
 
 ## 클라이언트 유형
 
@@ -29,8 +29,8 @@
 | Method | Path | 내부 처리 | 설명 |
 |--------|------|----------|------|
 | GET | `/oauth/authorize` | zitadel 라이브러리 | 인증 시작 (PKCE, redirect_uri, client_id 검증, auth_request 생성) |
-| GET | `/login` | authgate 핸들러 | 세션 확인 → 유효하면 auto-approve, 없으면 Google redirect |
-| GET | `/login/callback` | authgate 핸들러 | Google 코드 교환 → 신규/기존 판별 → 세션 생성 |
+| GET | `/login` | authgate 핸들러 | 세션 확인 → 유효하면 auto-approve, 없으면 IdP redirect |
+| GET | `/login/callback` | authgate 핸들러 | IdP 코드 교환 → 신규/기존 판별 → 세션 생성 |
 | GET | `/login/terms` | authgate 핸들러 | 약관 미동의 시 약관 페이지 표시 |
 | POST | `/login/terms` | authgate 핸들러 | 약관 동의 처리 |
 | POST | `/oauth/token` | zitadel 라이브러리 | code + code_verifier (+ client_secret) → 토큰 발급 |
@@ -50,7 +50,7 @@ sequenceDiagram
     participant U as 사용자 브라우저
     participant App as 클라이언트 앱
     participant AG as authgate
-    participant G as Google
+    participant G as IdP
 
     Note over U,G: 1. 로그인 시작
     U->>App: 로그인 클릭
@@ -72,15 +72,15 @@ sequenceDiagram
         AG-->>U: terms.html (약관 재동의 페이지)
         U->>AG: POST /login/terms → 6단계로
     else 세션 없음
-        AG->>U: 302 → Google OAuth
+        AG->>U: 302 → IdP OAuth
     end
 
-    Note over U,G: 4. Google 인증
-    U->>G: Google 로그인 화면
+    Note over U,G: 4. IdP 인증
+    U->>G: IdP 로그인 화면
     G->>G: 사용자 인증
-    G->>U: 302 → /login/callback?code=google_code&state=authRequestID
+    G->>U: 302 → /login/callback?code=idp_code&state=authRequestID
 
-    Note over U,G: 5. Google 코드 교환 + 유저 조회
+    Note over U,G: 5. IdP 코드 교환 + 유저 조회
     U->>AG: GET /login/callback?code=...&state=authRequestID
     AG->>G: POST /token (code → access_token 교환)
     G-->>AG: {access_token, id_token}
@@ -142,8 +142,8 @@ sequenceDiagram
 | 상황 | 사용자가 보는 것 | 리다이렉트 수 |
 |------|----------------|-------------|
 | 세션 있음 + onboarding_complete | 로그인 클릭 → 바로 완료 | 4 |
-| 세션 없음 + 기존 유저 | 로그인 클릭 → Google → 완료 | 6 |
-| 세션 없음 + 신규 유저 | 로그인 클릭 → Google → 약관 → 완료 | 6 + 약관 페이지 1회 |
+| 세션 없음 + 기존 유저 | 로그인 클릭 → IdP → 완료 | 6 |
+| 세션 없음 + 신규 유저 | 로그인 클릭 → IdP → 약관 → 완료 | 6 + 약관 페이지 1회 |
 
 ## 토큰 내용
 
@@ -171,10 +171,10 @@ sequenceDiagram
 | redirect_uri 불일치 | `invalid_request` | 400 | zitadel이 처리 |
 | PKCE 없음 / plain | `invalid_request` | 400 | S256만 허용 |
 | state 누락/불일치 | `invalid_request` | 400 | CSRF 보호 |
-| Google 인증 사용자 취소 | — | 302 | 앱 redirect_uri에 `error=access_denied` |
-| Google 서버 오류 | `upstream_error` | 500 | Google 연동 실패 |
+| IdP 인증 사용자 취소 | — | 302 | 앱 redirect_uri에 `error=access_denied` |
+| IdP 서버 오류 | `upstream_error` | 500 | IdP 연동 실패 |
 | DB 오류 (유저 조회) | `internal_error` | 500 | 가입 시도 안 함 |
-| 이메일 충돌 | `email_conflict` | 409 | 같은 email, 다른 Google sub |
+| 이메일 충돌 | `email_conflict` | 409 | 같은 email, 다른 IdP sub |
 | 계정 비활성 (disabled/deleted) | `account_inactive` | 403 | 로그인 차단 |
 | pending_deletion | — | — | 에러가 아닌 복구 경로. 자동으로 active 복구 후 진행 (GuardLoginChannel) |
 | 약관/연령 미충족 | — | 200 | 약관 페이지 재표시 |

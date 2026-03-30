@@ -135,7 +135,7 @@ COMMIT;
 
 **deleted 상태의 user row는 어떤 로그인에서도 재활성화되지 않는다** ([ADR-000 사이클 규칙](../adr/000-authgate-identity.md) 참조).
 
-삭제 완료 후 같은 Google 계정으로 로그인하면:
+삭제 완료 후 같은 IdP 계정으로 로그인하면:
 - `user_identities`가 3단계에서 명시적 삭제됨 → `GetUserByProviderIdentity` → `ErrNotFound`
 - `ErrNotFound`이므로 **Spec 001 신규 가입 서브플로우로 진입** (기존 deleted user row와 무관)
 - 새 user_id 발급, 이전 데이터와 연결 없음

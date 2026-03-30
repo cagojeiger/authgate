@@ -14,16 +14,17 @@ authgate를 처음 배포할 때 필요한 것:
    → DB 생성 (authgate)
    → 마이그레이션 실행 (001_init.sql)
 
-2. Google OAuth 자격증명 발급
-   → Google Cloud Console에서 OAuth 2.0 Client ID 생성
-   → **승인된 리디렉션 URI** (Google에 등록하는 것):
+2. OIDC IdP 자격증명 발급
+   → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성
+   → **승인된 리디렉션 URI** (IdP에 등록하는 것):
      - `https://<authgate-domain>/login/callback` (브라우저/MCP 로그인용)
      - `https://<authgate-domain>/device/auth/callback` (Device 로그인용)
-   → GOOGLE_CLIENT_ID, GOOGLE_SECRET 획득
+   → OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET 획득
+     - Google 예시: OIDC_ISSUER_URL=https://accounts.google.com
 
-   **주의: 이것은 Google upstream redirect_uri다.**
+   **주의: 이것은 upstream IdP redirect_uri다.**
    `oauth_clients` 테이블의 `redirect_uris`와 다른 것이다.
-   - Google redirect_uri = "Google이 authgate로 돌려보내는 경로"
+   - IdP redirect_uri = "IdP가 authgate로 돌려보내는 경로"
    - oauth_clients redirect_uri = "authgate가 각 앱으로 돌려보내는 경로"
 
 3. 시크릿 생성
@@ -44,23 +45,21 @@ authgate를 처음 배포할 때 필요한 것:
 | `DATABASE_URL` | O | — | PostgreSQL 연결 문자열 |
 | `SESSION_SECRET` | O | — | OIDC 암호화 키 (최소 32자) |
 | `PUBLIC_URL` | O | — | 외부 접근 URL (예: `https://auth.example.com`) |
-| `UPSTREAM_PROVIDER` | X | `mock` | IdP 선택 (`google` / `mock`) |
-| `GOOGLE_CLIENT_ID` | △ | — | Google OAuth Client ID (google일 때 필수) |
-| `GOOGLE_SECRET` | △ | — | Google OAuth Secret (google일 때 필수) |
-| `MOCK_IDP_URL` | X | `http://localhost:8082` | Mock IdP URL (개발용) |
-| `MOCK_IDP_PUBLIC_URL` | X | `http://localhost:8082` | Mock IdP 외부 URL |
+| `OIDC_ISSUER_URL` | O | — | OIDC IdP issuer URL (예: `https://accounts.google.com`) |
+| `OIDC_CLIENT_ID` | O | — | OIDC Client ID |
+| `OIDC_CLIENT_SECRET` | O | — | OIDC Client Secret |
 | `SESSION_TTL` | X | `86400` | 세션 수명 (초) |
 | `ACCESS_TOKEN_TTL` | X | `900` | access_token 수명 (초, 15분) |
 | `REFRESH_TOKEN_TTL` | X | `2592000` | refresh_token 수명 (초, 30일) |
 | `TERMS_VERSION` | X | `2026-03-28` | 현재 약관 버전 (변경 시 재동의) |
 | `PRIVACY_VERSION` | X | `2026-03-28` | 현재 개인정보 처리방침 버전 |
-| `DEV_MODE` | X | `false` | true 시: insecure 허용, mock provider 허용, cookie Secure=false |
+| `DEV_MODE` | X | `false` | true 시: insecure 허용, cookie Secure=false |
 
 ### 프로덕션 필수 조건
 
 `DEV_MODE=false` (기본값)일 때 다음이 강제됨:
 - `SESSION_SECRET`이 기본값이면 **서버 시작 거부**
-- `UPSTREAM_PROVIDER`가 `google`이 아니면 **서버 시작 거부**
+- `OIDC_ISSUER_URL`이 `https://`로 시작하지 않으면 **서버 시작 거부**
 - 쿠키 `Secure=true`
 - `op.WithAllowInsecure()` 비활성
 

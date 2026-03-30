@@ -20,10 +20,10 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 
 | 페이지 | 이유 |
 |--------|------|
-| 로그인 화면 | Google이 제공 (OAuth redirect) |
+| 로그인 화면 | IdP가 제공 (OAuth redirect) |
 | 회원가입 폼 | 없음 (자동 가입) |
 | 프로필 편집 | 앱 책임 |
-| 비밀번호 변경 | 없음 (Google-only) |
+| 비밀번호 변경 | 없음 (IdP 위임) |
 | 관리자 대시보드 | 없음 (DB 직접 관리) |
 
 ## 페이지별 상세
@@ -104,7 +104,7 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 └──────────────────────────────────┘
 ```
 
-**전제 조건**: 유효한 세션 쿠키 필요. 없으면 Google 로그인으로 redirect → `/device/auth/callback` 복귀 → `/device?user_code=XXXX` 재진입. `user_code`는 state 파라미터에 보존된다.
+**전제 조건**: 유효한 세션 쿠키 필요. 없으면 IdP 로그인으로 redirect → `/device/auth/callback` 복귀 → `/device?user_code=XXXX` 재진입. `user_code`는 state 파라미터에 보존된다.
 **입력**: `user_code` (hidden), `action` (approve/deny)
 **성공 시**: 결과 페이지
 
