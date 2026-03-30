@@ -90,22 +90,18 @@ sequenceDiagram
     AG->>U: 302 → /login?authRequestID=xxx
 
     U->>AG: GET /login?authRequestID=xxx
-    alt 세션 있음 + onboarding_complete
+    alt 세션 있음 + DeriveLoginState = onboarding_complete
         AG->>AG: auto-approve → 5단계로
-    else 세션 있음 + onboarding 미완료
-        AG-->>U: terms.html (재동의)
-        U->>AG: POST /login/terms
+    else 세션 있음 + DeriveLoginState != onboarding_complete
+        AG-->>U: 403 signup_required 또는 account_inactive
+        Note over AG: MCP는 Browser onboarding 채널이 아님
     else 세션 없음
         AG->>U: 302 → Google
         U->>G: Google 인증
         G->>U: 302 → /login/callback
         U->>AG: callback → 기존 유저 확인 → DeriveLoginState + GuardLoginChannel
-        Note over AG: onboarding_complete가 아니면 차단<br/>ErrNotFound → "브라우저에서 먼저 가입" 에러
-    end
-
-    alt 약관 변경 시 재동의
-        AG-->>U: terms.html
-        U->>AG: POST /login/terms
+        Note over AG: onboarding_complete일 때만<br/>세션 생성 + CompleteAuthRequest 진행
+        Note over AG: ErrNotFound → "브라우저에서 먼저 가입" 에러
     end
 
     Note over AI,G: 4. auth_request 완료
@@ -131,6 +127,29 @@ sequenceDiagram
 MCP 클라이언트는 RFC 8414 (`oauth-authorization-server`)를 먼저 시도하고,
 없으면 OIDC Discovery (`openid-configuration`)로 fallback한다.
 zitadel/oidc가 둘 다 자동 제공하므로 authgate 추가 작업 없음.
+
+### 채널 정책
+
+MCP 로그인은 브라우저를 열어 `/login`, `/login/callback`을 재사용하지만, **정책 채널은 browser가 아니라 mcp**다.
+
+즉, Browser 화면을 사용하더라도 다음 규칙을 따른다:
+
+```text
+DeriveLoginState = onboarding_complete
+  -> allow
+
+DeriveLoginState = initial_onboarding_incomplete
+  -> signup_required
+
+DeriveLoginState = reconsent_required
+  -> signup_required
+
+DeriveLoginState = recoverable_browser_only / inactive
+  -> account_inactive
+```
+
+MCP는 Device와 동일하게 **후속 로그인 채널**이다.
+가입, 재동의, pending_deletion 복구는 Browser 채널에서만 처리한다.
 
 ### Resource Indicator (RFC 8707)
 
@@ -160,9 +179,10 @@ MCP spec: SHOULD (권장)
 | 미등록 클라이언트 | `invalid_client` | 400 | zitadel이 처리 |
 | PKCE 없음 / plain | `invalid_request` | 400 | S256 필수 |
 | redirect_uri 불일치 | `invalid_request` | 400 | localhost 또는 HTTPS만 |
-| 가입 미완료 사용자 | `signup_required` | 403 | 브라우저 가입 먼저 필요 |
+| 가입 미완료 사용자 (`initial_onboarding_incomplete`) | `signup_required` | 403 | 브라우저 가입 먼저 필요 |
+| 재동의 필요 사용자 (`reconsent_required`) | `signup_required` | 403 | 브라우저에서 먼저 재동의 필요 |
 | Google 서버 오류 | `upstream_error` | 500 | Google 연동 실패 |
-| 비활성 계정 | `account_inactive` | 403 | disabled/deleted/pending_deletion |
+| 비활성/복구 필요 계정 | `account_inactive` | 403 | disabled/deleted/pending_deletion |
 | resource 파라미터 | — | — | 무시 (에러 없음) |
 | code_verifier 불일치 | `invalid_grant` | 400 | zitadel이 처리 |
 
