@@ -11,7 +11,7 @@ authgate가 제공하는 전체 서비스 경험을 정의한다.
 
 | # | 스펙 | 설명 | 대상 |
 |---|------|------|------|
-| 001 | [가입](001-signup.md) | Google 로그인 → 약관 동의 → 연령 확인 → 계정 생성 | 신규 사용자 |
+| 001 | [가입](001-signup.md) | Google 로그인 → 계정 생성 → 약관 동의 → 연령 확인 | 신규 사용자 |
 | 002 | [브라우저 로그인](002-browser-login.md) | 웹 앱에서 Auth Code + PKCE로 토큰 발급 | 웹 앱 사용자 |
 | 003 | [Device 로그인](003-device-login.md) | CLI에서 Device Code로 토큰 발급 | CLI 사용자 |
 | 004 | [MCP 로그인](004-mcp-login.md) | AI 도구에서 OAuth 2.1로 토큰 발급 | AI 도구 (Claude, Cursor) |

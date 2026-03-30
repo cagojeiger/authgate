@@ -43,14 +43,14 @@ sequenceDiagram
     AG->>AG: DB 조회 (token_hash, revoked_at IS NULL, expires_at > NOW)
     AG->>AG: 계정 상태 확인
 
-    alt 유효 + 계정 active
+    alt 유효 + onboarding_complete (I6)
         AG->>AG: 구 토큰 revoke (revoked_at = NOW)
         AG->>AG: 신 refresh_token 생성 (family_id 상속)
         AG->>AG: 신 access_token JWT 서명
         AG-->>App: 200 {access_token, refresh_token} (둘 다 새 것)
     else 만료/폐기된 토큰
         AG-->>App: 400 {error: "invalid_grant"}
-    else 계정 disabled/deleted/pending_deletion
+    else 계정 비정상 (disabled/deleted/pending_deletion/onboarding 미완료)
         AG-->>App: 400 {error: "invalid_grant"}
     end
 ```
@@ -68,6 +68,22 @@ family_id: 최초 로그인에서 생성된 UUID
 ```
 
 `family_id`는 하나의 로그인 세션에서 파생된 모든 refresh_token을 추적한다.
+
+### Refresh Token Rotation 원자성
+
+동일 refresh_token으로 동시 요청이 오면 둘 다 유효로 판정될 수 있다. 이를 방지하기 위해 rotation은 원자적이어야 한다:
+
+```
+1. SELECT refresh_tokens ... FOR UPDATE WHERE token_hash = $hash
+2. revoked_at / used_at / expires_at 검사
+3. 유효하면 used_at = NOW(), revoked_at = NOW() 갱신
+4. 새 refresh_token row INSERT (같은 family_id)
+5. COMMIT
+```
+
+**규칙**:
+- 같은 refresh_token은 정확히 1번만 성공. 두 번째 동시 요청은 `invalid_grant`.
+- 이미 used/revoked 토큰 재제출 시 family 전체 revoke (아래 재사용 탐지 참조).
 
 ### 토큰 재사용 탐지 (Family Invalidation)
 
@@ -97,14 +113,17 @@ sequenceDiagram
 
 ## 계정 상태별 토큰 동작
 
-[ADR-000](../adr/000-authgate-identity.md)과 일치:
+[ADR-000](../adr/000-authgate-identity.md)의 불변식 I5, I6과 일치:
 
 | 상태 | 토큰 갱신 (refresh) | 기존 access_token | 설명 |
 |------|-------------------|------------------|------|
-| **active** | 허용 | 유효 (만료까지) | 정상 |
+| **active** (onboarding_complete) | 허용 | 유효 (만료까지) | 정상 |
+| **active** (onboarding 미완료) | 차단 | 유효 (만료까지) | 가입 미완료 |
 | **disabled** | 차단 | 유효 (만료까지, 최대 15분) | 관리자 정지 |
 | **pending_deletion** | 차단 | 유효 (만료까지, 최대 15분) | 삭제 유예 중 |
 | **deleted** | 차단 | 유효 (만료까지, 최대 15분) | PII 스크러빙 완료 |
+
+refresh 허용 조건: `onboarding_complete = true` (ADR-000 I6). 약관/개인정보 버전이 변경되면 재동의 전까지 refresh도 차단된다.
 
 **access_token(JWT)은 stateless라 서버에서 즉시 폐기할 수 없다.**
 disabled/deleted 계정의 access_token은 만료(15분)를 기다린다.
@@ -188,7 +207,7 @@ sequenceDiagram
 | refresh_token 만료 | `invalid_grant` | 400 | 재로그인 필요 |
 | refresh_token 이미 사용됨 | `invalid_grant` | 400 | rotation 위반 |
 | 재사용 탐지 (탈취 의심) | `invalid_grant` | 400 | family 전체 revoke + 재로그인 |
-| 계정 disabled/deleted | `invalid_grant` | 400 | 토큰 갱신 차단 |
+| 계정 disabled/deleted/pending_deletion | `invalid_grant` | 400 | 토큰 갱신 차단 |
 | client_id 불일치 | `invalid_client` | 400 | |
 
 ## 다른 스펙 참조

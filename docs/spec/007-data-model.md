@@ -58,7 +58,7 @@ erDiagram
         text token_hash UK "SHA-256 해시"
         uuid family_id "rotation 추적"
         uuid user_id FK
-        uuid session_id FK
+        uuid session_id FK "nullable (Device/MCP은 NULL)"
         text client_id
         text[] scopes
         timestamptz expires_at
@@ -209,6 +209,30 @@ FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ```
 
+## client_id 참조 규칙
+
+`auth_requests.client_id`, `device_codes.client_id`, `refresh_tokens.client_id`는 `oauth_clients.client_id`를 참조하지만 **FK를 걸지 않는다.**
+
+이유:
+- auth_requests, device_codes는 수분 내 만료되는 임시 데이터다. FK CASCADE가 이들의 cleanup과 결합되면 복잡도만 증가한다.
+- oauth_clients는 수동 등록/관리이며 삭제 빈도가 극히 낮다 (Spec 009).
+
+**운영 불변식**: 클라이언트 삭제 전 다음을 확인한다:
+1. 해당 client_id의 auth_requests, device_codes가 전부 만료/소진되었는지 확인
+2. 해당 client_id의 refresh_tokens를 전부 revoke
+3. 확인 후 `DELETE FROM oauth_clients WHERE client_id = $1`
+
+이 절차는 Spec 009 운영 문서에서 관리한다.
+
+## session_id 규칙
+
+`refresh_tokens.session_id`는 선택적(nullable)이다:
+
+- **브라우저 로그인**: 세션 기반이므로 `session_id`를 설정할 수 있다.
+- **Device/MCP 로그인**: 브라우저 세션과 독립적인 클라이언트 토큰이므로 `session_id`는 NULL이다.
+
+**revoke / cleanup / 계정 삭제는 `user_id` 또는 `family_id` 기준으로 처리한다.** `session_id` 기준으로 처리하면 Device/MCP 토큰이 누락된다.
+
 ## 보안 규칙
 
 | 규칙 | 적용 |
@@ -224,10 +248,13 @@ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 | 이벤트 | 시점 | metadata |
 |--------|------|----------|
 | `auth.signup` | 가입 | — |
-| `auth.login` | 로그인 | — |
+| `auth.login` | 로그인 | `{channel: "browser\|device\|mcp"}` |
 | `auth.terms_accepted` | 약관 동의 | `{terms_version, privacy_version}` |
 | `auth.deletion_requested` | 탈퇴 요청 | — |
 | `auth.deletion_cancelled` | 탈퇴 취소 (로그인 복구) | — |
 | `auth.deletion_completed` | PII 스크러빙 완료 | — |
 | `auth.device_approved` | 디바이스 승인 | — |
+| `auth.device_denied` | 디바이스 거부 | — |
+| `auth.refresh_reuse_detected` | 폐기된 refresh_token 재사용 탐지 | `{family_id}` |
+| `auth.refresh_family_revoked` | family 전체 revoke (탈취 의심) | `{family_id}` |
 | `auth.inactive_user` | 비활성 유저 로그인 시도 | `{status}` |

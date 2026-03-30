@@ -104,24 +104,27 @@ sequenceDiagram
 | 3단계 직후 (DB 생성) | `active` | `NULL` | **불가** | 계정은 있지만 약관 미동의 |
 | 4단계 완료 (약관 동의) | `active` | 설정됨 | **가능** | 완전한 활성 계정 |
 
-**`terms_accepted_at IS NULL` 또는 `privacy_accepted_at IS NULL`인 `active` 계정 = 가입 온보딩 미완료 상태.**
+**`terms_accepted_at IS NULL` 또는 `privacy_accepted_at IS NULL`인 `active` 계정 = `onboarding_complete = false` (가입 온보딩 미완료).**
 `active`는 계정이 정지/삭제되지 않았다는 의미이지, 토큰 발급 가능을 뜻하지 않는다.
-토큰 발급 조건: `status = 'active'` AND `terms_accepted_at IS NOT NULL` AND `privacy_accepted_at IS NOT NULL`
+토큰 발급 조건: `onboarding_complete = true` ([ADR-000](../adr/000-authgate-identity.md) 불변식 I5 참조). 버전 일치도 포함한다.
 
 ### 가입 미완료 레코드 정리
 
-사용자가 약관 페이지에서 이탈하면 `terms_accepted_at IS NULL` 또는 `privacy_accepted_at IS NULL`인 유저가 남는다.
+사용자가 약관 페이지에서 이탈하면 `onboarding_complete = false`인 유저가 남는다.
 
 - 이 유저가 **다시 로그인하면**: `GetUserByProviderIdentity` → 기존 유저 발견 → 약관 페이지 재표시 → 동의하면 완료
 - **영구 이탈 시**: cleanup 정책으로 처리
 
 ```sql
--- cleanup (선택적, 운영 판단):
--- 생성 후 7일 경과 + 약관 미동의 유저 삭제
+-- onboarding cleanup 정책:
+-- 생성 후 7일 경과 + onboarding 미완료 유저 삭제
 DELETE FROM users
-WHERE (terms_accepted_at IS NULL OR privacy_accepted_at IS NULL)
+WHERE status = 'active'
+  AND (terms_accepted_at IS NULL OR privacy_accepted_at IS NULL)
   AND created_at < NOW() - INTERVAL '7 days';
 ```
+
+이 cleanup은 [Spec 006](006-account-lifecycle.md)의 deletion cleanup(pending_deletion → deleted)과 별개 lifecycle이다.
 
 ## 이메일 충돌 정책
 

@@ -120,19 +120,102 @@ IdP 추가는 `upstream.Provider` 인터페이스를 구현하면 된다.
 | 법적 | 약관 동의 기록, 연령 확인 |
 | 검증 수단 | JWKS 엔드포인트 제공 (앱이 토큰 검증에 사용) |
 
-### 계정 상태별 authgate 동작
+### 공식 정의: onboarding_complete
 
-`active`는 "정지/삭제되지 않은 계정"을 뜻한다. 토큰 발급 가능 여부는 `terms_accepted_at`도 함께 판단한다.
+문서 전체에서 사용하는 공통 용어:
+
+```
+onboarding_complete =
+  status = 'active'
+  AND terms_accepted_at IS NOT NULL
+  AND privacy_accepted_at IS NOT NULL
+  AND terms_version = 현재 TERMS_VERSION
+  AND privacy_version = 현재 PRIVACY_VERSION
+```
+
+`active`는 "정지/삭제되지 않은 계정"을 뜻한다. `onboarding_complete`는 토큰 발급 가능 여부를 판단하는 파생 조건이다.
+
+**버전 불일치도 미완료다.** 약관 v1에 동의한 사용자가 v2로 변경된 후에도 Device/MCP/refresh를 통과하면 안 된다. 버전이 바뀌면 모든 채널에서 재동의 전까지 `onboarding_complete = false`로 판정한다.
+
+### 계정 불변식
+
+모든 엔드포인트는 아래 불변식을 준수한다:
+
+```
+I1. status는 계정의 운영 상태만 표현한다.
+    active / disabled / pending_deletion / deleted
+
+I2. 가입 완료 여부는 status가 아니라 별도 판정이다.
+    onboarding_complete = status='active' AND terms+privacy 동의 완료
+
+I3. 브라우저 로그인 허용 조건:
+    status = active 또는 pending_deletion
+    단, pending_deletion이면 먼저 복구
+
+I4. Device/MCP 로그인 허용 조건:
+    onboarding_complete = true
+
+I5. 토큰 발급 허용 조건:
+    onboarding_complete = true
+
+I6. refresh 허용 조건:
+    status = active AND onboarding_complete = true
+```
+
+### 계정 상태별 authgate 동작
 
 | 상태 | 브라우저 로그인 | CLI/MCP 로그인 | 토큰 갱신 | 설명 |
 |------|-------------|--------------|----------|------|
-| **active** (terms 완료) | 허용 | 허용 | 허용 | 완전한 정상 상태 |
-| **active** (terms 미완료) | 허용 → 약관 표시 | 차단 (signup_required) | 차단 | 가입 온보딩 미완료 |
+| **active** (onboarding_complete) | 허용 | 허용 | 허용 | 완전한 정상 상태 |
+| **active** (onboarding 미완료) | 허용 → 약관 표시 | 차단 (signup_required) | 차단 | 가입 온보딩 미완료 |
 | **disabled** | 차단 | 차단 | 차단 | 관리자가 정지 |
 | **pending_deletion** | 허용 → active 복구 | 차단 (account_inactive) | 차단 | 30일 유예. 브라우저만 복구 가능 |
 | **deleted** | 차단 | 차단 | 차단 | PII 스크러빙 완료. 재가입만 가능 |
 
-토큰 발급 조건: `status = 'active'` AND `terms_accepted_at IS NOT NULL` AND `privacy_accepted_at IS NOT NULL`
+### 공통 접근 표
+
+모든 엔드포인트의 상태별 허용/차단 규칙:
+
+| 엔드포인트 | active+완료 | active+미완료 | pending_deletion | disabled/deleted |
+|-----------|------------|-------------|-----------------|-----------------|
+| GET `/login` | 허용 | 허용 | 허용(복구) | 차단 |
+| GET `/login/callback` | 허용 | 허용 | 허용(복구) | 차단 |
+| POST `/login/terms` | 허용 | 허용 | 허용(복구 중) | 차단 |
+| POST `/oauth/token` (code) | 허용 | 차단 | 차단 | 차단 |
+| POST `/oauth/token` (refresh) | 허용 | 차단 | 차단 | 차단 |
+| POST `/oauth/device/authorize` | 허용 | 허용* | 허용* | 차단 |
+| GET `/device` | 허용 | 허용* | 허용* | 차단 |
+| POST `/device/approve` | 허용 | 차단 | 차단 | 차단 |
+| DELETE `/account` | 허용 | 허용 | 멱등 | 차단 |
+| GET `/.well-known/*` | 허용 | 허용 | 허용 | 허용 |
+
+`*` Device 시작 자체는 허용하지만, approve/callback에서 onboarding_complete를 검사한다.
+
+### GuardLoginChannel — 공통 채널 가드
+
+모든 로그인 채널(browser/device/mcp)의 진입 시점에서 동일한 판정 로직을 수행한다.
+Spec 002, 003, 004, 006에서 이 규칙을 참조한다.
+
+```
+GuardLoginChannel(user, channel):
+
+1. if user.status in ('disabled', 'deleted'):
+     return account_inactive (403)
+
+2. if user.status == 'pending_deletion':
+     if channel == browser:
+        return recover_then_continue
+     else:
+        return account_inactive (403)
+
+3. if onboarding_complete == false:
+     if channel == browser:
+        return show_terms
+     else:
+        return signup_required (403)
+
+4. return allow
+```
 
 ### 앱의 JWT 검증 요구사항
 

@@ -66,9 +66,9 @@ sequenceDiagram
 
     Note over U,G: 3. 세션 확인
     U->>AG: GET /login?authRequestID=xxx
-    alt 유효한 세션 + 가입 완료 (terms+privacy 동의)
+    alt 유효한 세션 + onboarding_complete
         AG->>AG: auto-approve → 7단계로
-    else 유효한 세션 + 약관/개인정보 미완료 (재동의 필요)
+    else 유효한 세션 + onboarding 미완료 (재동의 필요)
         AG-->>U: terms.html (약관 재동의 페이지)
         U->>AG: POST /login/terms → 6단계로
     else 세션 없음
@@ -98,9 +98,9 @@ sequenceDiagram
         AG->>AG: audit: auth.login
     end
 
-    Note over U,G: 5-1. 계정 상태 확인
+    Note over U,G: 5-1. 계정 상태 확인 (GuardLoginChannel)
     alt pending_deletion
-        AG->>AG: CancelDeletion → active 복구
+        AG->>AG: 원자적 복구 (아래 규칙 참조)
         AG->>AG: audit: auth.deletion_cancelled
     end
     alt disabled 또는 deleted
@@ -180,6 +180,26 @@ sequenceDiagram
 | 만료된 auth_request | `invalid_request` | 400 | CompleteAuthRequest 시 expires_at 초과 |
 | PKCE code_verifier 불일치 | `invalid_grant` | 400 | zitadel이 처리 |
 | client_secret 불일치 | `invalid_client` | 401 | confidential 클라이언트만 |
+
+## pending_deletion 복구 원자성
+
+pending_deletion 복구는 로그인 완료 절차의 일부로, 다음 작업을 하나의 DB 트랜잭션으로 수행한다:
+
+```
+1. SELECT users ... FOR UPDATE (user row 잠금)
+2. status = pending_deletion 확인 → active로 복구
+3. deletion_requested_at = NULL, deletion_scheduled_at = NULL
+4. 세션 생성
+5. COMMIT
+```
+
+실패 시 트랜잭션 롤백 — 복구도 세션 생성도 반영되지 않는다.
+
+만약 복구와 CompleteAuthRequest가 단일 트랜잭션 범위 밖이라면:
+복구 후 auth_request 실패 시 동일 사용자의 재시도 로그인을 멱등하게 허용해야 한다.
+복구는 유지되고, 다음 브라우저 로그인에서 즉시 정상 완료된다.
+
+채널 가드 규칙은 [ADR-000 GuardLoginChannel](../adr/000-authgate-identity.md#guardloginchannel--공통-채널-가드)을 참조한다.
 
 ## 보안 요구사항
 
