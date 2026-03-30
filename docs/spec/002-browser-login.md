@@ -120,7 +120,7 @@ sequenceDiagram
 
     Note over U,G: 7. auth_request 완료 상태 반영 → 토큰 발급 준비
     AG->>AG: auth_request에 subject(userID) 연결 + 로그인 완료 상태 반영
-    AG->>U: 302 → /oauth/callback?id=authRequestID
+    AG->>U: 302 → /authorize/callback?id=authRequestID
     AG->>AG: [zitadel] AuthRequestByID / SaveAuthCode
     AG->>U: 302 → App redirect_uri?code=auth_code&state=...
 

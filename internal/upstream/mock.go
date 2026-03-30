@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // MockProvider is a fake IdP for development/testing.
@@ -28,19 +29,53 @@ func (m *MockProvider) AuthURL(state string) string {
 }
 
 func (m *MockProvider) Exchange(ctx context.Context, code string) (*UserInfo, error) {
-	// Exchange code with mock IdP
-	resp, err := http.Get(m.MockIDPURL + "/userinfo?code=" + url.QueryEscape(code))
-	if err != nil {
-		return nil, fmt.Errorf("mock exchange: %w", err)
+	// Step 1: Exchange code for access_token (same as Google flow)
+	data := url.Values{
+		"code":       {code},
+		"grant_type": {"authorization_code"},
 	}
-	defer resp.Body.Close()
+	tokenReq, err := http.NewRequestWithContext(ctx, "POST", m.MockIDPURL+"/token", strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("mock token request: %w", err)
+	}
+	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("mock exchange status: %d", resp.StatusCode)
+	tokenResp, err := http.DefaultClient.Do(tokenReq)
+	if err != nil {
+		return nil, fmt.Errorf("mock token exchange: %w", err)
+	}
+	defer tokenResp.Body.Close()
+
+	if tokenResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("mock token exchange status: %d", tokenResp.StatusCode)
+	}
+
+	var tokenResult struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(tokenResp.Body).Decode(&tokenResult); err != nil {
+		return nil, fmt.Errorf("decode mock token: %w", err)
+	}
+
+	// Step 2: Fetch userinfo with access_token (same as Google flow)
+	uReq, err := http.NewRequestWithContext(ctx, "GET", m.MockIDPURL+"/userinfo", nil)
+	if err != nil {
+		return nil, fmt.Errorf("mock userinfo request: %w", err)
+	}
+	uReq.Header.Set("Authorization", "Bearer "+tokenResult.AccessToken)
+
+	uResp, err := http.DefaultClient.Do(uReq)
+	if err != nil {
+		return nil, fmt.Errorf("mock userinfo: %w", err)
+	}
+	defer uResp.Body.Close()
+
+	if uResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("mock userinfo status: %d", uResp.StatusCode)
 	}
 
 	var info UserInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+	if err := json.NewDecoder(uResp.Body).Decode(&info); err != nil {
 		return nil, fmt.Errorf("decode mock userinfo: %w", err)
 	}
 	return &info, nil

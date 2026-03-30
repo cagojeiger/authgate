@@ -76,6 +76,7 @@ erDiagram
         text[] redirect_uris
         text[] allowed_scopes
         text[] allowed_grant_types "authorization_code, device_code, refresh_token"
+        text login_channel "browser/mcp, DEFAULT 'browser'"
         timestamptz created_at
         timestamptz updated_at
     }

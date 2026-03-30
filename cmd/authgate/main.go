@@ -162,7 +162,7 @@ func main() {
 	loginService := service.NewLoginService(store, browserProvider, mcpProvider, cfg.TermsVersion, cfg.PrivacyVersion, cfg.SessionTTL)
 
 	// Device service
-	deviceService := service.NewDeviceService(store, deviceProvider, cfg.TermsVersion, cfg.PrivacyVersion, cfg.PublicURL, cfg.SessionTTL)
+	deviceService := service.NewDeviceService(store, deviceProvider, cfg.TermsVersion, cfg.PrivacyVersion, cfg.PublicURL, cfg.SessionTTL, clk)
 
 	// Account service
 	accountService := service.NewAccountService(db, clk)

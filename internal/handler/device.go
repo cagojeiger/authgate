@@ -70,11 +70,11 @@ func (h *DeviceHandler) HandleDeviceCallback(w http.ResponseWriter, r *http.Requ
 	result := h.deviceService.HandleDeviceCallback(r.Context(), code, userCode, r.RemoteAddr, r.UserAgent())
 
 	switch result.Action {
-	case service.DeviceRedirectBack:
-		// Set session cookie from callback (created by service)
-		// The session was created in service — we need to pass it through
-		// For now, redirect back to /device?user_code=X
-		http.Redirect(w, r, "/device?user_code="+result.UserCode, http.StatusFound)
+		case service.DeviceRedirectBack:
+			if result.SessionID != "" {
+				h.setSessionCookie(w, result.SessionID)
+			}
+			http.Redirect(w, r, "/device?user_code="+result.UserCode, http.StatusFound)
 
 	case service.DeviceError:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -120,4 +120,15 @@ func generateCSRFToken() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func (h *DeviceHandler) setSessionCookie(w http.ResponseWriter, sessionID string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   !h.devMode,
+	})
 }

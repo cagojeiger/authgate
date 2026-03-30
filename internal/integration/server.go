@@ -119,7 +119,7 @@ func SetupTestServer(t *testing.T) *TestServer {
 
 	// Services
 	loginSvc := service.NewLoginService(store, fakeProvider, fakeProvider, TestTermsVersion, TestPrivacyVersion, 24*time.Hour)
-	deviceSvc := service.NewDeviceService(store, fakeProvider, TestTermsVersion, TestPrivacyVersion, srv.URL, 24*time.Hour)
+	deviceSvc := service.NewDeviceService(store, fakeProvider, TestTermsVersion, TestPrivacyVersion, srv.URL, 24*time.Hour, clk)
 	accountSvc := service.NewAccountService(db, clk)
 
 	// Handlers

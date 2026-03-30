@@ -14,6 +14,7 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 | 디바이스 코드 입력 | `/device` (GET) | user_code 입력 폼 | CLI 로그인 시 사용자가 브라우저에서 접근 |
 | 디바이스 승인 | `/device?user_code=XXXX` (GET) | 승인/거부 선택 | user_code 입력 후 |
 | 결과 | `/device/approve` (POST 결과) | 승인/거부 결과 표시 | 디바이스 승인/거부 후 |
+| 에러 | 모든 에러 경로 | HTTP 에러 코드 + 메시지 표시 | 인증 실패, 잘못된 요청, 서버 에러 등 |
 
 ## authgate가 페이지를 제공하지 않는 것
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/guard"
 	"github.com/kangheeyong/authgate/internal/storage"
 	"github.com/kangheeyong/authgate/internal/upstream"
@@ -18,9 +19,10 @@ type DeviceService struct {
 	privacyVersion string
 	sessionTTL     time.Duration
 	publicURL      string
+	clock          clock.Clock
 }
 
-func NewDeviceService(store *storage.Storage, provider upstream.Provider, termsVersion, privacyVersion, publicURL string, sessionTTL time.Duration) *DeviceService {
+func NewDeviceService(store *storage.Storage, provider upstream.Provider, termsVersion, privacyVersion, publicURL string, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
 	return &DeviceService{
 		store:          store,
 		provider:       provider,
@@ -28,12 +30,14 @@ func NewDeviceService(store *storage.Storage, provider upstream.Provider, termsV
 		privacyVersion: privacyVersion,
 		publicURL:      publicURL,
 		sessionTTL:     sessionTTL,
+		clock:          clk,
 	}
 }
 
 type DevicePageResult struct {
 	Action    DeviceAction
 	UserCode  string
+	SessionID string
 	CSRFToken string
 	Error     string
 	ErrorCode int
@@ -42,12 +46,12 @@ type DevicePageResult struct {
 type DeviceAction int
 
 const (
-	DeviceShowEntry   DeviceAction = iota // Show user_code input form
-	DeviceShowApprove                     // Show approve/deny buttons
-	DeviceShowResult                      // Show success/failure result
-	DeviceRedirectIdP                     // Redirect to IdP for login
-	DeviceRedirectBack                    // Redirect back to /device?user_code=X after callback
-	DeviceError                           // Show error page
+	DeviceShowEntry    DeviceAction = iota // Show user_code input form
+	DeviceShowApprove                      // Show approve/deny buttons
+	DeviceShowResult                       // Show success/failure result
+	DeviceRedirectIdP                      // Redirect to IdP for login
+	DeviceRedirectBack                     // Redirect back to /device?user_code=X after callback
+	DeviceError                            // Show error page
 )
 
 // HandleDevicePage handles GET /device and GET /device?user_code=XXXX
@@ -66,7 +70,7 @@ func (s *DeviceService) HandleDevicePage(ctx context.Context, userCode, sessionI
 		return &DevicePageResult{Action: DeviceError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	now := time.Now()
+	now := s.clock.Now()
 	if now.After(dc.ExpiresAt) {
 		return &DevicePageResult{Action: DeviceShowEntry, Error: "This code has expired. Please request a new one."}
 	}
@@ -131,9 +135,12 @@ func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode
 	// DeriveLoginState check (device channel)
 	ui := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
 	result := guard.GuardLoginChannel(ui, guard.ChannelDevice, s.termsVersion, s.privacyVersion)
+	if result == guard.SignupRequired {
+		return &DevicePageResult{Action: DeviceError, Error: "signup_required", ErrorCode: http.StatusForbidden}
+	}
 	if result != guard.Allow {
 		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "device"})
-		return &DevicePageResult{Action: DeviceError, Error: "signup_required", ErrorCode: http.StatusForbidden}
+		return &DevicePageResult{Action: DeviceError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
 
 	// Create session
@@ -145,8 +152,7 @@ func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode
 	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": "device"})
 
 	// Redirect back to /device?user_code=X with session
-	_ = sessionID // session cookie set by handler
-	return &DevicePageResult{Action: DeviceRedirectBack, UserCode: userCode}
+	return &DevicePageResult{Action: DeviceRedirectBack, UserCode: userCode, SessionID: sessionID}
 }
 
 type DeviceApproveResult struct {
@@ -170,8 +176,11 @@ func (s *DeviceService) HandleDeviceApprove(ctx context.Context, userCode, actio
 	// Guard re-check at approve time
 	ui := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
 	result := guard.GuardLoginChannel(ui, guard.ChannelDevice, s.termsVersion, s.privacyVersion)
-	if result != guard.Allow {
+	if result == guard.SignupRequired {
 		return &DeviceApproveResult{Success: false, Message: "signup_required", ErrorCode: http.StatusForbidden}
+	}
+	if result != guard.Allow {
+		return &DeviceApproveResult{Success: false, Message: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
 
 	if action == "deny" {

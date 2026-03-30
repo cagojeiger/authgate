@@ -111,7 +111,17 @@ func (c *CleanupService) runAll(ctx context.Context) {
 		}
 	}
 
-	// 6. Onboarding cleanup: active users with NULL terms for 7+ days
+	// 6. Audit log anonymization: user_id NULL after 3 years (Spec 007)
+	if res, err := c.db.ExecContext(ctx,
+		`UPDATE audit_log SET user_id = NULL WHERE created_at < $1 AND user_id IS NOT NULL`,
+		now.Add(-3*365*24*time.Hour),
+	); err != nil {
+		slog.Error("audit_log anonymization", "error", err)
+	} else if n, _ := res.RowsAffected(); n > 0 {
+		slog.Info("audit_log anonymization", "anonymized", n)
+	}
+
+	// 7. Onboarding cleanup: active users with NULL terms for 7+ days
 	if res, err := c.db.ExecContext(ctx,
 		`DELETE FROM users WHERE status = 'active'
 		 AND (terms_accepted_at IS NULL OR privacy_accepted_at IS NULL)
@@ -149,14 +159,14 @@ func (c *CleanupService) deleteUser(ctx context.Context, userID string, now time
 		}
 	}
 
-	// PII scrub + status transition
+	// PII scrub + status transition (defense-in-depth: also check deletion_scheduled_at)
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE users SET
 		  email = 'deleted-' || id::text || '@deleted.invalid',
 		  name = NULL, avatar_url = NULL,
 		  status = 'deleted', deleted_at = $1,
 		  deletion_requested_at = NULL, deletion_scheduled_at = NULL
-		 WHERE id = $2 AND status = 'pending_deletion'`,
+		 WHERE id = $2 AND status = 'pending_deletion' AND deletion_scheduled_at < $1`,
 		now, userID,
 	); err != nil {
 		return err

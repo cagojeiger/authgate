@@ -48,7 +48,7 @@ func setupE2ETest(t *testing.T) (*LoginService, *DeviceService, *AccountService,
 	}
 
 	loginSvc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
-	deviceSvc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour)
+	deviceSvc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour, clk)
 	accountSvc := NewAccountService(db, clk)
 	return loginSvc, deviceSvc, accountSvc, store, db, clk
 }
@@ -69,7 +69,7 @@ func createRefreshTokenForUser(t *testing.T, ctx context.Context, store *storage
 
 // E2E 1: 최초 가입 → 정상 사용 → Device/MCP 후속 채널
 func TestE2E1_SignupToAllChannels(t *testing.T) {
-	loginSvc, deviceSvc, _, store, _, _ := setupE2ETest(t)
+	loginSvc, deviceSvc, _, store, _, clk := setupE2ETest(t)
 	ctx := context.Background()
 
 	// 1. Browser signup → show terms
@@ -100,7 +100,7 @@ func TestE2E1_SignupToAllChannels(t *testing.T) {
 	}
 
 	// 4. Device callback → should succeed (redirect back)
-	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e1", "E2E1-CODE", time.Now().Add(5*time.Minute), []string{"openid"})
+	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e1", "E2E1-CODE", clk.Now().Add(5*time.Minute), []string{"openid"})
 	devResult := deviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E1-CODE", "127.0.0.1", "cli")
 	if devResult.Action != DeviceRedirectBack {
 		t.Fatalf("step 4: device action = %v, want RedirectBack", devResult.Action)
@@ -116,7 +116,7 @@ func TestE2E1_SignupToAllChannels(t *testing.T) {
 
 // E2E 2: 가입 중 이탈 후 복귀
 func TestE2E2_AbandonAndReturn(t *testing.T) {
-	loginSvc, deviceSvc, _, store, _, _ := setupE2ETest(t)
+	loginSvc, deviceSvc, _, store, _, clk := setupE2ETest(t)
 	ctx := context.Background()
 
 	// 1. Browser signup → show terms
@@ -141,7 +141,7 @@ func TestE2E2_AbandonAndReturn(t *testing.T) {
 	}
 
 	// 4. Device callback → signup_required
-	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e2", "E2E2-CODE", time.Now().Add(5*time.Minute), []string{"openid"})
+	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e2", "E2E2-CODE", clk.Now().Add(5*time.Minute), []string{"openid"})
 	devResult := deviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E2-CODE", "127.0.0.1", "cli")
 	if devResult.Action != DeviceError || devResult.ErrorCode != 403 {
 		t.Fatalf("step 4: device should reject incomplete user, got action=%v code=%d", devResult.Action, devResult.ErrorCode)
@@ -162,7 +162,7 @@ func TestE2E2_AbandonAndReturn(t *testing.T) {
 
 // E2E 3: 재동의 사이클
 func TestE2E3_ReconsentCycle(t *testing.T) {
-	loginSvc, deviceSvc, _, store, _, _ := setupE2ETest(t)
+	loginSvc, deviceSvc, _, store, _, clk := setupE2ETest(t)
 	ctx := context.Background()
 
 	// 1. Create complete user
@@ -185,7 +185,7 @@ func TestE2E3_ReconsentCycle(t *testing.T) {
 	}
 
 	// 4. Device/MCP should be rejected
-	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e3", "E2E3-CODE", time.Now().Add(5*time.Minute), []string{"openid"})
+	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e3", "E2E3-CODE", clk.Now().Add(5*time.Minute), []string{"openid"})
 	devResult := deviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E3-CODE", "127.0.0.1", "cli")
 	if devResult.Action != DeviceError || devResult.ErrorCode != 403 {
 		t.Fatalf("step 4: device should reject reconsent_required user, got action=%v code=%d", devResult.Action, devResult.ErrorCode)
@@ -212,7 +212,7 @@ func TestE2E3_ReconsentCycle(t *testing.T) {
 
 // E2E 4: 탈퇴 후 복구
 func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
-	loginSvc, deviceSvc, accountSvc, store, db, _ := setupE2ETest(t)
+	loginSvc, deviceSvc, accountSvc, store, db, clk := setupE2ETest(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "e2e4-full@test.com", true, "Test", "", "google", "e2e-sub", "e2e4-full@test.com")
@@ -237,7 +237,7 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 	}
 
 	// 3. Device/MCP should be rejected
-	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e4", "E2E4-CODE", time.Now().Add(5*time.Minute), []string{"openid"})
+	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e4", "E2E4-CODE", clk.Now().Add(5*time.Minute), []string{"openid"})
 	devResult := deviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E4-CODE", "127.0.0.1", "cli")
 	if devResult.Action != DeviceError || devResult.ErrorCode != 403 {
 		t.Fatalf("step 3: device should reject pending_deletion user, got action=%v code=%d", devResult.Action, devResult.ErrorCode)
@@ -260,7 +260,7 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 	if _, err := store.TokenRequestByRefreshToken(ctx, newRefreshToken); err != nil {
 		t.Fatalf("step 5: refresh should succeed after recovery, got err=%v", err)
 	}
-	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e4-ok", "E2E4-OK", time.Now().Add(5*time.Minute), []string{"openid"})
+	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e4-ok", "E2E4-OK", clk.Now().Add(5*time.Minute), []string{"openid"})
 	devResult2 := deviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E4-OK", "127.0.0.1", "cli")
 	if devResult2.Action != DeviceRedirectBack {
 		t.Fatalf("step 5: device should succeed after recovery, got action=%v", devResult2.Action)

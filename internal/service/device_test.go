@@ -14,7 +14,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
-func setupDeviceService(t *testing.T) (*DeviceService, *storage.Storage) {
+func setupDeviceService(t *testing.T) (*DeviceService, *storage.Storage, clock.Clock) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
 	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
@@ -31,22 +31,22 @@ func setupDeviceService(t *testing.T) (*DeviceService, *storage.Storage) {
 		},
 	}
 
-	svc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour)
-	return svc, store
+	svc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour, clk)
+	return svc, store, clk
 }
 
-func insertDeviceCode(t *testing.T, store *storage.Storage, userCode string) {
+func insertDeviceCode(t *testing.T, store *storage.Storage, userCode string, clk clock.Clock) {
 	t.Helper()
 	ctx := context.Background()
 	err := store.StoreDeviceAuthorization(ctx, "test-client", "dc-"+userCode, userCode,
-		time.Now().Add(5*time.Minute), []string{"openid"})
+		clk.Now().Add(5*time.Minute), []string{"openid"})
 	if err != nil {
 		t.Fatalf("insert device code: %v", err)
 	}
 }
 
 func TestDevicePage_NoUserCode_ShowEntry(t *testing.T) {
-	svc, _ := setupDeviceService(t)
+	svc, _, _ := setupDeviceService(t)
 	result := svc.HandleDevicePage(context.Background(), "", "")
 	if result.Action != DeviceShowEntry {
 		t.Errorf("action = %v, want DeviceShowEntry", result.Action)
@@ -54,7 +54,7 @@ func TestDevicePage_NoUserCode_ShowEntry(t *testing.T) {
 }
 
 func TestDevicePage_InvalidUserCode_ShowEntryWithError(t *testing.T) {
-	svc, _ := setupDeviceService(t)
+	svc, _, _ := setupDeviceService(t)
 	result := svc.HandleDevicePage(context.Background(), "INVALID", "")
 	if result.Action != DeviceShowEntry {
 		t.Errorf("action = %v, want DeviceShowEntry", result.Action)
@@ -65,8 +65,8 @@ func TestDevicePage_InvalidUserCode_ShowEntryWithError(t *testing.T) {
 }
 
 func TestDevicePage_ValidCode_NoSession_RedirectIdP(t *testing.T) {
-	svc, store := setupDeviceService(t)
-	insertDeviceCode(t, store, "BCDF-GHKM")
+	svc, store, clk := setupDeviceService(t)
+	insertDeviceCode(t, store, "BCDF-GHKM", clk)
 
 	result := svc.HandleDevicePage(context.Background(), "BCDF-GHKM", "")
 	if result.Action != DeviceRedirectIdP {
@@ -75,7 +75,7 @@ func TestDevicePage_ValidCode_NoSession_RedirectIdP(t *testing.T) {
 }
 
 func TestDevicePage_ValidCode_WithSession_ShowApprove(t *testing.T) {
-	svc, store := setupDeviceService(t)
+	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
 	// Create user with terms, session
@@ -83,7 +83,7 @@ func TestDevicePage_ValidCode_WithSession_ShowApprove(t *testing.T) {
 	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 
-	insertDeviceCode(t, store, "APPR-CODE")
+	insertDeviceCode(t, store, "APPR-CODE", clk)
 
 	result := svc.HandleDevicePage(ctx, "APPR-CODE", sessionID)
 	if result.Action != DeviceShowApprove {
@@ -92,14 +92,14 @@ func TestDevicePage_ValidCode_WithSession_ShowApprove(t *testing.T) {
 }
 
 func TestDevicePage_IncompleteUser_Rejected(t *testing.T) {
-	svc, store := setupDeviceService(t)
+	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
 	// Create user WITHOUT terms accepted
 	user, _ := store.CreateUserWithIdentity(ctx, "device-incomplete@test.com", true, "Test", "", "google", "device-incomplete-sub", "di@test.com")
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 
-	insertDeviceCode(t, store, "INCM-CODE")
+	insertDeviceCode(t, store, "INCM-CODE", clk)
 
 	result := svc.HandleDevicePage(ctx, "INCM-CODE", sessionID)
 	if result.Action != DeviceError {
@@ -111,14 +111,14 @@ func TestDevicePage_IncompleteUser_Rejected(t *testing.T) {
 }
 
 func TestDeviceApprove_Allow(t *testing.T) {
-	svc, store := setupDeviceService(t)
+	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "device-allow@test.com", true, "Test", "", "google", "device-allow-sub", "da@test.com")
 	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 
-	insertDeviceCode(t, store, "ALLW-CODE")
+	insertDeviceCode(t, store, "ALLW-CODE", clk)
 
 	result := svc.HandleDeviceApprove(ctx, "ALLW-CODE", "approve", sessionID, "127.0.0.1", "test")
 	if !result.Success {
@@ -127,14 +127,14 @@ func TestDeviceApprove_Allow(t *testing.T) {
 }
 
 func TestDeviceApprove_Deny(t *testing.T) {
-	svc, store := setupDeviceService(t)
+	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "device-deny@test.com", true, "Test", "", "google", "device-deny-sub", "dd@test.com")
 	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 
-	insertDeviceCode(t, store, "DENY-CODE")
+	insertDeviceCode(t, store, "DENY-CODE", clk)
 
 	result := svc.HandleDeviceApprove(ctx, "DENY-CODE", "deny", sessionID, "127.0.0.1", "test")
 	if result.Success {
@@ -143,8 +143,8 @@ func TestDeviceApprove_Deny(t *testing.T) {
 }
 
 func TestDeviceApprove_NoSession_Unauthorized(t *testing.T) {
-	svc, store := setupDeviceService(t)
-	insertDeviceCode(t, store, "NSES-CODE")
+	svc, store, clk := setupDeviceService(t)
+	insertDeviceCode(t, store, "NSES-CODE", clk)
 
 	result := svc.HandleDeviceApprove(context.Background(), "NSES-CODE", "approve", "", "127.0.0.1", "test")
 	if result.Success {
@@ -156,7 +156,7 @@ func TestDeviceApprove_NoSession_Unauthorized(t *testing.T) {
 }
 
 func TestDeviceCallback_NewUser_SignupRequired(t *testing.T) {
-	svc, _ := setupDeviceService(t)
+	svc, _, _ := setupDeviceService(t)
 	// FakeProvider returns a user that doesn't exist in DB yet
 	result := svc.HandleDeviceCallback(context.Background(), "fake-code", "CBCK-CODE", "127.0.0.1", "test")
 	if result.Action != DeviceError {
@@ -169,7 +169,7 @@ func TestDeviceCallback_NewUser_SignupRequired(t *testing.T) {
 
 // device-003: initial_onboarding_incomplete callback -> signup_required
 func TestDevice003_InitialIncompleteCallback_Rejected(t *testing.T) {
-	svc, store := setupDeviceExtTest(t, "dev-incomplete-sub")
+	svc, store, _ := setupDeviceExtTest(t, "dev-incomplete-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "device-incomplete-cb@test.com", true, "Test", "", "google", "dev-incomplete-sub", "dic@test.com")
@@ -185,7 +185,7 @@ func TestDevice003_InitialIncompleteCallback_Rejected(t *testing.T) {
 }
 
 func TestDeviceCallback_ExistingUser_RedirectBack(t *testing.T) {
-	svc, store := setupDeviceService(t)
+	svc, store, _ := setupDeviceService(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "device-cb@test.com", true, "Test", "", "google", "device-sub-123", "dc@test.com")
@@ -198,10 +198,14 @@ func TestDeviceCallback_ExistingUser_RedirectBack(t *testing.T) {
 	if result.UserCode != "RDIR-CODE" {
 		t.Errorf("userCode = %q, want RDIR-CODE", result.UserCode)
 	}
+	if result.SessionID == "" {
+		t.Error("sessionID should be returned for callback redirect")
+	}
 }
+
 // device-004: reconsent_required callback → signup_required
 func TestDevice004_ReconsentCallback_Rejected(t *testing.T) {
-	svc, store := setupDeviceExtTest(t, "dev-reconsent-sub")
+	svc, store, _ := setupDeviceExtTest(t, "dev-reconsent-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "dev-reconsent@test.com", true, "Test", "", "google", "dev-reconsent-sub", "dr@test.com")
@@ -214,11 +218,14 @@ func TestDevice004_ReconsentCallback_Rejected(t *testing.T) {
 	if result.ErrorCode != 403 {
 		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
 	}
+	if result.Error != "signup_required" {
+		t.Errorf("error = %q, want signup_required", result.Error)
+	}
 }
 
 // device-005: recoverable_browser_only callback → account_inactive
 func TestDevice005_RecoverableCallback_Rejected(t *testing.T) {
-	svc, store := setupDeviceExtTest(t, "dev-recover-sub")
+	svc, store, _ := setupDeviceExtTest(t, "dev-recover-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "dev-recover@test.com", true, "Test", "", "google", "dev-recover-sub", "drc@test.com")
@@ -236,7 +243,7 @@ func TestDevice005_RecoverableCallback_Rejected(t *testing.T) {
 
 // device-006: inactive callback → account_inactive
 func TestDevice006_InactiveCallback_Rejected(t *testing.T) {
-	svc, store := setupDeviceExtTest(t, "dev-inactive-sub")
+	svc, store, _ := setupDeviceExtTest(t, "dev-inactive-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "dev-inactive@test.com", true, "Test", "", "google", "dev-inactive-sub", "di@test.com")
@@ -253,13 +260,13 @@ func TestDevice006_InactiveCallback_Rejected(t *testing.T) {
 
 // device-010: approve 직전 reconsent_required로 변경 → signup_required
 func TestDevice010_ApproveAfterReconsentChange(t *testing.T) {
-	svc, store := setupDeviceExtTest(t, "dev-approve-change-sub")
+	svc, store, clk := setupDeviceExtTest(t, "dev-approve-change-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "dev-approve-chg@test.com", true, "Test", "", "google", "dev-approve-change-sub", "dac@test.com")
 	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
-	insertDeviceCode(t, store, "ACHG-CODE")
+	insertDeviceCode(t, store, "ACHG-CODE", clk)
 
 	// Change terms version AFTER session creation → reconsent_required
 	store.AcceptTerms(ctx, user.ID, "old-version", "old-version")
@@ -275,13 +282,13 @@ func TestDevice010_ApproveAfterReconsentChange(t *testing.T) {
 
 // device-011: approve 직전 inactive로 변경 → account_inactive
 func TestDevice011_ApproveAfterDisable(t *testing.T) {
-	svc, store := setupDeviceExtTest(t, "dev-approve-dis-sub")
+	svc, store, clk := setupDeviceExtTest(t, "dev-approve-dis-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "dev-approve-dis@test.com", true, "Test", "", "google", "dev-approve-dis-sub", "dad@test.com")
 	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
-	insertDeviceCode(t, store, "ADIS-CODE")
+	insertDeviceCode(t, store, "ADIS-CODE", clk)
 
 	// Disable user AFTER session creation
 	store.DisableUser(ctx, user.ID)
@@ -289,5 +296,8 @@ func TestDevice011_ApproveAfterDisable(t *testing.T) {
 	result := svc.HandleDeviceApprove(ctx, "ADIS-CODE", "approve", sessionID, "127.0.0.1", "test")
 	if result.Success {
 		t.Error("expected rejection after disable at approve time")
+	}
+	if result.Message != "account_inactive" {
+		t.Errorf("message = %q, want account_inactive", result.Message)
 	}
 }

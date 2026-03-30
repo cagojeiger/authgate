@@ -525,7 +525,7 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 	// Consumed → already issued
 	if dc.State == "consumed" {
 		tx.Commit()
-		return nil, errors.New("device code already consumed")
+		return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "device code already consumed"}
 	}
 
 	// Pending

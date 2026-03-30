@@ -103,7 +103,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 	})
 
 	t.Run("device", func(t *testing.T) {
-		svc, store := setupDeviceExtTest(t, "audit-device-sub")
+		svc, store, _ := setupDeviceExtTest(t, "audit-device-sub")
 		ctx := context.Background()
 
 		user, err := store.CreateUserWithIdentity(ctx, "audit-device@test.com", true, "Device", "", "google", "audit-device-sub", "audit-device@test.com")
@@ -179,7 +179,7 @@ func TestAudit003_TermsAccepted(t *testing.T) {
 }
 
 func TestAudit004_DeviceApproved(t *testing.T) {
-	svc, store := setupDeviceService(t)
+	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, "audit-approve@test.com", true, "Approve", "", "google", "device-sub-123", "audit-approve@test.com")
@@ -190,7 +190,7 @@ func TestAudit004_DeviceApproved(t *testing.T) {
 		t.Fatalf("accept terms: %v", err)
 	}
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
-	insertDeviceCode(t, store, "AUDT-APRV")
+	insertDeviceCode(t, store, "AUDT-APRV", clk)
 
 	result := svc.HandleDeviceApprove(ctx, "AUDT-APRV", "approve", sessionID, "127.0.0.1", "approve-agent")
 	if !result.Success {
@@ -201,7 +201,7 @@ func TestAudit004_DeviceApproved(t *testing.T) {
 }
 
 func TestAudit005_DeviceDenied(t *testing.T) {
-	svc, store := setupDeviceService(t)
+	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, "audit-deny@test.com", true, "Deny", "", "google", "device-sub-123", "audit-deny@test.com")
@@ -212,7 +212,7 @@ func TestAudit005_DeviceDenied(t *testing.T) {
 		t.Fatalf("accept terms: %v", err)
 	}
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
-	insertDeviceCode(t, store, "AUDT-DENY")
+	insertDeviceCode(t, store, "AUDT-DENY", clk)
 
 	result := svc.HandleDeviceApprove(ctx, "AUDT-DENY", "deny", sessionID, "127.0.0.1", "deny-agent")
 	if result.Success {
@@ -299,7 +299,7 @@ func TestAudit009_InactiveUser(t *testing.T) {
 }
 
 func TestAuditSecurity003_DeviceInactiveUser(t *testing.T) {
-	svc, store := setupDeviceExtTest(t, "audit-device-inactive-sub")
+	svc, store, _ := setupDeviceExtTest(t, "audit-device-inactive-sub")
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, "audit-device-inactive@test.com", true, "Inactive Device", "", "google", "audit-device-inactive-sub", "audit-device-inactive@test.com")

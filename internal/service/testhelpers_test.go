@@ -27,7 +27,7 @@ func setupMCPExtTest(t *testing.T, sub string) (*LoginService, *storage.Storage)
 }
 
 // setupDeviceExtTest creates a DeviceService with a configurable sub.
-func setupDeviceExtTest(t *testing.T, sub string) (*DeviceService, *storage.Storage) {
+func setupDeviceExtTest(t *testing.T, sub string) (*DeviceService, *storage.Storage, clock.Clock) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
 	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
@@ -37,8 +37,8 @@ func setupDeviceExtTest(t *testing.T, sub string) (*DeviceService, *storage.Stor
 	fakeProvider := &upstream.FakeProvider{
 		User: &upstream.UserInfo{Sub: sub, Email: sub + "@test.com", EmailVerified: true, Name: "Device Ext"},
 	}
-	svc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour)
-	return svc, store
+	svc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour, clk)
+	return svc, store, clk
 }
 
 // setupAccountExtTest creates an AccountService for account extended tests.
@@ -65,7 +65,7 @@ func setupGapTest(t *testing.T) (*LoginService, *DeviceService, *AccountService,
 		User: &upstream.UserInfo{Sub: "gap-sub", Email: "gap@test.com", EmailVerified: true, Name: "Gap User"},
 	}
 	loginSvc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
-	deviceSvc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour)
+	deviceSvc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour, clk)
 	accountSvc := NewAccountService(db, clk)
 	return loginSvc, deviceSvc, accountSvc, store, db, clk
 }

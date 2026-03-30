@@ -7,12 +7,21 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type GoogleProvider struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURI  string // e.g. https://auth.example.com/login/callback
+	client       *http.Client
+}
+
+func (g *GoogleProvider) httpClient() *http.Client {
+	if g.client != nil {
+		return g.client
+	}
+	return &http.Client{Timeout: 10 * time.Second}
 }
 
 func (g *GoogleProvider) AuthURL(state string) string {
@@ -42,7 +51,7 @@ func (g *GoogleProvider) Exchange(ctx context.Context, code string) (*UserInfo, 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := g.httpClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("token exchange: %w", err)
 	}
