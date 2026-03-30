@@ -8,6 +8,8 @@
 *.so
 *.dylib
 authgate
+app
+.playwright-mcp/
 
 # Test binary, built with `go test -c`
 *.test
