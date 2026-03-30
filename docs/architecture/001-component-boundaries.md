@@ -52,7 +52,7 @@ authgate는 zitadel이 소유하지 않는 엔드포인트(`/login`, `/device`, 
  │  guard   │   │  storage   │  │  pages   │
  │          │   │            │  │          │
  │ Derive   │   │ op.Storage │  │ terms    │
- │ LoginState│  │ 28 methods │  │ device   │
+ │ LoginState│  │ 22 + Dev 2 │  │ device   │
  │ Guard    │   │            │  │ result   │
  │ Channel  │   │ users      │  └──────────┘
  └──────────┘   │ sessions   │
@@ -340,12 +340,12 @@ mock 최소화 원칙:
 
 | 스펙 | 주요 컴포넌트 |
 |------|-------------|
-| Spec 001 (가입) | handler/login + storage/users |
-| Spec 002 (브라우저 로그인) | handler/login + guard + upstream + pages |
-| Spec 003 (Device 로그인) | handler/device + guard + storage/device |
-| Spec 004 (MCP 로그인) | handler/login (재사용) + guard |
-| Spec 005 (토큰 Lifecycle) | storage/tokens + guard (refresh 가드) |
-| Spec 006 (계정 Lifecycle) | handler/account + storage/users + storage/cleanup |
+| Spec 001 (가입) | handler/login + service/login + storage/users + upstream + pages |
+| Spec 002 (브라우저 로그인) | handler/login + service/login + guard + upstream + pages |
+| Spec 003 (Device 로그인) | handler/device + service/device + guard + storage/device + pages |
+| Spec 004 (MCP 로그인) | handler/login + service/login + guard |
+| Spec 005 (토큰 Lifecycle) | storage/tokens + guard (refresh 가드) + clock |
+| Spec 006 (계정 Lifecycle) | handler/account + service/account + service/cleanup + storage/users |
 | Spec 007 (데이터 모델) | storage/* + migrations/ |
 | Spec 008 (페이지) | pages/* |
-| Spec 009 (운영) | config + storage/keys + storage/cleanup |
+| Spec 009 (운영) | config + storage/keys + service/cleanup |

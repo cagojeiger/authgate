@@ -166,32 +166,64 @@ authgate key remove <kid>  # 구 키 제거
 -- confidential client (백엔드 앱, client_secret 있음)
 INSERT INTO oauth_clients (
   client_id, client_secret_hash, client_type, name,
-  redirect_uris, allowed_scopes
+  redirect_uris, allowed_scopes, allowed_grant_types
 ) VALUES (
   'my-web-app',
   '$2a$10$...bcrypt_hash...',
   'confidential',
   'My Web App',
   ARRAY['https://my-app.com/auth/callback'],
-  ARRAY['openid', 'profile', 'email']
+  ARRAY['openid', 'profile', 'email'],
+  ARRAY['authorization_code', 'refresh_token']
 );
 
 -- public client (SPA/CLI/MCP/브라우저 SPA, client_secret 없음)
 -- 브라우저 웹 앱도 SPA라면 public client로 등록 가능 (Spec 002 참조)
 INSERT INTO oauth_clients (
   client_id, client_secret_hash, client_type, name,
-  redirect_uris, allowed_scopes
+  redirect_uris, allowed_scopes, allowed_grant_types
 ) VALUES (
   'my-cli',
   NULL,
   'public',
   'My CLI Tool',
   ARRAY['http://localhost:8080/callback'],
-  ARRAY['openid', 'profile', 'email']
+  ARRAY['openid', 'profile', 'email'],
+  ARRAY['device_code', 'refresh_token']
 );
 ```
 
 **authgate 코드 변경 0줄.** DB에 INSERT하면 끝.
+
+### 클라이언트 삭제
+
+`auth_requests.client_id`, `device_codes.client_id`, `refresh_tokens.client_id`는
+`oauth_clients.client_id`를 논리 참조한다. FK는 없으므로 삭제 전 운영 절차로 정합성을 보장한다.
+
+```sql
+-- 1. 진행 중 auth_request 확인 (없어야 함)
+SELECT COUNT(*) FROM auth_requests WHERE client_id = 'my-cli' AND expires_at > NOW();
+
+-- 2. 진행 중 device_code 확인 (없어야 함)
+SELECT COUNT(*) FROM device_codes
+WHERE client_id = 'my-cli'
+  AND expires_at > NOW()
+  AND state IN ('pending', 'approved');
+
+-- 3. 남은 refresh_token 전부 revoke
+UPDATE refresh_tokens
+SET revoked_at = NOW()
+WHERE client_id = 'my-cli'
+  AND revoked_at IS NULL;
+
+-- 4. 확인 후 클라이언트 삭제
+DELETE FROM oauth_clients WHERE client_id = 'my-cli';
+```
+
+운영 규칙:
+- auth_requests/device_codes가 살아 있으면 클라이언트를 삭제하지 않는다.
+- refresh_tokens는 삭제 전 전부 revoke한다.
+- 실제 hard delete는 Spec 005 token cleanup 절차에 맡긴다.
 
 ## 일상 운영
 
