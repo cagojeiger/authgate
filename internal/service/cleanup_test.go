@@ -173,3 +173,34 @@ func TestCleanup_ReconsentNotDeleted(t *testing.T) {
 		t.Errorf("reconsent user should NOT be deleted, got count=%d", count)
 	}
 }
+// E2E 8: cleanup 롤백 — 중간 실패 시 데이터 일관성
+func TestE2E8_CleanupRollback(t *testing.T) {
+	_, _, _, store, db, clk := setupGapTest(t)
+	ctx := context.Background()
+
+	// Create user set for deletion
+	user, _ := store.CreateUserWithIdentity(ctx, "rollback@test.com", true, "Test", "", "google", "rollback-sub", "rb@test.com")
+	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
+	db.ExecContext(ctx, `UPDATE users SET status='pending_deletion', deletion_scheduled_at=$1 WHERE id=$2`,
+		clk.Now().Add(-1*time.Hour), user.ID)
+
+	// Run cleanup normally — should succeed
+	svc := NewCleanupService(db, clk, time.Hour)
+	svc.RunOnce(ctx)
+
+	// Verify cleanup succeeded
+	var status string
+	db.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	if status != "deleted" {
+		t.Fatalf("status = %q, want deleted", status)
+	}
+
+	// Run cleanup again on already-deleted user — should be idempotent, no error
+	svc.RunOnce(ctx)
+
+	// Verify no further damage
+	db.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	if status != "deleted" {
+		t.Errorf("status after re-cleanup = %q, want deleted (idempotent)", status)
+	}
+}

@@ -214,3 +214,85 @@ func TestHandleCallback_InactiveUser_Error(t *testing.T) {
 		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
 	}
 }
+// browser-004: reconsent_required → terms 재동의 표시
+func TestBrowser004_ReconsentRequired_ShowTerms(t *testing.T) {
+	svc, store := setupBrowserExtTest(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "reconsent@test.com", true, "Test", "", "google", "browser-ext-sub", "r@test.com")
+	store.AcceptTerms(ctx, user.ID, "old-version", "old-version") // wrong version
+
+	result := svc.HandleCallback(ctx, "fake-code", "req-reconsent", "127.0.0.1", "test")
+	if result.Action != ActionShowTerms {
+		t.Errorf("action = %v, want ShowTerms (reconsent_required)", result.Action)
+	}
+}
+
+// browser-terms-002: reconsent 재동의 완료 → onboarding_complete
+func TestBrowserTerms002_ReconsentComplete(t *testing.T) {
+	svc, store := setupBrowserExtTest(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "reconsent-done@test.com", true, "Test", "", "google", "reconsent-done-sub", "rd@test.com")
+	store.AcceptTerms(ctx, user.ID, "old-version", "old-version")
+	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
+	arID, _ := store.CreateTestAuthRequest(ctx, "reconsent-done")
+
+	result := svc.HandleTermsSubmit(ctx, arID, sessionID, true, true, true, "127.0.0.1", "test")
+	if result.Action != ActionAutoApprove {
+		t.Errorf("action = %v, want AutoApprove (reconsent done)", result.Action)
+	}
+}
+
+// browser-terms-004: age_confirm만 미선택 → 200 + 재표시
+func TestBrowserTerms004_AgeConfirmMissing(t *testing.T) {
+	svc, _ := setupBrowserExtTest(t)
+	ctx := context.Background()
+
+	result := svc.HandleTermsSubmit(ctx, "req-age", "session-age", true, true, false, "", "")
+	if result.Action != ActionShowTerms {
+		t.Errorf("action = %v, want ShowTerms (age_confirm missing)", result.Action)
+	}
+}
+
+// browser-terms: privacy만 미선택 → 200 + 재표시
+func TestBrowserTerms_PrivacyMissing(t *testing.T) {
+	svc, _ := setupBrowserExtTest(t)
+	ctx := context.Background()
+
+	result := svc.HandleTermsSubmit(ctx, "req-priv", "session-priv", true, false, true, "", "")
+	if result.Action != ActionShowTerms {
+		t.Errorf("action = %v, want ShowTerms (privacy missing)", result.Action)
+	}
+}
+// browser-007 / E2E 6: 복구 후 auth_request 완료 실패 → 재시도 멱등성
+func TestBrowser007_RecoveryRetryIdempotent(t *testing.T) {
+	loginSvc, _, _, store, _, _ := setupGapTest(t)
+	ctx := context.Background()
+
+	// Create complete user, then set to pending_deletion
+	user, _ := store.CreateUserWithIdentity(ctx, "retry@test.com", true, "Test", "", "google", "gap-sub", "r@test.com")
+	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
+	store.SetUserStatus(ctx, user.ID, "pending_deletion")
+
+	// First attempt: recovery succeeds, but use an invalid authRequestID so CompleteAuthRequest fails
+	result1 := loginSvc.HandleCallback(ctx, "fake-code", "invalid-ar-id", "127.0.0.1", "browser")
+	// Recovery happened (user is now active), but auth_request completion may fail
+	// The important thing: user is recovered
+
+	// Verify user is active (recovery persisted even if auth_request failed)
+	var status string
+	store.DB().QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	if status != "active" {
+		t.Fatalf("user should be active after recovery, got %q", status)
+	}
+
+	// Second attempt: retry login → should succeed normally (idempotent)
+	arID, _ := store.CreateTestAuthRequest(ctx, "retry")
+	result2 := loginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "browser")
+	if result2.Action != ActionAutoApprove {
+		t.Errorf("retry action = %v, want AutoApprove (recovery already done, terms accepted)", result2.Action)
+	}
+
+	_ = result1 // first result may be error, that's OK
+}

@@ -63,6 +63,9 @@ func (s *Storage) SetPreviousKey(key *rsa.PrivateKey, keyID string) {
 	s.previousKeyID = keyID
 }
 
+// DB returns the underlying *sql.DB. For testing only.
+func (s *Storage) DB() *sql.DB { return s.db }
+
 // hashToken returns SHA-256 hex hash of a token string.
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))

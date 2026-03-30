@@ -170,3 +170,69 @@ func TestE2E_DeleteThenReregister(t *testing.T) {
 		t.Errorf("expected 1 new user, got %d", newUserCount)
 	}
 }
+// account-005: initial_onboarding_incomplete → DELETE /account → pending_deletion
+func TestAccount005_IncompleteCanDelete(t *testing.T) {
+	svc, store := setupAccountExtTest(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "incomplete-del@test.com", true, "Test", "", "google", "incomplete-del-sub", "id@test.com")
+	// Don't accept terms → initial_onboarding_incomplete
+
+	result := svc.RequestDeletion(ctx, user.ID, "127.0.0.1", "test")
+	if !result.Success {
+		t.Errorf("expected success for incomplete user deletion, got: %s", result.Message)
+	}
+}
+
+// account-006: reconsent_required → DELETE /account → pending_deletion
+func TestAccount006_ReconsentCanDelete(t *testing.T) {
+	svc, store := setupAccountExtTest(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "reconsent-del@test.com", true, "Test", "", "google", "reconsent-del-sub", "rd@test.com")
+	store.AcceptTerms(ctx, user.ID, "old-version", "old-version")
+
+	result := svc.RequestDeletion(ctx, user.ID, "127.0.0.1", "test")
+	if !result.Success {
+		t.Errorf("expected success for reconsent user deletion, got: %s", result.Message)
+	}
+}
+
+// account-004: pending_deletion + Device/MCP → account_inactive (tested via device callback)
+// Already covered by TestDevice005_RecoverableCallback_Rejected
+// account-004: pending_deletion + Device login → account_inactive
+func TestAccount004_PendingDeletion_DeviceRejected(t *testing.T) {
+	_, deviceSvc, _, store, _, _ := setupGapTest(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "pd-device@test.com", true, "Test", "", "google", "gap-sub", "pd@test.com")
+	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
+	store.SetUserStatus(ctx, user.ID, "pending_deletion")
+
+	result := deviceSvc.HandleDeviceCallback(ctx, "fake-code", "PD-CODE", "127.0.0.1", "test")
+	if result.Action != DeviceError {
+		t.Errorf("action = %v, want DeviceError (pending_deletion on device)", result.Action)
+	}
+	if result.ErrorCode != 403 {
+		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
+	}
+}
+
+// account-004b: pending_deletion + MCP login → recovery (browser path)
+func TestAccount004b_PendingDeletion_MCPRecovery(t *testing.T) {
+	loginSvc, _, _, store, _, _ := setupGapTest(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "pd-mcp@test.com", true, "Test", "", "google", "gap-sub", "pdm@test.com")
+	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
+	store.SetUserStatus(ctx, user.ID, "pending_deletion")
+
+	// MCP uses browser path → recovery happens
+	arID, _ := store.CreateTestAuthRequest(ctx, "pd-mcp")
+	result := loginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+
+	// Browser path recovers pending_deletion
+	if result.Action != ActionAutoApprove {
+		t.Errorf("action = %v, want AutoApprove (MCP uses browser path, recovery + terms done)", result.Action)
+	}
+}
