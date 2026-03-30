@@ -25,7 +25,7 @@ func setupMCPTest(t *testing.T) (*LoginService, *storage.Storage) {
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
 
-	fakeProvider := &upstream.FakeProvider{
+	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "mcp-sub-123", Email: "mcp@test.com", EmailVerified: true, Name: "MCP User"},
 	}
 

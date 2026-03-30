@@ -113,7 +113,7 @@ func SetupTestServer(t *testing.T) *TestServer {
 	}
 
 	// Fake upstream that auto-approves
-	fakeProvider := &upstream.FakeProvider{
+	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "test-google-sub", Email: "test@example.com", EmailVerified: true, Name: "Test User"},
 	}
 

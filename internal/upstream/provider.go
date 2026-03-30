@@ -11,7 +11,7 @@ type UserInfo struct {
 	Picture       string
 }
 
-// Provider abstracts the upstream IdP (Google, Mock).
+// Provider abstracts the upstream OIDC IdP.
 type Provider interface {
 	// Name returns the provider identifier stored in user_identities.provider.
 	Name() string

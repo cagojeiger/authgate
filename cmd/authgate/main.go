@@ -120,42 +120,19 @@ func main() {
 		log.Fatalf("oidc provider: %v", err)
 	}
 
-	// Upstream IdP
-	var browserProvider upstream.Provider
-	var mcpProvider upstream.Provider
-	var deviceProvider upstream.Provider
-	if cfg.UpstreamProvider == "google" {
-		browserProvider = &upstream.GoogleProvider{
-			ClientID:     cfg.GoogleClientID,
-			ClientSecret: cfg.GoogleSecret,
-			RedirectURI:  cfg.PublicURL + "/login/callback",
-		}
-		mcpProvider = &upstream.GoogleProvider{
-			ClientID:     cfg.GoogleClientID,
-			ClientSecret: cfg.GoogleSecret,
-			RedirectURI:  cfg.PublicURL + "/mcp/callback",
-		}
-		deviceProvider = &upstream.GoogleProvider{
-			ClientID:     cfg.GoogleClientID,
-			ClientSecret: cfg.GoogleSecret,
-			RedirectURI:  cfg.PublicURL + "/device/auth/callback",
-		}
-	} else {
-		browserProvider = &upstream.MockProvider{
-			MockIDPURL:       cfg.MockIDPURL,
-			MockIDPPublicURL: cfg.MockIDPPublicURL,
-			RedirectURI:      cfg.PublicURL + "/login/callback",
-		}
-		mcpProvider = &upstream.MockProvider{
-			MockIDPURL:       cfg.MockIDPURL,
-			MockIDPPublicURL: cfg.MockIDPPublicURL,
-			RedirectURI:      cfg.PublicURL + "/mcp/callback",
-		}
-		deviceProvider = &upstream.MockProvider{
-			MockIDPURL:       cfg.MockIDPURL,
-			MockIDPPublicURL: cfg.MockIDPPublicURL,
-			RedirectURI:      cfg.PublicURL + "/device/auth/callback",
-		}
+	// Upstream IdP (OIDC Discovery)
+	ctx := context.Background()
+	browserProvider, err := upstream.NewOIDCProvider(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.PublicURL+"/login/callback")
+	if err != nil {
+		log.Fatalf("browser provider: %v", err)
+	}
+	mcpProvider, err := upstream.NewOIDCProvider(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.PublicURL+"/mcp/callback")
+	if err != nil {
+		log.Fatalf("mcp provider: %v", err)
+	}
+	deviceProvider, err := upstream.NewOIDCProvider(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.PublicURL+"/device/auth/callback")
+	if err != nil {
+		log.Fatalf("device provider: %v", err)
 	}
 
 	// Service layer
@@ -241,7 +218,7 @@ func main() {
 		srv.Shutdown(ctx)
 	}()
 
-	slog.Info("authgate starting", "addr", addr, "dev", cfg.DevMode, "provider", cfg.UpstreamProvider)
+	slog.Info("authgate starting", "addr", addr, "dev", cfg.DevMode, "issuer", cfg.OIDCIssuerURL, "provider", browserProvider.Name())
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server: %v", err)
 	}

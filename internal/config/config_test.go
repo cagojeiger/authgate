@@ -8,8 +8,7 @@ import (
 func clearEnv() {
 	for _, key := range []string{
 		"PORT", "DATABASE_URL", "SESSION_SECRET", "PUBLIC_URL",
-		"UPSTREAM_PROVIDER", "GOOGLE_CLIENT_ID", "GOOGLE_SECRET",
-		"MOCK_IDP_URL", "MOCK_IDP_PUBLIC_URL",
+		"OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL",
 		"TERMS_VERSION", "PRIVACY_VERSION", "DEV_MODE",
 	} {
@@ -60,32 +59,34 @@ func TestLoad_MissingPublicURL(t *testing.T) {
 	}
 }
 
-func TestLoad_DevModeFalseRequiresGoogle(t *testing.T) {
+func TestLoad_DevModeFalseRequiresHTTPS(t *testing.T) {
 	clearEnv()
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
-	os.Setenv("SESSION_SECRET", "secret")
+	os.Setenv("SESSION_SECRET", "test-secret-32-chars-long-enough!")
 	os.Setenv("PUBLIC_URL", "http://localhost")
 	os.Setenv("DEV_MODE", "false")
-	os.Setenv("UPSTREAM_PROVIDER", "mock")
+	os.Setenv("OIDC_ISSUER_URL", "http://localhost:8082")
+	os.Setenv("OIDC_CLIENT_ID", "id")
+	os.Setenv("OIDC_CLIENT_SECRET", "secret")
 
 	_, err := Load()
 	if err == nil {
-		t.Fatal("expected error: DEV_MODE=false requires google provider")
+		t.Fatal("expected error: DEV_MODE=false requires https:// OIDC_ISSUER_URL")
 	}
 }
 
-func TestLoad_DevModeFalseRequiresGoogleCredentials(t *testing.T) {
+func TestLoad_DevModeFalseRequiresOIDCCredentials(t *testing.T) {
 	clearEnv()
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
-	os.Setenv("SESSION_SECRET", "secret")
+	os.Setenv("SESSION_SECRET", "test-secret-32-chars-long-enough!")
 	os.Setenv("PUBLIC_URL", "http://localhost")
 	os.Setenv("DEV_MODE", "false")
-	os.Setenv("UPSTREAM_PROVIDER", "google")
-	// Missing GOOGLE_CLIENT_ID and GOOGLE_SECRET
+	os.Setenv("OIDC_ISSUER_URL", "https://accounts.google.com")
+	// Missing OIDC_CLIENT_SECRET
 
 	_, err := Load()
 	if err == nil {
-		t.Fatal("expected error: DEV_MODE=false requires Google credentials")
+		t.Fatal("expected error: DEV_MODE=false requires OIDC credentials")
 	}
 }
 
@@ -101,8 +102,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Port != 8080 {
 		t.Errorf("Port = %d, want 8080", cfg.Port)
 	}
-	if cfg.UpstreamProvider != "mock" {
-		t.Errorf("UpstreamProvider = %q, want mock", cfg.UpstreamProvider)
+	if cfg.OIDCIssuerURL != "http://localhost:8082" {
+		t.Errorf("OIDCIssuerURL = %q, want http://localhost:8082", cfg.OIDCIssuerURL)
+	}
+	if cfg.OIDCClientID != "authgate" {
+		t.Errorf("OIDCClientID = %q, want authgate", cfg.OIDCClientID)
 	}
 	if cfg.SessionTTL.Seconds() != 86400 {
 		t.Errorf("SessionTTL = %v, want 86400s", cfg.SessionTTL)
@@ -124,9 +128,9 @@ func TestLoad_DevModeFalseShortSessionSecret(t *testing.T) {
 	os.Setenv("SESSION_SECRET", "short") // < 32 chars
 	os.Setenv("PUBLIC_URL", "http://localhost")
 	os.Setenv("DEV_MODE", "false")
-	os.Setenv("UPSTREAM_PROVIDER", "google")
-	os.Setenv("GOOGLE_CLIENT_ID", "id")
-	os.Setenv("GOOGLE_SECRET", "secret")
+	os.Setenv("OIDC_ISSUER_URL", "https://accounts.google.com")
+	os.Setenv("OIDC_CLIENT_ID", "id")
+	os.Setenv("OIDC_CLIENT_SECRET", "secret")
 
 	_, err := Load()
 	if err == nil {

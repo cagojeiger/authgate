@@ -23,7 +23,7 @@ func setupAccountTest(t *testing.T) (*AccountService, *LoginService, *storage.St
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
 
-	fakeProvider := &upstream.FakeProvider{
+	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "acct-sub-123", Email: "acct@test.com", EmailVerified: true, Name: "Acct User"},
 	}
 

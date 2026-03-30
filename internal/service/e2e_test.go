@@ -43,7 +43,7 @@ func setupE2ETest(t *testing.T) (*LoginService, *DeviceService, *AccountService,
 	}
 	store := storage.New(db, clk, gen, stateChecker, 15*time.Minute, 30*24*time.Hour)
 
-	fakeProvider := &upstream.FakeProvider{
+	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "e2e-sub", Email: "e2e@test.com", EmailVerified: true, Name: "E2E User"},
 	}
 

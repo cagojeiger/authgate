@@ -39,7 +39,10 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 │  and accept our terms:           │
 │                                  │
 │  ☐ I agree to the Terms of      │
-│    Service and Privacy Policy    │
+│    Service                       │
+│                                  │
+│  ☐ I agree to the Privacy       │
+│    Policy                        │
 │                                  │
 │  ☐ I confirm that I am 13       │
 │    years or older                │

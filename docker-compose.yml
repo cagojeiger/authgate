@@ -16,11 +16,7 @@ services:
       retries: 10
 
   demo-idp:
-    build:
-      context: .
-      dockerfile: Dockerfile.demo
-      args:
-        DEMO_TARGET: idp
+    image: ghcr.io/cagojeiger/mock-google-oidc:latest
     ports:
       - "8082:8082"
     environment:
@@ -44,9 +40,9 @@ services:
       SESSION_SECRET: test-secret-32-chars-long-enough!
       PUBLIC_URL: http://localhost:8080
       DEV_MODE: "true"
-      UPSTREAM_PROVIDER: mock
-      MOCK_IDP_URL: http://demo-idp:8082
-      MOCK_IDP_PUBLIC_URL: http://localhost:8082
+      OIDC_ISSUER_URL: http://demo-idp:8082
+      OIDC_CLIENT_ID: authgate
+      OIDC_CLIENT_SECRET: ""
     ports:
       - "8080:8080"
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -12,11 +13,9 @@ type Config struct {
 	DatabaseURL      string
 	SessionSecret    string
 	PublicURL        string
-	UpstreamProvider string // "google" or "mock"
-	GoogleClientID   string
-	GoogleSecret     string
-	MockIDPURL       string
-	MockIDPPublicURL string
+	OIDCIssuerURL    string
+	OIDCClientID     string
+	OIDCClientSecret string
 	SessionTTL       time.Duration
 	AccessTokenTTL   time.Duration
 	RefreshTokenTTL  time.Duration
@@ -31,11 +30,9 @@ func Load() (*Config, error) {
 		DatabaseURL:      os.Getenv("DATABASE_URL"),
 		SessionSecret:    os.Getenv("SESSION_SECRET"),
 		PublicURL:        os.Getenv("PUBLIC_URL"),
-		UpstreamProvider: envDefault("UPSTREAM_PROVIDER", "mock"),
-		GoogleClientID:   os.Getenv("GOOGLE_CLIENT_ID"),
-		GoogleSecret:     os.Getenv("GOOGLE_SECRET"),
-		MockIDPURL:       envDefault("MOCK_IDP_URL", "http://localhost:8082"),
-		MockIDPPublicURL: envDefault("MOCK_IDP_PUBLIC_URL", "http://localhost:8082"),
+		OIDCIssuerURL:    envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
+		OIDCClientID:     envDefault("OIDC_CLIENT_ID", "authgate"),
+		OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
 		SessionTTL:       time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
 		AccessTokenTTL:   time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
 		RefreshTokenTTL:  time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
@@ -59,11 +56,11 @@ func Load() (*Config, error) {
 		if len(c.SessionSecret) < 32 {
 			return nil, fmt.Errorf("DEV_MODE=false requires SESSION_SECRET of at least 32 characters")
 		}
-		if c.UpstreamProvider != "google" {
-			return nil, fmt.Errorf("DEV_MODE=false requires UPSTREAM_PROVIDER=google (got %q)", c.UpstreamProvider)
+		if !strings.HasPrefix(c.OIDCIssuerURL, "https://") {
+			return nil, fmt.Errorf("DEV_MODE=false requires OIDC_ISSUER_URL with https:// (got %q)", c.OIDCIssuerURL)
 		}
-		if c.GoogleClientID == "" || c.GoogleSecret == "" {
-			return nil, fmt.Errorf("DEV_MODE=false requires GOOGLE_CLIENT_ID and GOOGLE_SECRET")
+		if c.OIDCClientID == "" || c.OIDCClientSecret == "" {
+			return nil, fmt.Errorf("DEV_MODE=false requires OIDC_CLIENT_ID and OIDC_CLIENT_SECRET")
 		}
 	}
 

@@ -152,6 +152,22 @@ erDiagram
 |--------|------|------|----------|
 | **audit_log** | 운영 이벤트 | 3년 보존 후 user_id 익명화 | 3년 후 user_id = NULL |
 
+#### event_type 목록
+
+| event_type | 설명 | 발생 위치 |
+|------------|------|----------|
+| `auth.signup` | 신규 가입 완료 | 브라우저 로그인 (신규 유저) |
+| `auth.login` | 로그인 성공 | 브라우저/Device/MCP 로그인 |
+| `auth.terms_accepted` | 약관/개인정보 동의 | 약관 페이지 제출 |
+| `auth.inactive_user` | 비활성 유저 로그인 시도 차단 | 브라우저/Device 로그인 |
+| `auth.device_approved` | Device 코드 승인 | Device 승인 페이지 |
+| `auth.device_denied` | Device 코드 거부 | Device 승인 페이지 |
+| `auth.deletion_requested` | 계정 삭제 요청 | 계정 삭제 API |
+| `auth.deletion_cancelled` | 삭제 예정 계정 복구 (재로그인) | 브라우저 로그인 |
+| `auth.deletion_completed` | PII 스크러빙 완료 | cleanup 배치 |
+| `auth.refresh_reuse_detected` | refresh token 재사용 감지 | 토큰 갱신 |
+| `auth.refresh_family_revoked` | refresh token 패밀리 전체 폐기 | 토큰 갱신 (재사용 시) |
+
 ## 인덱스
 
 ```sql

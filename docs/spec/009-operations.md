@@ -17,7 +17,8 @@ authgate를 처음 배포할 때 필요한 것:
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성
    → **승인된 리디렉션 URI** (IdP에 등록하는 것):
-     - `https://<authgate-domain>/login/callback` (브라우저/MCP 로그인용)
+     - `https://<authgate-domain>/login/callback` (브라우저 로그인용)
+     - `https://<authgate-domain>/mcp/callback` (MCP 로그인용)
      - `https://<authgate-domain>/device/auth/callback` (Device 로그인용)
    → OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET 획득
      - Google 예시: OIDC_ISSUER_URL=https://accounts.google.com

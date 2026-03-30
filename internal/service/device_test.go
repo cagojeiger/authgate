@@ -22,7 +22,7 @@ func setupDeviceService(t *testing.T) (*DeviceService, *storage.Storage, clock.C
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
 
-	fakeProvider := &upstream.FakeProvider{
+	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{
 			Sub:           "device-sub-123",
 			Email:         "device@example.com",

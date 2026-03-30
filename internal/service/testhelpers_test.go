@@ -34,7 +34,7 @@ func setupDeviceExtTest(t *testing.T, sub string) (*DeviceService, *storage.Stor
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
-	fakeProvider := &upstream.FakeProvider{
+	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: sub, Email: sub + "@test.com", EmailVerified: true, Name: "Device Ext"},
 	}
 	svc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour, clk)
@@ -61,7 +61,7 @@ func setupGapTest(t *testing.T) (*LoginService, *DeviceService, *AccountService,
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
-	fakeProvider := &upstream.FakeProvider{
+	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "gap-sub", Email: "gap@test.com", EmailVerified: true, Name: "Gap User"},
 	}
 	loginSvc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
@@ -78,7 +78,7 @@ func setupLoginServiceWithSub(t *testing.T, sub, email string) (*LoginService, *
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
-	fakeProvider := &upstream.FakeProvider{
+	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: sub, Email: email, EmailVerified: true, Name: "Test User"},
 	}
 	svc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
