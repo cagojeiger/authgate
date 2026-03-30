@@ -75,6 +75,7 @@ erDiagram
         text name
         text[] redirect_uris
         text[] allowed_scopes
+        text[] allowed_grant_types "authorization_code, device_code, refresh_token"
         timestamptz created_at
         timestamptz updated_at
     }

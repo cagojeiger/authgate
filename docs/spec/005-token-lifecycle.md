@@ -39,9 +39,9 @@ sequenceDiagram
     App->>AG: POST /oauth/token
     Note right of App: grant_type=refresh_token<br/>refresh_token=old_token<br/>client_id=my-app
 
-    AG->>AG: [zitadel] hashToken(old_token)
-    AG->>AG: DB 조회 (token_hash, revoked_at IS NULL, expires_at > NOW)
-    AG->>AG: 계정 상태 확인
+    AG->>AG: [zitadel] TokenRequestByRefreshToken(refresh_token)
+    AG->>AG: [storage] token_hash 조회 + user 조회
+    AG->>AG: [storage] DeriveLoginState와 동등한 상태 검증
 
     alt 유효 + DeriveLoginState = onboarding_complete
         AG->>AG: 구 토큰 revoke (revoked_at = NOW)
@@ -119,11 +119,18 @@ sequenceDiagram
 |-----------------|-------------------|------------------|------|
 | `onboarding_complete` | 허용 | 유효 (만료까지) | 정상 |
 | `reconsent_required` | 차단 | 유효 (만료까지) | 버전 변경, 재동의 필요 |
-| `initial_onboarding_incomplete` | 차단 | 유효 (만료까지) | 최초 가입 미완료 |
+| `initial_onboarding_incomplete` | 차단 | 정상 플로우에서는 없음* | 최초 가입 미완료 |
 | `recoverable_browser_only` | 차단 | 유효 (만료까지, 최대 15분) | 삭제 유예 중 |
 | `inactive` | 차단 | 유효 (만료까지, 최대 15분) | 정지/삭제 |
 
 refresh 허용 조건: `DeriveLoginState = onboarding_complete`. 약관/개인정보 버전이 변경되면 `reconsent_required`가 되어 재동의 전까지 refresh도 차단된다.
+
+**구현 위치 주의**: zitadel의 `RefreshTokenRequest` 인터페이스에는 사용자 상태 정보가 없으므로,
+authgate는 `storage.TokenRequestByRefreshToken` 구현 안에서 refresh_token → user를 조회하고
+`DeriveLoginState`와 동일한 규칙으로 차단 여부를 판단해야 한다.
+
+`*` 정상 가입 플로우에서는 `initial_onboarding_incomplete` 상태에서 access_token이 발급되지 않는다.
+이 항목은 과거 버그, 운영 실수, 데이터 손상 등으로 이미 발급된 access_token이 남아 있는 비정상 상태를 방어적으로 설명한 것이다.
 
 **access_token(JWT)은 stateless라 서버에서 즉시 폐기할 수 없다.**
 disabled/deleted 계정의 access_token은 만료(15분)를 기다린다.
@@ -200,6 +207,51 @@ sequenceDiagram
 | CLI | OS keychain 권장 | OS keychain 권장 (`~/.config/`는 차선) |
 | MCP 도구 | 도구 내부 메모리 | 도구 내부 storage |
 
+## Token/Session Cleanup
+
+Spec 006의 Cleanup Lifecycle에서 참조하는 토큰/세션 정리 절차:
+
+### Refresh Token Cleanup
+
+```sql
+-- revoke 후 30일 경과한 refresh_token hard delete
+DELETE FROM refresh_tokens
+WHERE revoked_at IS NOT NULL
+  AND revoked_at < NOW() - INTERVAL '30 days';
+
+-- 만료 후 30일 경과한 refresh_token hard delete
+DELETE FROM refresh_tokens
+WHERE expires_at < NOW() - INTERVAL '30 days';
+```
+
+revoke 직후 삭제하지 않는 이유: 재사용 탐지(Family Invalidation)를 위해 `used_at`/`revoked_at` 기록이 30일간 필요하다.
+
+### Session Cleanup
+
+```sql
+-- 만료된 세션 삭제
+DELETE FROM sessions
+WHERE expires_at < NOW();
+
+-- revoke된 세션 삭제
+DELETE FROM sessions
+WHERE revoked_at IS NOT NULL;
+```
+
+### 임시 데이터 Cleanup
+
+```sql
+-- 만료 후 1시간 경과한 auth_requests 삭제
+DELETE FROM auth_requests
+WHERE expires_at < NOW() - INTERVAL '1 hour';
+
+-- 만료 후 1시간 경과한 device_codes 삭제
+DELETE FROM device_codes
+WHERE expires_at < NOW() - INTERVAL '1 hour';
+```
+
+이 cleanup들은 주기적 goroutine으로 실행한다 (Spec 009 참조).
+
 ## 에러 케이스
 
 | 상황 | 에러 코드 | HTTP | 설명 |
@@ -207,6 +259,8 @@ sequenceDiagram
 | refresh_token 만료 | `invalid_grant` | 400 | 재로그인 필요 |
 | refresh_token 이미 사용됨 | `invalid_grant` | 400 | rotation 위반 |
 | 재사용 탐지 (탈취 의심) | `invalid_grant` | 400 | family 전체 revoke + 재로그인 |
+| `DeriveLoginState = initial_onboarding_incomplete` | `invalid_grant` | 400 | 브라우저에서 가입 완료 먼저 필요 |
+| `DeriveLoginState = reconsent_required` | `invalid_grant` | 400 | 브라우저에서 재동의 먼저 필요 |
 | 계정 disabled/deleted/pending_deletion | `invalid_grant` | 400 | 토큰 갱신 차단 |
 | client_id 불일치 | `invalid_client` | 400 | |
 

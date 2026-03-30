@@ -86,7 +86,7 @@ sequenceDiagram
     Note over U,DB: 5. 세션 생성 + 상위 플로우 복귀
     AG->>DB: INSERT sessions
     AG->>AG: Set-Cookie (authgate_session)
-    AG->>AG: CompleteAuthRequest → 브라우저 로그인 플로우로 복귀
+    AG->>AG: auth_request에 subject 연결 + 로그인 완료 상태 반영 → 브라우저 로그인 플로우로 복귀
     Note over U,DB: → Spec 002 브라우저 로그인의 토큰 발급 단계로 이어짐
 ```
 
@@ -146,6 +146,7 @@ users:
   email:               Google 이메일 (표시용)
   email_verified:      Google 검증 결과
   name:                Google 프로필 이름
+  avatar_url:          Google picture (프로필 이미지 URL)
   status:              'active'
   terms_version:       NULL (약관 동의 후 설정)
   terms_accepted_at:   NULL (약관 동의 후 설정)
