@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>authgate - Error</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f5f5f5; }
+  .card { background: #fff; border-radius: 12px; padding: 2rem; max-width: 420px; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; }
+  h1 { font-size: 1.5rem; color: #c00; margin-bottom: 1rem; }
+  p { color: #666; font-size: 0.9rem; }
+  .brand { color: #999; font-size: 0.75rem; margin-top: 1.5rem; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>{{.Code}}</h1>
+  <p>{{.Message}}</p>
+  <div class="brand">authgate</div>
+</div>
+</body>
+</html>

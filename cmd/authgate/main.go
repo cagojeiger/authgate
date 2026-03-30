@@ -19,8 +19,11 @@ import (
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/config"
 	"github.com/kangheeyong/authgate/internal/guard"
+	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
+	"github.com/kangheeyong/authgate/internal/service"
 	"github.com/kangheeyong/authgate/internal/storage"
+	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
 func main() {
@@ -117,12 +120,45 @@ func main() {
 		log.Fatalf("oidc provider: %v", err)
 	}
 
+	// Upstream IdP
+	var idpProvider upstream.Provider
+	if cfg.UpstreamProvider == "google" {
+		idpProvider = &upstream.GoogleProvider{
+			ClientID:     cfg.GoogleClientID,
+			ClientSecret: cfg.GoogleSecret,
+			RedirectURI:  cfg.PublicURL + "/login/callback",
+		}
+	} else {
+		idpProvider = &upstream.MockProvider{
+			MockIDPURL:       cfg.MockIDPURL,
+			MockIDPPublicURL: cfg.MockIDPPublicURL,
+			RedirectURI:      cfg.PublicURL + "/login/callback",
+		}
+	}
+
+	// Service layer
+	loginService := service.NewLoginService(store, idpProvider, cfg.TermsVersion, cfg.PrivacyVersion, cfg.SessionTTL)
+
+	// Handler layer
+	loginHandler := handler.NewLoginHandler(loginService, cfg.DevMode)
+
 	// Mux: zitadel owns /.well-known/*, /authorize, /oauth/*, etc.
 	// authgate adds /login, /device, /account, /health, /ready
 	mux := http.NewServeMux()
 
 	// zitadel provider handles all OIDC routes
 	mux.Handle("/", provider)
+
+	// authgate login routes
+	mux.HandleFunc("/login", loginHandler.HandleLogin)
+	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
+	mux.HandleFunc("/login/terms", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			loginHandler.HandleLogin(w, r)
+		} else {
+			loginHandler.HandleTermsSubmit(w, r)
+		}
+	})
 
 	// Health endpoints
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

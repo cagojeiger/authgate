@@ -88,6 +88,37 @@ func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*
 	return u, err
 }
 
+// RecoverUser atomically recovers a pending_deletion user to active.
+// Uses SELECT FOR UPDATE to prevent race conditions.
+func (s *Storage) RecoverUser(ctx context.Context, userID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := s.clock.Now()
+	var status string
+	err = tx.QueryRowContext(ctx,
+		`SELECT status FROM users WHERE id = $1 FOR UPDATE`, userID,
+	).Scan(&status)
+	if err != nil {
+		return err
+	}
+	if status != "pending_deletion" {
+		return tx.Commit() // Not pending_deletion, nothing to do
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`UPDATE users SET status = 'active', deletion_requested_at = NULL, deletion_scheduled_at = NULL, updated_at = $1
+		 WHERE id = $2`, now, userID,
+	)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Storage) AcceptTerms(ctx context.Context, userID, termsVersion, privacyVersion string) error {
 	now := s.clock.Now()
 	_, err := s.db.ExecContext(ctx,
@@ -131,6 +162,27 @@ func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, user
 		}
 	}
 	return nil
+}
+
+// DisableUser sets a user's status to disabled.
+func (s *Storage) DisableUser(ctx context.Context, userID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE users SET status = 'disabled', updated_at = $1 WHERE id = $2`,
+		s.clock.Now(), userID,
+	)
+	return err
+}
+
+// CreateTestAuthRequest creates a minimal auth request for testing purposes.
+// Returns the UUID id assigned to the auth request.
+func (s *Storage) CreateTestAuthRequest(ctx context.Context, label string) (string, error) {
+	id := s.idgen.NewUUID()
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO auth_requests (id, client_id, redirect_uri, scopes, expires_at, created_at)
+		 VALUES ($1, 'test-app', 'http://localhost/callback', '{openid}', $2, $3)`,
+		id, s.clock.Now().Add(10*time.Minute), s.clock.Now(),
+	)
+	return id, err
 }
 
 // Session management
