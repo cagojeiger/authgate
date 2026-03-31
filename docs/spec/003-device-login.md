@@ -57,10 +57,10 @@ sequenceDiagram
     AG-->>U: device_entry.html (코드 입력 폼)
     U->>AG: GET /device?user_code=BCDF-GHKM
     AG->>AG: user_code 유효성 + 만료 확인
-    AG-->>U: device_approve.html (승인/거부 버튼)
 
-    Note over CLI,IdP: 4. 세션 확인 + 승인
+    Note over CLI,IdP: 4. 세션 확인 (GET 시점) + 승인
     alt 유효한 세션 있음
+        AG-->>U: device_approve.html (승인/거부 버튼)
         U->>AG: POST /device/approve (user_code, action=approve)
         AG->>AG: getSessionUser → user.Status 상태 검사
         AG->>AG: CompleteDeviceAuthorization(userCode, userID)
@@ -76,6 +76,8 @@ sequenceDiagram
         Note over AG: active가 아니면 즉시 차단 (403)
         AG->>AG: 세션 생성
         AG->>U: 302 → /device?user_code=BCDF-GHKM (복귀)
+        U->>AG: GET /device?user_code=BCDF-GHKM (세션 있음)
+        AG-->>U: device_approve.html
         U->>AG: POST /device/approve (승인)
         AG->>AG: CompleteDeviceAuthorization
         AG-->>U: result.html

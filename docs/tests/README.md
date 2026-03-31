@@ -13,6 +13,7 @@
 | 002 | [채널 플로우 테스트](002-channel-flows.md) | Browser / Device / MCP / Refresh / Delete 플로우별 검증 |
 | 003 | [E2E 사이클 테스트](003-e2e-cycles.md) | 가입 → 사용 → 탈퇴 → 복구/삭제 → 재가입 전체 사이클 검증 |
 | 004 | [감사 이벤트 테스트](004-audit-events.md) | `audit_log.event_type`와 metadata 기록 검증 |
+| 005 | [Upstream Provider 테스트](005-upstream-provider.md) | OIDCProvider discovery/exchange/userinfo 검증 |
 
 ## 구조
 

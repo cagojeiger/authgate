@@ -12,7 +12,7 @@ authgate를 처음 배포할 때 필요한 것:
 ```
 1. PostgreSQL 준비
    → DB 생성 (authgate)
-   → 마이그레이션 실행 (001_init.sql, 002_mcp_resource_binding.sql)
+   → 마이그레이션 실행 (001_init.sql)
 
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성
@@ -46,8 +46,9 @@ authgate를 처음 배포할 때 필요한 것:
 | `DATABASE_URL` | O | — | PostgreSQL 연결 문자열 |
 | `SESSION_SECRET` | O | — | OIDC 암호화 키 (최소 32자) |
 | `PUBLIC_URL` | O | — | 외부 접근 URL (예: `https://auth.example.com`) |
-| `OIDC_ISSUER_URL` | O | — | OIDC IdP issuer URL (예: `https://accounts.google.com`) |
-| `OIDC_CLIENT_ID` | O | — | OIDC Client ID |
+| `OIDC_ISSUER_URL` | X | `http://localhost:8082` | OIDC IdP issuer URL (예: `https://accounts.google.com`) |
+| `OIDC_INTERNAL_URL` | X | — | 서버 간 OIDC 호출용 내부 URL (Docker/K8s 환경) |
+| `OIDC_CLIENT_ID` | X | `authgate` | OIDC Client ID |
 | `OIDC_CLIENT_SECRET` | O | — | OIDC Client Secret |
 | `SESSION_TTL` | X | `86400` | 세션 수명 (초) |
 | `ACCESS_TOKEN_TTL` | X | `900` | access_token 수명 (초, 15분) |
@@ -58,7 +59,7 @@ authgate를 처음 배포할 때 필요한 것:
 ### 프로덕션 필수 조건
 
 `DEV_MODE=false` (기본값)일 때 다음이 강제됨:
-- `SESSION_SECRET`이 기본값이면 **서버 시작 거부**
+- `SESSION_SECRET`이 비어있거나 32자 미만이면 **서버 시작 거부**
 - `OIDC_ISSUER_URL`이 `https://`로 시작하지 않으면 **서버 시작 거부**
 - 쿠키 `Secure=true`
 - `op.WithAllowInsecure()` 비활성
