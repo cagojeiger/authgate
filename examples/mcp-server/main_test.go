@@ -23,3 +23,40 @@ func TestContainsAudience(t *testing.T) {
 		})
 	}
 }
+
+func TestProtectedResourceMetadataURL(t *testing.T) {
+	tests := []struct {
+		name            string
+		resourceURL     string
+		wantMetadataURL string
+		wantPath        string
+	}{
+		{
+			name:            "root resource",
+			resourceURL:     "https://host.example.com",
+			wantMetadataURL: "https://host.example.com/.well-known/oauth-protected-resource",
+			wantPath:        "/.well-known/oauth-protected-resource",
+		},
+		{
+			name:            "path resource",
+			resourceURL:     "https://host.example.com/mcp",
+			wantMetadataURL: "https://host.example.com/.well-known/oauth-protected-resource/mcp",
+			wantPath:        "/.well-known/oauth-protected-resource/mcp",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotURL, gotPath, err := protectedResourceMetadataURL(tt.resourceURL)
+			if err != nil {
+				t.Fatalf("protectedResourceMetadataURL error: %v", err)
+			}
+			if gotURL != tt.wantMetadataURL {
+				t.Fatalf("metadata url = %q, want %q", gotURL, tt.wantMetadataURL)
+			}
+			if gotPath != tt.wantPath {
+				t.Fatalf("metadata path = %q, want %q", gotPath, tt.wantPath)
+			}
+		})
+	}
+}
