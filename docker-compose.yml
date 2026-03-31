@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: authgate
+      POSTGRES_USER: authgate
+      POSTGRES_PASSWORD: authgate
+    volumes:
+      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authgate"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  mock-idp:
+    image: ghcr.io/cagojeiger/mock-google-oidc:v0.3.0
+    ports:
+      - "8082:8082"
+    environment:
+      PUBLIC_URL: http://localhost:8082
+
+  authgate:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./clients.yaml:/etc/authgate/clients.yaml:ro
+    environment:
+      DATABASE_URL: postgres://authgate:authgate@db:5432/authgate?sslmode=disable
+      SESSION_SECRET: "test-session-secret-32chars-long!"
+      PUBLIC_URL: http://localhost:8080
+      DEV_MODE: "true"
+      OIDC_ISSUER_URL: http://localhost:8082
+      OIDC_INTERNAL_URL: http://mock-idp:8082
+      OIDC_CLIENT_ID: authgate
+      OIDC_CLIENT_SECRET: fake-secret
+    depends_on:
+      db:
+        condition: service_healthy
+      mock-idp:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/health || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+    restart: on-failure
+
+  sample-app:
+    build:
+      context: ./examples/webapp
+      dockerfile: Dockerfile
+    ports:
+      - "9090:9090"
+    environment:
+      AUTHGATE_ISSUER: http://authgate:8080
+      AUTHGATE_BROWSER_URL: http://localhost:8080
+      CLIENT_ID: sample-app
+      SELF_URL: http://localhost:9090
+      LISTEN_ADDR: ":9090"
+    depends_on:
+      authgate:
+        condition: service_started
+    restart: on-failure

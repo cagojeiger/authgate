@@ -7,6 +7,12 @@
 *.dll
 *.so
 *.dylib
+authgate
+app
+.playwright-mcp/
+/examples/cli/cli
+/examples/webapp/webapp
+/examples/mcp-server/mcp-server
 
 # Test binary, built with `go test -c`
 *.test
@@ -16,6 +22,10 @@
 coverage.*
 *.coverprofile
 profile.cov
+*.log
+
+# OS files
+.DS_Store
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
@@ -24,9 +34,14 @@ profile.cov
 go.work
 go.work.sum
 
+# Go build cache
+.gocache/
+
 # env file
 .env
 
 # Editor/IDE
 # .idea/
 # .vscode/
+.omc/
+signing_key.pem
