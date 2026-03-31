@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>authgate - Confirm Device</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f5f5f5; }
+  .card { background: #fff; border-radius: 12px; padding: 2rem; max-width: 420px; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  h1 { font-size: 1.1rem; color: #333; margin-bottom: 0.5rem; text-align: center; }
+  .subtitle { color: #666; font-size: 0.9rem; text-align: center; margin-bottom: 1.5rem; }
+  .code-display { background: #f0f0f0; border-radius: 8px; padding: 1rem; text-align: center; font-size: 1.5rem; font-family: monospace; letter-spacing: 0.2em; margin-bottom: 1.5rem; }
+  .btn-group { display: flex; gap: 0.75rem; }
+  button { flex: 1; padding: 0.75rem; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; }
+  .btn-allow { background: #111; color: #fff; }
+  .btn-allow:hover { background: #333; }
+  .btn-deny { background: #f0f0f0; color: #333; }
+  .btn-deny:hover { background: #ddd; }
+  .brand { text-align: center; color: #999; font-size: 0.75rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Confirm Device Authorization</h1>
+  <p class="subtitle">A CLI application is requesting access with this code:</p>
+  <div class="code-display">{{.UserCode}}</div>
+  <form method="POST" action="/device/approve">
+    <input type="hidden" name="user_code" value="{{.UserCode}}">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <div class="btn-group">
+      <button type="submit" name="action" value="approve" class="btn-allow">Allow</button>
+      <button type="submit" name="action" value="deny" class="btn-deny">Deny</button>
+    </div>
+  </form>
+  <div class="brand">authgate</div>
+</div>
+</body>
+</html>

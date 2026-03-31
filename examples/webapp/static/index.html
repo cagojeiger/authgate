@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sample App — authgate</title>
+<style>
+  :root {
+    --bg: #111315;
+    --panel: #171a1d;
+    --panel-2: #1d2125;
+    --border: #2b3137;
+    --text: #e6edf3;
+    --muted: #9da7b3;
+    --primary: #2f81f7;
+    --primary-hover: #1f6feb;
+    --success: #3fb950;
+    --error: #f85149;
+    --json-key: #79c0ff;
+    --json-string: #a5d6ff;
+    --json-number: #7ee787;
+    --json-bool: #d2a8ff;
+    --json-null: #8b949e;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    background:
+      radial-gradient(circle at top left, rgba(47,129,247,0.12), transparent 35%),
+      radial-gradient(circle at bottom right, rgba(63,185,80,0.08), transparent 30%),
+      var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+
+  .app {
+    max-width: 920px;
+    margin: 0 auto;
+    display: grid;
+    gap: 16px;
+  }
+
+  .hero, .card {
+    background: rgba(23, 26, 29, 0.92);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 18px 60px rgba(0,0,0,0.28);
+  }
+
+  .hero {
+    padding: 24px;
+    display: grid;
+    gap: 16px;
+  }
+
+  .eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .hero h1 {
+    font-size: 28px;
+    line-height: 1.2;
+    font-weight: 700;
+  }
+
+  .hero p {
+    color: var(--muted);
+    line-height: 1.6;
+    max-width: 680px;
+    font-size: 14px;
+  }
+
+  .status-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .status-badge::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .status-badge.online {
+    background: rgba(63,185,80,0.12);
+    color: var(--success);
+  }
+
+  .status-badge.offline {
+    background: rgba(248,81,73,0.12);
+    color: var(--error);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    text-decoration: none;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .btn:hover { border-color: #3d444d; }
+
+  .btn-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+
+  .btn-primary:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .card {
+    padding: 20px;
+    display: grid;
+    gap: 12px;
+  }
+
+  .card h2 {
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .tag {
+    font-size: 10px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .tag-get {
+    background: rgba(47,129,247,0.12);
+    color: #79c0ff;
+  }
+
+  .meta {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .json-block {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .json-key { color: var(--json-key); }
+  .json-string { color: var(--json-string); }
+  .json-number { color: var(--json-number); }
+  .json-bool { color: var(--json-bool); }
+  .json-null { color: var(--json-null); }
+
+  .footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 12px;
+  }
+
+  .footer-links a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  .footer-links a:hover { color: var(--text); }
+
+  @media (max-width: 640px) {
+    body { padding: 16px 12px; }
+    .hero, .card { border-radius: 14px; }
+    .hero h1 { font-size: 22px; }
+    .actions { display: grid; grid-template-columns: 1fr; }
+    .btn { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <section class="hero">
+    <div class="eyebrow">authgate sample app</div>
+    <h1>로그인 상태와 보호 API 결과를 바로 보여주는 가장 단순한 데모</h1>
+    <p>
+      이 화면은 authgate 연동이 실제로 동작하는지만 빠르게 확인하기 위한 샘플입니다.
+      로그인 전에는 진입 버튼만, 로그인 후에는 사용자 정보와 보호 API 응답이 자동으로 표시됩니다.
+    </p>
+    <div class="status-row" id="status-row"></div>
+    <div class="actions" id="actions"></div>
+  </section>
+
+  <div class="grid" id="content"></div>
+</div>
+
+<script>
+function syntaxHighlight(json) {
+  if (typeof json !== 'string') json = JSON.stringify(json, null, 2);
+  return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, m => {
+    let cls = 'json-number';
+    if (/^"/.test(m)) cls = /:$/.test(m) ? 'json-key' : 'json-string';
+    else if (/true|false/.test(m)) cls = 'json-bool';
+    else if (/null/.test(m)) cls = 'json-null';
+    return `<span class="${cls}">${m}</span>`;
+  });
+}
+
+function renderLoggedOut() {
+  document.getElementById('status-row').innerHTML =
+    '<div class="status-badge offline">Not Authenticated</div>';
+
+  document.getElementById('actions').innerHTML =
+    '<a href="/auth/login" class="btn btn-primary">Sign in with authgate</a>';
+
+  document.getElementById('content').innerHTML = `
+    <section class="card">
+      <h2>시작 방법</h2>
+      <div class="meta">
+        클릭은 하나만 필요합니다. 로그인 후 이 화면으로 돌아오면 사용자 정보와 보호 API 응답이 자동으로 표시됩니다.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>연결 구조</h2>
+      <div class="json-block">browser
+  -> sample-app (/auth/login)
+  -> authgate (/authorize, /oauth/token, /userinfo)
+  -> upstream IdP</div>
+    </section>
+
+    <section class="card">
+      <h2>도움 링크</h2>
+      <div class="footer-links">
+        <a href="http://localhost:8080/.well-known/openid-configuration" target="_blank" rel="noreferrer">OpenID Discovery</a>
+        <a href="http://localhost:8080/keys" target="_blank" rel="noreferrer">JWKS</a>
+      </div>
+    </section>`;
+}
+
+function renderLoggedIn(user, apiData) {
+  document.getElementById('status-row').innerHTML =
+    '<div class="status-badge online">Authenticated</div>';
+
+  document.getElementById('actions').innerHTML = `
+    <a href="/auth/logout" class="btn">Sign out</a>
+    <button class="btn" onclick="window.location.reload()">Refresh View</button>`;
+
+  document.getElementById('content').innerHTML = `
+    <section class="card">
+      <h2><span class="tag tag-get">GET</span> /api/me</h2>
+      <div class="meta">로그인된 사용자 정보입니다. authgate가 발급한 토큰과 userinfo를 기반으로 표시됩니다.</div>
+      <div class="json-block">${syntaxHighlight(user)}</div>
+    </section>
+
+    <section class="card">
+      <h2><span class="tag tag-get">GET</span> /api/data</h2>
+      <div class="meta">보호 API 호출 결과입니다. 별도 클릭 없이 자동으로 불러옵니다.</div>
+      <div class="json-block">${syntaxHighlight(apiData)}</div>
+    </section>
+
+    <section class="card">
+      <h2>세션 / 쿠키 메모</h2>
+      <div class="json-block">document.cookie = ${document.cookie || '(empty — all cookies are httpOnly, which is correct)'}
+
+httpOnly cookies (access_token, sid) are sent automatically by the browser
+but are not accessible via JavaScript. This is the expected behavior.</div>
+    </section>`;
+}
+
+async function init() {
+  try {
+    const meRes = await fetch('/api/me');
+    if (meRes.status === 401) {
+      renderLoggedOut();
+      return;
+    }
+    const user = await meRes.json();
+
+    let apiData = { info: 'failed to load /api/data' };
+    try {
+      const apiRes = await fetch('/api/data');
+      apiData = apiRes.ok ? await apiRes.json() : { error: `HTTP ${apiRes.status}` };
+    } catch (err) {
+      apiData = { error: err.message };
+    }
+
+    renderLoggedIn(user, apiData);
+  } catch (_) {
+    renderLoggedOut();
+  }
+}
+
+init();
+</script>
+</body>
+</html>

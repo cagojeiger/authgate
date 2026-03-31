@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>authgate - Device Authorization</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f5f5f5; }
+  .card { background: #fff; border-radius: 12px; padding: 2rem; max-width: 420px; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+  h1 { font-size: 1.1rem; color: #333; margin-bottom: 0.5rem; text-align: center; }
+  .subtitle { color: #666; font-size: 0.9rem; text-align: center; margin-bottom: 1.5rem; }
+  input[type="text"] { width: 100%; padding: 0.75rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1.2rem; text-align: center; text-transform: uppercase; letter-spacing: 0.15em; }
+  input[type="text"]:focus { outline: none; border-color: #111; }
+  .error { background: #fee; border: 1px solid #fcc; color: #c00; padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.85rem; }
+  button { width: 100%; padding: 0.75rem; background: #111; color: #fff; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; margin-top: 1rem; }
+  button:hover { background: #333; }
+  .brand { text-align: center; color: #999; font-size: 0.75rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Device Authorization</h1>
+  <p class="subtitle">Enter the code displayed in your terminal:</p>
+  {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+  <form method="GET" action="/device">
+    <input type="text" name="user_code" maxlength="9" placeholder="XXXX-XXXX" autofocus required value="{{.UserCode}}">
+    <button type="submit">Continue</button>
+  </form>
+  <div class="brand">authgate</div>
+</div>
+</body>
+</html>
