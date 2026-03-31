@@ -11,10 +11,6 @@ CREATE TABLE users (
     avatar_url            TEXT,
     status                TEXT NOT NULL DEFAULT 'active'
                           CHECK (status IN ('active', 'disabled', 'pending_deletion', 'deleted')),
-    terms_version         TEXT,
-    terms_accepted_at     TIMESTAMPTZ,
-    privacy_version       TEXT,
-    privacy_accepted_at   TIMESTAMPTZ,
     deletion_requested_at TIMESTAMPTZ,
     deletion_scheduled_at TIMESTAMPTZ,
     deleted_at            TIMESTAMPTZ,
@@ -58,6 +54,7 @@ CREATE TABLE refresh_tokens (
     user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
     client_id  TEXT NOT NULL,
+    resource   TEXT,
     scopes     TEXT[] NOT NULL DEFAULT '{}',
     expires_at TIMESTAMPTZ NOT NULL,
     revoked_at TIMESTAMPTZ,
@@ -89,6 +86,7 @@ CREATE TABLE oauth_clients (
 CREATE TABLE auth_requests (
     id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     client_id             TEXT NOT NULL,
+    resource              TEXT,
     redirect_uri          TEXT NOT NULL,
     scopes                TEXT[] NOT NULL DEFAULT '{}',
     state                 TEXT,

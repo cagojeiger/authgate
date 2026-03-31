@@ -19,15 +19,14 @@
 |----|----------|------------|-------------|
 | `audit-001` | Browser 신규 가입 | `auth.signup` | 계정 생성 직후 1회 기록 |
 | `audit-002` | Browser/MCP/Device 로그인 성공 | `auth.login` | `metadata.channel`이 `browser/device/mcp` 중 하나로 기록 |
-| `audit-003` | 약관/개인정보 동의 완료 | `auth.terms_accepted` | `metadata.terms_version`, `metadata.privacy_version` 기록 |
-| `audit-004` | Device 승인 | `auth.device_approved` | 승인 시 1회 기록 |
-| `audit-005` | Device 거부 | `auth.device_denied` | 거부 시 1회 기록 |
-| `audit-006` | DELETE /account | `auth.deletion_requested` | 삭제 요청 시 즉시 기록 |
-| `audit-007` | pending_deletion Browser 복구 | `auth.deletion_cancelled` | 자동 복구 시 기록 |
-| `audit-008` | deletion cleanup 완료 | `auth.deletion_completed` | PII 스크러빙 완료 시 기록 |
-| `audit-009` | disabled/deleted 로그인 시도 | `auth.inactive_user` | `metadata.status` 포함 |
-| `audit-010` | refresh token 재사용 탐지 | `auth.refresh_reuse_detected` | `metadata.family_id` 기록 |
-| `audit-011` | family 전체 revoke | `auth.refresh_family_revoked` | `metadata.family_id` 기록 |
+| `audit-003` | Device 승인 | `auth.device_approved` | 승인 시 1회 기록 |
+| `audit-004` | Device 거부 | `auth.device_denied` | 거부 시 1회 기록 |
+| `audit-005` | DELETE /account | `auth.deletion_requested` | 삭제 요청 시 즉시 기록 |
+| `audit-006` | pending_deletion Browser 복구 | `auth.deletion_cancelled` | 자동 복구 시 기록 |
+| `audit-007` | deletion cleanup 완료 | `auth.deletion_completed` | PII 스크러빙 완료 시 기록 |
+| `audit-008` | pending_deletion/disabled/deleted 로그인 시도 | `auth.inactive_user` | `metadata.status` 포함 |
+| `audit-009` | refresh token 재사용 탐지 | `auth.refresh_reuse_detected` | `metadata.family_id` 기록 |
+| `audit-010` | family 전체 revoke | `auth.refresh_family_revoked` | `metadata.family_id` 기록 |
 
 ## 채널별 auth.login 검증
 
@@ -43,7 +42,7 @@
 |----|----------|----------|-------------|
 | `audit-security-001` | 폐기된 refresh_token 제출 | `auth.refresh_reuse_detected` | 탈취 의심 이벤트 발생 |
 | `audit-security-002` | family revoke 수행 | `auth.refresh_family_revoked` | 영향 범위 추적 가능 |
-| `audit-security-003` | disabled/deleted 로그인 시도 | `auth.inactive_user` | status 포함 |
+| `audit-security-003` | pending_deletion/disabled/deleted 로그인 시도 | `auth.inactive_user` | status 포함 |
 
 ## 검증 포인트
 

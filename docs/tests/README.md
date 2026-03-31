@@ -9,9 +9,9 @@
 
 | # | 문서 | 목적 |
 |---|------|------|
-| 001 | [상태 매트릭스](001-state-matrix.md) | `DeriveLoginState`와 `GuardLoginChannel`의 공통 판정 검증 |
+| 001 | [상태 매트릭스](001-state-matrix.md) | `user.Status` 기반 상태 판정과 채널별 접근 제어 검증 |
 | 002 | [채널 플로우 테스트](002-channel-flows.md) | Browser / Device / MCP / Refresh / Delete 플로우별 검증 |
-| 003 | [E2E 사이클 테스트](003-e2e-cycles.md) | 가입 → 사용 → 재동의 → 탈퇴 → 복구/삭제 → 재가입 전체 사이클 검증 |
+| 003 | [E2E 사이클 테스트](003-e2e-cycles.md) | 가입 → 사용 → 탈퇴 → 복구/삭제 → 재가입 전체 사이클 검증 |
 | 004 | [감사 이벤트 테스트](004-audit-events.md) | `audit_log.event_type`와 metadata 기록 검증 |
 
 ## 구조
@@ -30,10 +30,21 @@
    -> 004-audit-events.md
 ```
 
+## 실행 메모
+
+```text
+문서 = 테스트 설계
+코드 = internal/*_test.go
+
+- config/clock/idgen 일부는 일반 unit test로 바로 실행 가능
+- service/storage/integration 테스트 다수는 `//go:build integration`
+- integration 테스트는 testcontainers-go를 사용하므로 Docker 접근 권한이 필요
+```
+
 ## 테스트 원칙
 
 1. 각 테스트는 **초기 상태**, **입력**, **기대 결과**, **검증 포인트**를 반드시 가진다.
-2. `DeriveLoginState`는 모든 채널 테스트의 source of truth다.
+2. `user.Status` 기반 상태 판정은 모든 채널 테스트의 source of truth다.
 3. Browser / Device / MCP / Refresh는 서로 다른 구현이 아니라 **동일 상태기계의 다른 진입점**으로 검증한다.
-4. `initial_onboarding_incomplete`와 `reconsent_required`는 별도 케이스로 테스트한다.
+4. `pending_deletion`은 Browser에서만 복구 가능함을 반드시 검증한다.
 5. `deleted`는 종단 상태이며, 재가입은 반드시 신규 가입으로 다시 시작해야 한다.

@@ -16,7 +16,7 @@ import (
 func testStorage(t *testing.T) *Storage {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *User) error { return nil }
 	return New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
@@ -64,12 +64,12 @@ func TestRefreshTokenRotation_Atomicity(t *testing.T) {
 	s := testStorage(t)
 	ctx := context.Background()
 
-	// Setup: create user + accept terms
+	// Setup: create user
 	user, err := s.CreateUserWithIdentity(ctx, "refresh@test.com", true, "Test", "", "google", "refresh-sub", "r@test.com")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	s.AcceptTerms(ctx, user.ID, "2026-03-28", "2026-03-28")
+	_ = user
 
 	// Insert refresh token directly
 	token := "test-refresh-token-atomicity"
@@ -120,7 +120,7 @@ func TestRefreshTokenRotation_Atomicity(t *testing.T) {
 
 func TestTokenTTL_UsesConfigValues(t *testing.T) {
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 12, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 12, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 
 	customAccessTTL := 5 * time.Minute
@@ -136,37 +136,6 @@ func TestTokenTTL_UsesConfigValues(t *testing.T) {
 	expectedExp := clk.Now().Add(customAccessTTL)
 	if !expiration.Equal(expectedExp) {
 		t.Errorf("access token expiration = %v, want %v (5min from now)", expiration, expectedExp)
-	}
-}
-
-func TestAcceptTerms(t *testing.T) {
-	s := testStorage(t)
-	ctx := context.Background()
-
-	user, err := s.CreateUserWithIdentity(ctx, "terms@test.com", true, "Test", "", "google", "terms-sub", "t@test.com")
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	// Before accepting: terms fields should be nil
-	found, _ := s.GetUserByProviderIdentity(ctx, "google", "terms-sub")
-	if found.TermsAcceptedAt != nil {
-		t.Error("terms_accepted_at should be nil before accepting")
-	}
-
-	// Accept terms
-	err = s.AcceptTerms(ctx, user.ID, "2026-03-28", "2026-03-28")
-	if err != nil {
-		t.Fatalf("accept terms: %v", err)
-	}
-
-	// After accepting
-	found, _ = s.GetUserByProviderIdentity(ctx, "google", "terms-sub")
-	if found.TermsAcceptedAt == nil {
-		t.Error("terms_accepted_at should not be nil after accepting")
-	}
-	if found.TermsVersion == nil || *found.TermsVersion != "2026-03-28" {
-		t.Errorf("terms_version = %v, want 2026-03-28", found.TermsVersion)
 	}
 }
 

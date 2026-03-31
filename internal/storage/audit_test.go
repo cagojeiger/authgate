@@ -16,7 +16,7 @@ import (
 
 func TestAudit010And011_RefreshReuseAndFamilyRevoke(t *testing.T) {
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	store := New(db, clk, gen, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour)
 	ctx := context.Background()
@@ -24,9 +24,6 @@ func TestAudit010And011_RefreshReuseAndFamilyRevoke(t *testing.T) {
 	user, err := store.CreateUserWithIdentity(ctx, "audit-refresh@test.com", true, "Refresh Audit", "", "google", "audit-refresh-sub", "audit-refresh@test.com")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
-	}
-	if err := store.AcceptTerms(ctx, user.ID, "2026-03-28", "2026-03-28"); err != nil {
-		t.Fatalf("accept terms: %v", err)
 	}
 
 	now := clk.Now()

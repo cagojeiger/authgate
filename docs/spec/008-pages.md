@@ -3,14 +3,14 @@
 ## 개요
 
 authgate가 직접 제공하는 HTML 페이지 목록.
-이 페이지들은 토큰 발급 전 조건(약관 동의, 디바이스 승인)을 처리하므로 authgate 책임이다.
-앱이 이 페이지를 직접 구현하면 약관 우회 경로가 생기므로, authgate가 중앙에서 관리한다.
+이 페이지들은 토큰 발급 전 조건(디바이스 승인)을 처리하므로 authgate 책임이다.
+
+약관/개인정보 동의는 **각 앱이 자체 관리**한다. authgate는 순수 인증 서비스이며, 약관 페이지를 제공하지 않는다.
 
 ## 페이지 목록
 
 | 페이지 | URL | 용도 | 언제 표시되나 |
 |--------|-----|------|-------------|
-| 약관 동의 | `/login/terms` (GET: 표시, POST: 제출) | 이용약관 + 개인정보 동의 + 연령 확인 | 신규 가입 시, 약관 버전 변경 시 |
 | 디바이스 코드 입력 | `/device` (GET) | user_code 입력 폼 | CLI 로그인 시 사용자가 브라우저에서 접근 |
 | 디바이스 승인 | `/device?user_code=XXXX` (GET) | 승인/거부 선택 | user_code 입력 후 |
 | 결과 | `/device/approve` (POST 결과) | 승인/거부 결과 표시 | 디바이스 승인/거부 후 |
@@ -22,42 +22,12 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 |--------|------|
 | 로그인 화면 | IdP가 제공 (OAuth redirect) |
 | 회원가입 폼 | 없음 (자동 가입) |
+| 약관 동의 | 앱 책임 (각 앱이 자체 관리) |
 | 프로필 편집 | 앱 책임 |
 | 비밀번호 변경 | 없음 (IdP 위임) |
 | 관리자 대시보드 | 없음 (DB 직접 관리) |
 
 ## 페이지별 상세
-
-### 약관 동의 페이지
-
-```
-┌──────────────────────────────────┐
-│           authgate               │
-│         Almost there             │
-│                                  │
-│  To continue, please review      │
-│  and accept our terms:           │
-│                                  │
-│  ☐ I agree to the Terms of      │
-│    Service                       │
-│                                  │
-│  ☐ I agree to the Privacy       │
-│    Policy                        │
-│                                  │
-│  ☐ I confirm that I am 13       │
-│    years or older                │
-│                                  │
-│  ┌────────────────────────────┐  │
-│  │        Continue            │  │
-│  └────────────────────────────┘  │
-└──────────────────────────────────┘
-```
-
-**표시 조건**: 가입 온보딩 미완료 (`terms_accepted_at IS NULL` OR `privacy_accepted_at IS NULL` OR 버전 불일치)
-**입력**: `authRequestID` (hidden), `terms_agree` (checkbox), `privacy_agree` (checkbox), `age_confirm` (checkbox)
-**성공 시**: `AcceptTerms(terms_version, privacy_version)` → `autoApprove` → 토큰 발급
-**실패 시**: 체크박스 미선택 → 200 + 같은 페이지 재표시 (에러 메시지 포함)
-**`age_confirm` 처리**: 별도 영구 컬럼으로 저장하지 않는다. 토큰 발급 전 게이트 검증 조건으로만 사용한다. 동의하지 않으면 약관 페이지를 통과할 수 없다.
 
 ### 디바이스 코드 입력 페이지
 
@@ -108,7 +78,8 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 ```
 
 **전제 조건**: 유효한 세션 쿠키 필요. 없으면 IdP 로그인으로 redirect → `/device/auth/callback` 복귀 → `/device?user_code=XXXX` 재진입. `user_code`는 state 파라미터에 보존된다.
-**입력**: `user_code` (hidden), `action` (approve/deny)
+**입력**: `user_code` (hidden), `action` (approve/deny), `csrf_token` (hidden)
+**보호 장치**: 승인/거부 POST는 CSRF double-submit cookie 방식으로 보호한다. 승인 페이지 렌더링 시 `csrf_token` 쿠키와 hidden input을 함께 발급하고, `/device/approve` 제출 시 둘이 일치해야 한다.
 **성공 시**: 결과 페이지
 
 ### 결과 페이지
@@ -134,3 +105,4 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 2. **브랜딩 최소** — authgate 로고 + 기능만
 3. **반응형** — 모바일에서도 사용 가능
 4. **접근성** — 시맨틱 HTML, label 연결, autofocus
+5. **서버 제어 게이트 유지** — 디바이스 승인처럼 토큰 발급 전 게이트는 authgate 페이지에서 직접 처리

@@ -15,14 +15,15 @@ import (
 
 // OAuthClient automates the OAuth2 authorization code flow for testing.
 type OAuthClient struct {
-	t             *testing.T
-	BaseURL       string
-	ClientID      string
-	RedirectURI   string
+	t                    *testing.T
+	BaseURL              string
+	ClientID             string
+	RedirectURI          string
+	Resource             string
 	AuthgateCallbackPath string
-	CodeVerifier  string
-	CodeChallenge string
-	Client        *http.Client
+	CodeVerifier         string
+	CodeChallenge        string
+	Client               *http.Client
 }
 
 // NewOAuthClient creates a test OAuth client with PKCE.
@@ -54,15 +55,23 @@ func NewOAuthClientFor(t *testing.T, baseURL, clientID, authgateCallbackPath str
 	codeChallenge := base64.RawURLEncoding.EncodeToString(h[:])
 
 	return &OAuthClient{
-		t:                   t,
-		BaseURL:             baseURL,
-		ClientID:            clientID,
-		RedirectURI:         baseURL + "/callback",
+		t:                    t,
+		BaseURL:              baseURL,
+		ClientID:             clientID,
+		RedirectURI:          baseURL + "/callback",
+		Resource:             defaultResourceFor(clientID, authgateCallbackPath, baseURL),
 		AuthgateCallbackPath: authgateCallbackPath,
-		CodeVerifier:        codeVerifier,
-		CodeChallenge:       codeChallenge,
-		Client:              client,
+		CodeVerifier:         codeVerifier,
+		CodeChallenge:        codeChallenge,
+		Client:               client,
 	}
+}
+
+func defaultResourceFor(clientID, authgateCallbackPath, baseURL string) string {
+	if clientID == "mcp-client" || authgateCallbackPath == "/mcp/callback" {
+		return baseURL + "/mcp"
+	}
+	return ""
 }
 
 // AuthorizeURL builds the /authorize URL with PKCE.
@@ -75,6 +84,9 @@ func (c *OAuthClient) AuthorizeURL() string {
 		"code_challenge":        {c.CodeChallenge},
 		"code_challenge_method": {"S256"},
 		"state":                 {"test-state"},
+	}
+	if c.Resource != "" {
+		params.Set("resource", c.Resource)
 	}
 	return c.BaseURL + "/authorize?" + params.Encode()
 }
@@ -111,6 +123,9 @@ func (c *OAuthClient) ExchangeCode(code string) *TokenResponse {
 		"client_id":     {c.ClientID},
 		"code_verifier": {c.CodeVerifier},
 	}
+	if c.Resource != "" {
+		data.Set("resource", c.Resource)
+	}
 
 	resp, err := http.Post(c.BaseURL+"/oauth/token", "application/x-www-form-urlencoded", strings.NewReader(data.Encode()))
 	if err != nil {
@@ -134,6 +149,9 @@ func (c *OAuthClient) RefreshToken(refreshToken string) *TokenResponse {
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
 		"client_id":     {c.ClientID},
+	}
+	if c.Resource != "" {
+		data.Set("resource", c.Resource)
 	}
 
 	resp, err := http.Post(c.BaseURL+"/oauth/token", "application/x-www-form-urlencoded", strings.NewReader(data.Encode()))

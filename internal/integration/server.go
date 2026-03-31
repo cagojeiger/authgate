@@ -3,6 +3,7 @@ package integration
 import (
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +13,6 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/op"
 
 	"github.com/kangheeyong/authgate/internal/clock"
-	"github.com/kangheeyong/authgate/internal/guard"
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/service"
@@ -21,17 +21,12 @@ import (
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
-const (
-	TestTermsVersion   = "2026-03-28"
-	TestPrivacyVersion = "2026-03-28"
-)
-
 // TestServer holds everything needed for integration tests.
 type TestServer struct {
 	Server  *httptest.Server
 	Store   *storage.Storage
 	DB      *sql.DB
-	Clock   clock.FixedClock
+	Clock   *clock.FixedClock
 	BaseURL string
 }
 
@@ -40,24 +35,12 @@ func SetupTestServer(t *testing.T) *TestServer {
 	t.Helper()
 
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 
 	stateChecker := func(user *storage.User) error {
-		ui := &guard.UserInfo{
-			Status:            user.Status,
-			TermsAcceptedAt:   user.TermsAcceptedAt,
-			PrivacyAcceptedAt: user.PrivacyAcceptedAt,
-		}
-		if user.TermsVersion != nil {
-			ui.TermsVersion = *user.TermsVersion
-		}
-		if user.PrivacyVersion != nil {
-			ui.PrivacyVersion = *user.PrivacyVersion
-		}
-		state := guard.DeriveLoginState(ui, TestTermsVersion, TestPrivacyVersion)
-		if state != guard.OnboardingComplete {
-			return fmt.Errorf("login state: %s", state)
+		if user.Status != "active" {
+			return fmt.Errorf("account not active: %s", user.Status)
 		}
 		return nil
 	}
@@ -118,32 +101,75 @@ func SetupTestServer(t *testing.T) *TestServer {
 	}
 
 	// Services
-	loginSvc := service.NewLoginService(store, fakeProvider, fakeProvider, TestTermsVersion, TestPrivacyVersion, 24*time.Hour)
-	deviceSvc := service.NewDeviceService(store, fakeProvider, TestTermsVersion, TestPrivacyVersion, srv.URL, 24*time.Hour, clk)
-	accountSvc := service.NewAccountService(db, clk)
+	loginSvc := service.NewLoginService(store, fakeProvider, fakeProvider, 24*time.Hour)
+	deviceSvc := service.NewDeviceService(store, fakeProvider, srv.URL, 24*time.Hour, clk)
+	accountSvc := service.NewAccountService(store)
 
 	// Handlers
 	loginHandler := handler.NewLoginHandler(loginSvc, true)
 	deviceHandler := handler.NewDeviceHandler(deviceSvc, true)
-	accountHandler := handler.NewAccountHandler(accountSvc, store)
+	accountHandler := handler.NewAccountHandler(accountSvc, srv.URL)
 
 	// Routes
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		metadata := map[string]any{
+			"issuer":                                srv.URL,
+			"authorization_endpoint":                srv.URL + "/authorize",
+			"token_endpoint":                        srv.URL + "/oauth/token",
+			"registration_endpoint":                 srv.URL + "/oauth/register",
+			"revocation_endpoint":                   srv.URL + "/oauth/revoke",
+			"device_authorization_endpoint":         srv.URL + "/oauth/device/authorize",
+			"userinfo_endpoint":                     srv.URL + "/userinfo",
+			"end_session_endpoint":                  srv.URL + "/end_session",
+			"jwks_uri":                              srv.URL + "/keys",
+			"response_types_supported":              []string{"code"},
+			"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
+			"code_challenge_methods_supported":      []string{"S256"},
+			"token_endpoint_auth_methods_supported": []string{"none"},
+			"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(metadata)
+	})
+	mux.Handle("/authorize", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resource := storage.ResourceFromRequest(r)
+		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
+	}))
+	mux.Handle("/oauth/token", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resource := storage.ResourceFromRequest(r)
+		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
+	}))
 	mux.Handle("/", provider)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
 	mux.HandleFunc("/mcp/login", loginHandler.HandleMCPLogin)
 	mux.HandleFunc("/mcp/callback", loginHandler.HandleMCPCallback)
-	mux.HandleFunc("/login/terms", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			loginHandler.HandleTermsPage(w, r)
-		} else {
-			loginHandler.HandleTermsSubmit(w, r)
-		}
-	})
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
 	mux.HandleFunc("/device/approve", deviceHandler.HandleDeviceApprove)
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
 	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
+	mux.HandleFunc("/oauth/register", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var req storage.DCRRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client_metadata"})
+			return
+		}
+		resp, err := store.RegisterClient(r.Context(), &req)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client_metadata", "error_description": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"healthy"}`))

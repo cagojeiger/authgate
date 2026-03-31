@@ -24,10 +24,6 @@ erDiagram
         text name
         text avatar_url
         text status "active/disabled/pending_deletion/deleted"
-        text terms_version
-        timestamptz terms_accepted_at
-        text privacy_version
-        timestamptz privacy_accepted_at
         timestamptz deletion_requested_at
         timestamptz deletion_scheduled_at
         timestamptz deleted_at
@@ -86,6 +82,7 @@ erDiagram
         text client_id
         text redirect_uri
         text[] scopes
+        text resource "MCP resource identifier, nullable"
         text state
         text nonce
         text code_challenge
@@ -158,8 +155,7 @@ erDiagram
 |------------|------|----------|
 | `auth.signup` | 신규 가입 완료 | 브라우저 로그인 (신규 유저) |
 | `auth.login` | 로그인 성공 | 브라우저/Device/MCP 로그인 |
-| `auth.terms_accepted` | 약관/개인정보 동의 | 약관 페이지 제출 |
-| `auth.inactive_user` | 비활성 유저 로그인 시도 차단 | 브라우저/Device 로그인 |
+| `auth.inactive_user` | 비활성 유저 로그인 시도 차단 | 브라우저/Device/MCP 로그인 |
 | `auth.device_approved` | Device 코드 승인 | Device 승인 페이지 |
 | `auth.device_denied` | Device 코드 거부 | Device 승인 페이지 |
 | `auth.deletion_requested` | 계정 삭제 요청 | 계정 삭제 API |
@@ -244,14 +240,28 @@ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 
 이 절차는 Spec 009 운영 문서에서 관리한다.
 
+## auth_requests.resource 규칙
+
+`auth_requests.resource`는 MCP authorization에서 사용하는 protected resource 식별자다.
+
+```text
+Browser / Device
+  -> NULL
+
+MCP
+  -> canonical resource URI 저장
+```
+
+규칙:
+1. `/authorize` 요청의 `resource`를 `auth_requests.resource`에 저장
+2. `/oauth/token` 요청의 `resource`와 일치해야 한다
+3. 성공적인 code exchange가 끝나면 auth_request와 함께 정리된다
+
 ## session_id 규칙
 
-`refresh_tokens.session_id`는 선택적(nullable)이다:
+`refresh_tokens.session_id`는 선택적(nullable)이며, 현재 구현에서는 **모든 채널에서 NULL**이다.
 
-- **브라우저 로그인**: 세션 기반이므로 `session_id`를 설정할 수 있다.
-- **Device/MCP 로그인**: 브라우저 세션과 독립적인 클라이언트 토큰이므로 `session_id`는 NULL이다.
-
-**revoke / cleanup / 계정 삭제는 `user_id` 또는 `family_id` 기준으로 처리한다.** `session_id` 기준으로 처리하면 Device/MCP 토큰이 누락된다.
+**revoke / cleanup / 계정 삭제는 `user_id` 또는 `family_id` 기준으로 처리한다.** `session_id`는 사용하지 않는다.
 
 ## 보안 규칙
 
@@ -269,7 +279,6 @@ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 |--------|------|----------|
 | `auth.signup` | 가입 | — |
 | `auth.login` | 로그인 | `{channel: "browser\|device\|mcp"}` |
-| `auth.terms_accepted` | 약관 동의 | `{terms_version, privacy_version}` |
 | `auth.deletion_requested` | 탈퇴 요청 | — |
 | `auth.deletion_cancelled` | 탈퇴 취소 (로그인 복구) | — |
 | `auth.deletion_completed` | PII 스크러빙 완료 | — |
@@ -277,4 +286,4 @@ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 | `auth.device_denied` | 디바이스 거부 | — |
 | `auth.refresh_reuse_detected` | 폐기된 refresh_token 재사용 탐지 | `{family_id}` |
 | `auth.refresh_family_revoked` | family 전체 revoke (탈취 의심) | `{family_id}` |
-| `auth.inactive_user` | 비활성 유저 로그인 시도 | `{status}` |
+| `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 | `{status}` |

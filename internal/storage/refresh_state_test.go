@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
-	"github.com/kangheeyong/authgate/internal/guard"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/testutil"
 )
@@ -18,14 +17,14 @@ import (
 // refresh-007: revoked token → family revoke + invalid_grant
 func TestRefreshReuseDetection_FamilyRevoke(t *testing.T) {
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *User) error { return nil }
 	store := New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "reuse@test.com", true, "Test", "", "google", "reuse-sub", "ru@test.com")
-	store.AcceptTerms(ctx, user.ID, "2026-03-28", "2026-03-28")
+	_ = user
 
 	// Insert two tokens in the same family
 	now := clk.Now()
@@ -61,29 +60,14 @@ func TestRefreshReuseDetection_FamilyRevoke(t *testing.T) {
 
 func TestRefreshStateCheck_AllStates(t *testing.T) {
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	ctx := context.Background()
 
-	const termsV = "2026-03-28"
-	const privacyV = "2026-03-28"
-
-	// StateChecker that uses real guard logic
+	// StateChecker: only active users may use tokens
 	checker := func(user *User) error {
-		ui := &guard.UserInfo{
-			Status:            user.Status,
-			TermsAcceptedAt:   user.TermsAcceptedAt,
-			PrivacyAcceptedAt: user.PrivacyAcceptedAt,
-		}
-		if user.TermsVersion != nil {
-			ui.TermsVersion = *user.TermsVersion
-		}
-		if user.PrivacyVersion != nil {
-			ui.PrivacyVersion = *user.PrivacyVersion
-		}
-		state := guard.DeriveLoginState(ui, termsV, privacyV)
-		if state != guard.OnboardingComplete {
-			return fmt.Errorf("login state: %s", state)
+		if user.Status != "active" {
+			return fmt.Errorf("account not active: %s", user.Status)
 		}
 		return nil
 	}
@@ -91,36 +75,19 @@ func TestRefreshStateCheck_AllStates(t *testing.T) {
 	store := New(db, clk, gen, checker, 15*time.Minute, 30*24*time.Hour)
 
 	tests := []struct {
-		name       string
-		setup      func(userID string) // modify user after creation
-		wantError  bool
-		wantState  string
+		name      string
+		setup     func(userID string) // modify user after creation
+		wantError bool
+		wantState string
 	}{
 		{
-			name: "onboarding_complete - allow",
-			setup: func(id string) {
-				store.AcceptTerms(ctx, id, termsV, privacyV)
-			},
+			name:      "active - allow",
+			setup:     func(id string) {}, // default active status
 			wantError: false,
-		},
-		{
-			name:      "initial_onboarding_incomplete - reject",
-			setup:     func(id string) {}, // no terms accepted
-			wantError: true,
-			wantState: "initial_onboarding_incomplete",
-		},
-		{
-			name: "reconsent_required - reject",
-			setup: func(id string) {
-				store.AcceptTerms(ctx, id, "old-version", "old-version")
-			},
-			wantError: true,
-			wantState: "reconsent_required",
 		},
 		{
 			name: "recoverable_browser_only - reject",
 			setup: func(id string) {
-				store.AcceptTerms(ctx, id, termsV, privacyV)
 				store.SetUserStatus(ctx, id, "pending_deletion")
 			},
 			wantError: true,
@@ -129,7 +96,6 @@ func TestRefreshStateCheck_AllStates(t *testing.T) {
 		{
 			name: "inactive (disabled) - reject",
 			setup: func(id string) {
-				store.AcceptTerms(ctx, id, termsV, privacyV)
 				store.SetUserStatus(ctx, id, "disabled")
 			},
 			wantError: true,
@@ -175,33 +141,18 @@ func TestRefreshStateCheck_AllStates(t *testing.T) {
 
 func TestAuthCodeStateCheck_AllStates(t *testing.T) {
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	ctx := context.Background()
 
-	const termsV = "2026-03-28"
-	const privacyV = "2026-03-28"
-
-	checker := func(user *User) error {
-		ui := &guard.UserInfo{
-			Status:            user.Status,
-			TermsAcceptedAt:   user.TermsAcceptedAt,
-			PrivacyAcceptedAt: user.PrivacyAcceptedAt,
-		}
-		if user.TermsVersion != nil {
-			ui.TermsVersion = *user.TermsVersion
-		}
-		if user.PrivacyVersion != nil {
-			ui.PrivacyVersion = *user.PrivacyVersion
-		}
-		state := guard.DeriveLoginState(ui, termsV, privacyV)
-		if state != guard.OnboardingComplete {
-			return fmt.Errorf("login state: %s", state)
+	checker2 := func(user *User) error {
+		if user.Status != "active" {
+			return fmt.Errorf("account not active: %s", user.Status)
 		}
 		return nil
 	}
 
-	store := New(db, clk, gen, checker, 15*time.Minute, 30*24*time.Hour)
+	store := New(db, clk, gen, checker2, 15*time.Minute, 30*24*time.Hour)
 
 	tests := []struct {
 		name      string
@@ -210,30 +161,13 @@ func TestAuthCodeStateCheck_AllStates(t *testing.T) {
 		wantState string
 	}{
 		{
-			name: "onboarding_complete - allow",
-			setup: func(id string) {
-				store.AcceptTerms(ctx, id, termsV, privacyV)
-			},
-			wantError: false,
-		},
-		{
-			name:      "initial_onboarding_incomplete - reject",
+			name:      "active - allow",
 			setup:     func(id string) {},
-			wantError: true,
-			wantState: "initial_onboarding_incomplete",
-		},
-		{
-			name: "reconsent_required - reject",
-			setup: func(id string) {
-				store.AcceptTerms(ctx, id, "old-version", "old-version")
-			},
-			wantError: true,
-			wantState: "reconsent_required",
+			wantError: false,
 		},
 		{
 			name: "recoverable_browser_only - reject",
 			setup: func(id string) {
-				store.AcceptTerms(ctx, id, termsV, privacyV)
 				store.SetUserStatus(ctx, id, "pending_deletion")
 			},
 			wantError: true,
@@ -242,7 +176,6 @@ func TestAuthCodeStateCheck_AllStates(t *testing.T) {
 		{
 			name: "inactive (disabled) - reject",
 			setup: func(id string) {
-				store.AcceptTerms(ctx, id, termsV, privacyV)
 				store.SetUserStatus(ctx, id, "disabled")
 			},
 			wantError: true,

@@ -12,7 +12,7 @@ authgate를 처음 배포할 때 필요한 것:
 ```
 1. PostgreSQL 준비
    → DB 생성 (authgate)
-   → 마이그레이션 실행 (001_init.sql)
+   → 마이그레이션 실행 (001_init.sql, 002_mcp_resource_binding.sql)
 
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성
@@ -33,7 +33,7 @@ authgate를 처음 배포할 때 필요한 것:
    → signing_key.pem: authgate가 첫 실행 시 자동 생성 (또는 수동 생성)
 
 4. 첫 번째 클라이언트 등록
-   → DB에 INSERT (아래 "클라이언트 등록" 참조)
+   → clients.yaml 파일 생성 (아래 "클라이언트 등록" 참조)
 
 5. 환경변수 설정 → 서버 시작
 ```
@@ -52,9 +52,8 @@ authgate를 처음 배포할 때 필요한 것:
 | `SESSION_TTL` | X | `86400` | 세션 수명 (초) |
 | `ACCESS_TOKEN_TTL` | X | `900` | access_token 수명 (초, 15분) |
 | `REFRESH_TOKEN_TTL` | X | `2592000` | refresh_token 수명 (초, 30일) |
-| `TERMS_VERSION` | X | `2026-03-28` | 현재 약관 버전 (변경 시 재동의) |
-| `PRIVACY_VERSION` | X | `2026-03-28` | 현재 개인정보 처리방침 버전 |
 | `DEV_MODE` | X | `false` | true 시: insecure 허용, cookie Secure=false |
+| `CLIENT_CONFIG` | X | `/etc/authgate/clients.yaml` | 클라이언트 설정 YAML 파일 경로 (없으면 무시) |
 
 ### 프로덕션 필수 조건
 
@@ -160,40 +159,68 @@ authgate key remove <kid>  # 구 키 제거
 
 ## 클라이언트 등록
 
-새 앱을 authgate에 연결할 때:
+### YAML 파일 기반 (권장)
 
-```sql
--- confidential client (백엔드 앱, client_secret 있음)
-INSERT INTO oauth_clients (
-  client_id, client_secret_hash, client_type, name,
-  redirect_uris, allowed_scopes, allowed_grant_types
-) VALUES (
-  'my-web-app',
-  '$2a$10$...bcrypt_hash...',
-  'confidential',
-  'My Web App',
-  ARRAY['https://my-app.com/auth/callback'],
-  ARRAY['openid', 'profile', 'email'],
-  ARRAY['authorization_code', 'refresh_token']
-);
+`clients.yaml` 파일로 클라이언트를 정의하면 authgate 시작 시 자동으로 DB에 upsert된다.
 
--- public client (SPA/CLI/MCP/브라우저 SPA, client_secret 없음)
--- 브라우저 웹 앱도 SPA라면 public client로 등록 가능 (Spec 002 참조)
-INSERT INTO oauth_clients (
-  client_id, client_secret_hash, client_type, name,
-  redirect_uris, allowed_scopes, allowed_grant_types
-) VALUES (
-  'my-cli',
-  NULL,
-  'public',
-  'My CLI Tool',
-  ARRAY['http://localhost:8080/callback'],
-  ARRAY['openid', 'profile', 'email'],
-  ARRAY['device_code', 'refresh_token']
-);
+```yaml
+# clients.yaml
+clients:
+  - client_id: my-web-app
+    client_type: confidential
+    client_secret_hash: "$2a$10$...bcrypt_hash..."
+    login_channel: browser
+    name: My Web App
+    redirect_uris:
+      - https://my-app.com/auth/callback
+    allowed_scopes: [openid, profile, email]
+    allowed_grant_types: [authorization_code, refresh_token]
+
+  - client_id: my-cli
+    client_type: public
+    login_channel: browser
+    name: My CLI Tool
+    redirect_uris:
+      - http://localhost:8080/callback
+    allowed_scopes: [openid, profile, email, offline_access]
+    allowed_grant_types: [authorization_code, "urn:ietf:params:oauth:grant-type:device_code", refresh_token]
+
+  - client_id: my-mcp
+    client_type: public
+    login_channel: mcp
+    name: My MCP Client
+    redirect_uris:
+      - http://localhost:3000/callback
+    allowed_scopes: [openid, profile, email, offline_access]
+    allowed_grant_types: [authorization_code, refresh_token]
 ```
 
-**authgate 코드 변경 0줄.** DB에 INSERT하면 끝.
+MCP 클라이언트는 정적 YAML 등록 대신 [Spec 004](004-mcp-login.md)의 DCR(`POST /oauth/register`)을 사용할 수 있다.
+운영 관점에서 YAML은 정적 클라이언트용, DCR은 동적 MCP 클라이언트용이다.
+MCP는 원칙적으로 DCR 친화적인 채널로 본다.
+
+배포 환경별 마운트:
+- Docker Compose: `volumes: ["./clients.yaml:/etc/authgate/clients.yaml:ro"]`
+- Kubernetes: ConfigMap → volumeMount
+- 로컬 개발: `CLIENT_CONFIG=./clients.yaml`
+
+**authgate 코드 변경 0줄.** YAML 파일만 수정하고 재시작하면 끝.
+
+동작 규칙:
+- YAML의 `client_id`가 DB에 없으면 INSERT
+- 이미 있으면 UPDATE (redirect_uris, scopes 등 갱신)
+- `client_secret_hash`를 생략하면 기존 DB 값 유지 (실수로 삭제 방지)
+- YAML에 없는 기존 클라이언트는 그대로 유지 (삭제하지 않음)
+- 파일이 없으면 경고 로그만 찍고 진행 (기존 DB 데이터 유지)
+
+### SQL 직접 등록 (대안)
+
+YAML 대신 SQL로 직접 등록할 수도 있다:
+
+```sql
+INSERT INTO oauth_clients (client_id, client_type, login_channel, name, redirect_uris, allowed_scopes, allowed_grant_types)
+VALUES ('my-app', 'public', 'browser', 'My App', '{https://my-app.com/callback}', '{openid,profile,email}', '{authorization_code,refresh_token}');
+```
 
 ### 클라이언트 삭제
 
@@ -233,15 +260,6 @@ DELETE FROM oauth_clients WHERE client_id = 'my-cli';
 UPDATE users SET status = 'disabled', updated_at = NOW() WHERE email = 'bad@example.com';
 -- 즉시 로그인/토큰 갱신 차단
 -- 복구: UPDATE users SET status = 'active', updated_at = NOW() WHERE email = '...';
-```
-
-### 약관 버전 변경
-
-```bash
-# 환경변수 변경 후 재배포
-TERMS_VERSION=2027-01-01
-PRIVACY_VERSION=2027-01-01
-# → 모든 기존 유저가 다음 로그인 시 재동의 필요
 ```
 
 ### audit_log 조회

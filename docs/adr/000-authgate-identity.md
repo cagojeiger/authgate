@@ -37,7 +37,7 @@ authgate는 여러 앱이 공유하는 중앙 인증 게이트웨이이다.
 |--------|------|------|------|
 | 브라우저 로그인 | 웹 앱 | Auth Code + PKCE | access_token + refresh_token |
 | Device 로그인 | CLI 도구 | RFC 8628 Device Code | access_token + refresh_token |
-| MCP 로그인 | AI 도구 (Claude, Cursor 등) | OAuth 2.1 + PKCE | access_token + refresh_token |
+| MCP Authorization | AI 도구 (Claude, Cursor 등) | OAuth 2.1 + PKCE | access_token + refresh_token |
 
 세 플로우는 사용자 경험은 다르지만, authgate가 발급하는 **토큰의 기본 계약은 동일**하다.
 앱은 로그인 방식이 아니라 토큰의 표준 클레임(sub, aud, exp, scope 등)만 신뢰한다.
@@ -68,7 +68,15 @@ authgate는 여러 앱이 공유하는 중앙 인증 게이트웨이이다.
 
 authgate는 토큰에 **최소한의 신원 클레임만** 넣는다.
 
-authgate는 **app-per-client 모델**을 사용하며, access_token의 `aud`는 대상 앱의 client_id로 발급한다.
+authgate는 채널별 토큰 의미를 갖는다.
+
+```text
+Browser / Device
+  -> aud = OAuth client_id
+
+MCP
+  -> aud = protected resource identifier
+```
 
 ```json
 {
@@ -117,44 +125,34 @@ IdP 추가는 `upstream.Provider` 인터페이스를 구현하면 된다.
 | 신원 | 로컬 user id + IdP subject 매핑 |
 | 토큰 | access_token, refresh_token, id_token 발급/갱신/폐기 |
 | 계정 | 상태 관리 + 삭제 (30일 유예 + PII 스크러빙) |
-| 법적 | 약관 동의 기록, 연령 확인 |
 | 검증 수단 | JWKS 엔드포인트 제공 (앱이 토큰 검증에 사용) |
 
-### DeriveLoginState — 공식 로그인 상태 판정
+### 로그인 상태 판정 규칙
 
-authgate의 모든 채널 가드는 이 함수로 사용자 상태를 파생한다.
-DB 컬럼이 아닌 **파생 판정**이며, `(status, terms_accepted_at, privacy_accepted_at, terms_version, privacy_version)` 5개 필드에서 계산한다.
+authgate의 모든 채널은 service 내부에서 **실제 DB 값인 `user.Status`** 로 직접 상태를 판정한다.
 
-```
-DeriveLoginState(user):
+```text
+user.Status 기반 규칙
 
-1. if user.status in ('disabled', 'deleted'):
-     → inactive
+active
+  -> 모든 채널 허용
 
-2. if user.status == 'pending_deletion':
-     → recoverable_browser_only
+pending_deletion
+  -> browser만 복구 허용
+  -> device / mcp / refresh 차단
 
-3. if terms_accepted_at IS NULL OR privacy_accepted_at IS NULL:
-     → initial_onboarding_incomplete
-
-4. if terms_version != CURRENT_TERMS_VERSION
-     OR privacy_version != CURRENT_PRIVACY_VERSION:
-     → reconsent_required
-
-5. → onboarding_complete
+disabled / deleted
+  -> 모든 채널 차단
 ```
 
-| 결과 | 의미 | cleanup 대상 |
-|------|------|-------------|
-| `inactive` | 정지/삭제된 계정 | 해당 없음 |
-| `recoverable_browser_only` | 삭제 유예 중, 브라우저만 복구 가능 | deletion cleanup (30일) |
-| `initial_onboarding_incomplete` | 가입 후 약관 동의 전 이탈 | onboarding cleanup (7일) |
-| `reconsent_required` | 동의했으나 버전 변경됨, 재동의 필요 | **cleanup 비대상** (정상 유저) |
-| `onboarding_complete` | 완전한 정상 상태 | 해당 없음 |
+| user.Status | 의미 | cleanup 대상 |
+|------------|------|-------------|
+| `active` | 정상 상태 | 해당 없음 |
+| `pending_deletion` | 삭제 유예 중, 브라우저만 복구 가능 | deletion cleanup (30일) |
+| `disabled` | 정지된 계정 | 해당 없음 |
+| `deleted` | PII 스크러빙 완료, 종단 상태 | 해당 없음 |
 
-**`initial_onboarding_incomplete`와 `reconsent_required`는 다르다.**
-- `initial_onboarding_incomplete`: `terms_accepted_at IS NULL`. 가입 후 이탈. 7일 cleanup 대상.
-- `reconsent_required`: `terms_accepted_at IS NOT NULL`이지만 버전 불일치. 정상 유저. cleanup하면 안 된다.
+약관 동의, 연령 확인 등 비즈니스 정책은 **각 앱이 자체적으로 관리**한다. authgate는 인증만 담당한다.
 
 ### 세션의 의미
 
@@ -164,64 +162,51 @@ refresh   = API 접근을 다시 얻는 권한
 access    = 실제 API 호출 권한
 ```
 
-session이 있어도 토큰이 없을 수 있다. 이는 정상이다:
-- 신규 가입 직후 약관 동의 전
-- 재동의 필요 (reconsent_required)
-- pending_deletion 복구 후 auth_request 실패
-
 ### 계정 상태별 authgate 동작
 
-| DeriveLoginState 결과 | 브라우저 | Device/MCP | 토큰 갱신 | 설명 |
-|----------------------|---------|-----------|----------|------|
-| `onboarding_complete` | 허용 | 허용 | 허용 | 정상 |
-| `reconsent_required` | 허용 → 약관 재동의 | 차단 (signup_required) | 차단 | 버전 변경 |
-| `initial_onboarding_incomplete` | 허용 → 약관 표시 | 차단 (signup_required) | 차단 | 최초 미동의 |
-| `recoverable_browser_only` | 허용 → active 복구 | 차단 (account_inactive) | 차단 | 삭제 유예 |
-| `inactive` | 차단 | 차단 | 차단 | 정지/삭제 |
+| user.Status | 브라우저 | Device/MCP | 토큰 갱신 | 설명 |
+|------------|---------|-----------|----------|------|
+| `active` | 허용 | 허용 | 허용 | 정상 |
+| `pending_deletion` | 허용 → active 복구 | 차단 (account_inactive) | 차단 | 삭제 유예 |
+| `disabled` / `deleted` | 차단 | 차단 | 차단 | 정지/삭제 |
 
 ### 공통 접근 표
 
-| 엔드포인트 | onboarding_complete | reconsent / initial_incomplete | recoverable | inactive |
-|-----------|-------------------|-------------------------------|------------|---------|
-| GET `/login` | 허용 | 허용 | 허용(복구) | 차단 |
-| GET `/login/callback` | 허용 | 허용 | 허용(복구) | 차단 |
-| POST `/login/terms` | 허용 | 허용 | 허용(복구 중) | 차단 |
-| POST `/oauth/token` (code) | 허용 | 차단 | 차단 | 차단 |
-| POST `/oauth/token` (refresh) | 허용 | 차단 | 차단 | 차단 |
-| POST `/oauth/device/authorize` | 허용 | 허용* | 허용* | 차단** |
-| GET `/device` | 허용 | 허용* | 허용* | 차단 |
-| POST `/device/approve` | 허용 | 차단 | 차단 | 차단 |
-| DELETE `/account` | 허용 | 허용 | 멱등 | 차단 |
-| GET `/.well-known/*` | 허용 | 허용 | 허용 | 허용 |
+| 엔드포인트 | `active` | `pending_deletion` | `disabled/deleted` |
+|-----------|----------|--------------------|--------------------|
+| GET `/login` | 허용 | 허용(복구) | 차단 |
+| GET `/login/callback` | 허용 | 허용(복구) | 차단 |
+| POST `/oauth/token` (code) | 허용 | 차단 | 차단 |
+| POST `/oauth/token` (refresh) | 허용 | 차단 | 차단 |
+| POST `/oauth/device/authorize` | 허용 | 허용* | 차단** |
+| GET `/device` | 허용 | 허용* | 차단 |
+| POST `/device/approve` | 허용 | 차단 | 차단 |
+| DELETE `/account` | 허용 | 멱등 | 차단 |
+| GET `/.well-known/*` | 허용 | 허용 | 허용 |
 
-`*` Device 시작 자체는 허용하지만, approve/callback에서 DeriveLoginState를 검사한다.
+`*` Device 시작 자체는 허용하지만, approve/callback에서 상태 검사를 수행한다.
 `**` zitadel이 직접 처리하므로 authgate가 이 시점에서 상태 검사 불가. callback/approve 시점에서 차단한다.
 
-### GuardLoginChannel — 공통 채널 가드
+### 채널별 상태 검사 규칙
 
-모든 로그인 채널(browser/device/mcp)의 진입 시점에서 `DeriveLoginState` 결과를 기반으로 판정한다.
+모든 로그인 채널(browser/device/mcp)의 진입 시점에서 service가 `user.Status`를 직접 switch하여 판정한다.
 Spec 002, 003, 004, 006에서 이 규칙을 참조한다.
 
 ```
-GuardLoginChannel(user, channel):
-  state = DeriveLoginState(user)
+service 내부 상태 검사 (channel: browser | device | mcp):
 
-  if state == inactive:
+  switch user.Status:
+  case 'disabled', 'deleted':
     return account_inactive (403)
 
-  if state == recoverable_browser_only:
+  case 'pending_deletion':
     if channel == browser:
       return recover_then_continue
     else:
       return account_inactive (403)
 
-  if state in (initial_onboarding_incomplete, reconsent_required):
-    if channel == browser:
-      return show_terms
-    else:
-      return signup_required (403)
-
-  return allow  // onboarding_complete
+  default:  // active
+    return allow
 ```
 
 ### 계정 Lifecycle 사이클 규칙
@@ -233,43 +218,33 @@ authgate의 가입-사용-탈퇴-재가입 전체 사이클은 닫힌 구조다.
   → 브라우저 가입만 가능 (Spec 001)
   → Device/MCP로는 가입 불가
 
-[initial_onboarding_incomplete]
-  → 브라우저만 계속 진행 가능 (약관 동의)
-  → Device/MCP/refresh 불가
-  → 7일 후 cleanup 대상
-
-[onboarding_complete]
+[active]
   → 모든 로그인 채널 허용
-  → 약관 버전 변경 시 reconsent_required로 전이
+  → DELETE /account → pending_deletion
 
-[reconsent_required]
-  → 브라우저만 재동의 가능
-  → Device/MCP/refresh 불가
-  → cleanup 비대상 (정상 유저)
-
-[recoverable_browser_only] (pending_deletion)
+[pending_deletion]
   → 브라우저 로그인으로만 복구 가능
   → Device/MCP/refresh 불가
   → 30일 후 deleted로 전이
 
-[inactive] (deleted)
+[deleted]
   → 복구 불가. 재활성화 경로 없음.
   → 동일 IdP 계정으로 로그인해도 기존 계정으로 복구되지 않음.
   → user_identities가 삭제되어 ErrNotFound → Spec 001 신규 가입으로 재진입.
-  → 새 user_id, 새 약관 동의, 이전 데이터와 무관.
+  → 새 user_id, 이전 데이터와 무관.
 ```
 
 이 사이클의 핵심 불변식:
 1. **가입은 브라우저 전용.** Device/MCP에서 신규 가입은 발생하지 않는다.
 2. **deleted는 종단 상태.** 어떤 로그인에서도 deleted → active 전이는 불가능하다.
-3. **재가입은 신규 가입과 동일.** 이전 계정의 user_id, 데이터, 동의 기록과 연결되지 않는다.
+3. **재가입은 신규 가입과 동일.** 이전 계정의 user_id, 데이터와 연결되지 않는다.
 
 ### 앱의 JWT 검증 요구사항
 
-앱은 authgate의 JWKS를 사용해 JWT 서명을 검증하며, 최소한 다음을 확인해야 한다:
+앱과 protected resource는 authgate의 JWKS를 사용해 JWT 서명을 검증하며, 최소한 다음을 확인해야 한다:
 
 - `iss` — authgate의 issuer URL과 일치하는가
-- `aud` — 자신의 client_id와 일치하는가
+- `aud` — Browser/Device는 자신의 client_id, MCP는 자신의 resource와 일치하는가
 - `exp` — 만료되지 않았는가
 - 서명 — JWKS의 공개키로 RS256 검증
 
@@ -312,7 +287,6 @@ authgate는 다음을 제공하지 않는다:
 - 비밀번호/이메일 로그인
 - MFA/OTP
 - 멀티 IdP 동시 지원 (계정 연결, IdP 선택 UI), SAML, SCIM
-- 동적 클라이언트 등록 (DCR)
 - 제3자 앱 consent
 
 ## Decision Drivers

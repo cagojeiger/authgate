@@ -2,64 +2,64 @@
 
 ## 목적
 
-`DeriveLoginState(user)`와 `GuardLoginChannel(user, channel)`의 공통 판정이 스펙 전체에서 일관되게 적용되는지 검증한다.
+`user.Status` 기반 상태 판정과 채널별 접근 제어가 스펙 전체에서 일관되게 적용되는지 검증한다.
+상태 판정은 service 통합 테스트에서 검증한다.
 
 ## 상태 정의
 
 ```text
-DeriveLoginState(user)
-├─ inactive
-├─ recoverable_browser_only
-├─ initial_onboarding_incomplete
-├─ reconsent_required
-└─ onboarding_complete
+user.Status 기반 규칙
+├─ 'disabled'           → 모든 채널 차단 (403 account_inactive)
+├─ 'deleted'            → Browser는 신규 가입 재진입, 나머지는 차단
+├─ 'pending_deletion'   → browser만 복구, 나머지 403
+└─ 'active'             → 허용
 ```
 
 ## 공통 매트릭스
 
-| 현재 상태 | Browser | Device | MCP | Refresh | 기대 결과 |
-|----------|---------|--------|-----|---------|----------|
-| `inactive` | 차단 | 차단 | 차단 | 차단 | Browser/Device/MCP는 `account_inactive`, Refresh는 최종적으로 `invalid_grant` |
-| `recoverable_browser_only` | 복구 후 진행 | 차단 | 차단 | 차단 | Browser만 복구 허용, Refresh는 최종적으로 `invalid_grant` |
-| `initial_onboarding_incomplete` | 약관 페이지 | 차단 | 차단 | 차단 | Browser만 온보딩 계속, Refresh는 최종적으로 `invalid_grant` |
-| `reconsent_required` | 약관 재동의 | 차단 | 차단 | 차단 | Browser만 재동의 허용, Refresh는 최종적으로 `invalid_grant` |
-| `onboarding_complete` | 허용 | 허용 | 허용 | 허용 | 정상 |
+| user.Status | Browser | Device | MCP | Refresh | 기대 결과 |
+|-------------|---------|--------|-----|---------|----------|
+| `disabled` | 차단 | 차단 | 차단 | 차단 | 403 `account_inactive`, Refresh는 `invalid_grant` |
+| `deleted` | 신규 가입 재진입 | 차단 | 차단 | 차단 | Browser는 Spec 001 재진입, 나머지는 차단 |
+| `pending_deletion` | 복구 후 진행 | 차단 | 차단 | 차단 | Browser만 복구 허용, 나머지 403 |
+| `active` | 허용 | 허용 | 허용 | 허용 | 정상 |
 
-## 단위 테스트 리스트
+## service 통합 테스트 리스트
 
-### DeriveLoginState
+### 상태별 동작 검증
 
-| ID | 초기 데이터 | 기대 상태 | 검증 포인트 |
-|----|------------|----------|-------------|
-| `state-001` | `status='disabled'` | `inactive` | disabled는 항상 inactive |
-| `state-002` | `status='deleted'` | `inactive` | deleted는 항상 inactive |
-| `state-003` | `status='pending_deletion'` | `recoverable_browser_only` | 브라우저만 복구 가능 |
-| `state-004` | `status='active'`, `terms_accepted_at=NULL` | `initial_onboarding_incomplete` | 최초 가입 미완료 |
-| `state-005` | `status='active'`, `privacy_accepted_at=NULL` | `initial_onboarding_incomplete` | privacy만 비어 있어도 미완료 |
-| `state-006` | accepted_at 존재, `terms_version != CURRENT_TERMS_VERSION` | `reconsent_required` | 버전 불일치 |
-| `state-007` | accepted_at 존재, `privacy_version != CURRENT_PRIVACY_VERSION` | `reconsent_required` | privacy 버전 불일치 |
-| `state-008` | `status='active'`, accepted_at 존재, 버전 일치 | `onboarding_complete` | 정상 상태 |
+검증 위치: service 통합 테스트 (실 PostgreSQL + FixedClock)
 
-### GuardLoginChannel
+| ID | user.Status | 기대 동작 | 검증 포인트 |
+|----|-------------|----------|-------------|
+| `status-001` | `disabled` | 모든 채널 403 | disabled는 항상 차단 |
+| `status-002` | `deleted` | Browser는 신규 가입 재진입, 나머지는 차단 | deleted 종단 상태 + 브라우저 재가입 경로 |
+| `status-003` | `pending_deletion` | browser만 복구, 나머지 403 | browser 복구 경로 확인 |
+| `status-004` | `active` | 모든 채널 허용 | 정상 활성 계정 |
 
-| ID | DeriveLoginState | Channel | 기대 결과 | 검증 포인트 |
-|----|------------------|---------|----------|-------------|
-| `guard-001` | `inactive` | `browser` | `account_inactive` | Browser도 차단 |
-| `guard-002` | `inactive` | `device` | `account_inactive` | Device 차단 |
-| `guard-003` | `recoverable_browser_only` | `browser` | `recover_then_continue` | Browser 복구 |
-| `guard-004` | `recoverable_browser_only` | `device` | `account_inactive` | Device 복구 불가 |
-| `guard-005` | `initial_onboarding_incomplete` | `browser` | `show_terms` | Browser만 약관 |
-| `guard-006` | `initial_onboarding_incomplete` | `mcp` | `signup_required` | MCP 차단 |
-| `guard-007` | `reconsent_required` | `browser` | `show_terms` | 재동의 |
-| `guard-008` | `reconsent_required` | `refresh` | `signup_required` | guard 레벨에서는 refresh도 차단 상태로 판정, 최종 OAuth 응답은 별도 refresh 테스트에서 `invalid_grant` 검증 |
-| `guard-009` | `onboarding_complete` | `browser` | `allow` | 정상 허용 |
-| `guard-010` | `onboarding_complete` | `device` | `allow` | 정상 허용 |
+### 채널별 접근 제어 검증
+
+검증 위치: service 통합 테스트 (실 PostgreSQL + FixedClock)
+
+| ID | user.Status | Channel | 기대 결과 | 검증 포인트 |
+|----|-------------|---------|----------|-------------|
+| `channel-001` | `disabled` | browser | 403 `account_inactive` | Browser도 차단 |
+| `channel-002` | `disabled` | device | 403 `account_inactive` | Device 차단 |
+| `channel-002b` | `deleted` | browser | Spec 001 신규 가입 재진입 | Browser 재가입 경로 |
+| `channel-003` | `pending_deletion` | browser | 복구 → active → 토큰 발급 | Browser 복구 |
+| `channel-004` | `pending_deletion` | device | 403 `account_inactive` | Device 복구 불가 |
+| `channel-005` | `pending_deletion` | mcp (세션 있음) | 403 `account_inactive` | MCP 세션 경로도 복구 불가 |
+| `channel-006` | `pending_deletion` | mcp (콜백) | 403 `account_inactive` | MCP 콜백 경로도 복구 불가 |
+| `channel-007` | `active` | browser | 토큰 발급 | 정상 허용 |
+| `channel-008` | `active` | device | 토큰 발급 | 정상 허용 |
+| `channel-009` | `active` | mcp | 토큰 발급 | 정상 허용 |
 
 ## 검증 포인트
 
 ```text
-1. DeriveLoginState가 유일한 상태 판정 원천인가?
+1. user.Status가 유일한 상태 판정 원천인가?
 2. Browser / Device / MCP / Refresh가 같은 상태표를 공유하는가?
-3. initial_onboarding_incomplete와 reconsent_required가 구분되는가?
-4. recoverable_browser_only는 Browser에서만 복구되는가?
+3. deleted는 Browser에서 신규 가입으로 재진입하고, 나머지 채널에서는 차단되는가?
+4. pending_deletion은 Browser에서만 복구되는가? (세션 경로 + 콜백 경로 모두)
+5. active 상태는 모든 채널에서 허용되는가?
 ```

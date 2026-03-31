@@ -3,7 +3,8 @@
 ## 개요
 
 authgate가 발급한 토큰의 갱신, 검증, 폐기 흐름.
-로그인 방식(브라우저/CLI/MCP)에 관계없이 **동일한 토큰 계약**이 적용된다.
+로그인 방식(브라우저/CLI/MCP)에 관계없이 **동일한 lifecycle 규칙**이 적용되지만,
+`aud` 같은 일부 토큰 의미는 채널별로 다를 수 있다.
 
 ## 전제
 
@@ -17,7 +18,7 @@ authgate가 발급한 토큰의 갱신, 검증, 폐기 흐름.
 |--------|------|----------|------|
 | POST | `/oauth/token` | zitadel 라이브러리 | grant_type=refresh_token → 토큰 갱신 (rotation) |
 | POST | `/oauth/revoke` | zitadel 라이브러리 | refresh_token 폐기 |
-| GET | `/.well-known/jwks.json` | zitadel 라이브러리 | 공개키 (앱이 JWT 검증에 사용) |
+| GET | `/keys` | zitadel 라이브러리 | 공개키 (앱이 JWT 검증에 사용) |
 | GET | `/.well-known/openid-configuration` | zitadel 라이브러리 | Discovery (엔드포인트 URL 조회) |
 
 ## 토큰 종류
@@ -41,16 +42,16 @@ sequenceDiagram
 
     AG->>AG: [zitadel] TokenRequestByRefreshToken(refresh_token)
     AG->>AG: [storage] token_hash 조회 + user 조회
-    AG->>AG: [storage] DeriveLoginState와 동등한 상태 검증
+    AG->>AG: [storage] user.Status 기반 상태 검증
 
-    alt 유효 + DeriveLoginState = onboarding_complete
+    alt 유효 + user.Status = active
         AG->>AG: 구 토큰 revoke (revoked_at = NOW)
         AG->>AG: 신 refresh_token 생성 (family_id 상속)
         AG->>AG: 신 access_token JWT 서명
         AG-->>App: 200 {access_token, refresh_token} (둘 다 새 것)
     else 만료/폐기된 토큰
         AG-->>App: 400 {error: "invalid_grant"}
-    else DeriveLoginState != onboarding_complete
+    else user.Status != active
         AG-->>App: 400 {error: "invalid_grant"}
     end
 ```
@@ -113,24 +114,19 @@ sequenceDiagram
 
 ## 계정 상태별 토큰 동작
 
-[ADR-000 DeriveLoginState](../adr/000-authgate-identity.md)와 일치:
+[ADR-000](../adr/000-authgate-identity.md) 상태 판정 규칙과 일치:
 
-| DeriveLoginState | 토큰 갱신 (refresh) | 기존 access_token | 설명 |
-|-----------------|-------------------|------------------|------|
-| `onboarding_complete` | 허용 | 유효 (만료까지) | 정상 |
-| `reconsent_required` | 차단 | 유효 (만료까지) | 버전 변경, 재동의 필요 |
-| `initial_onboarding_incomplete` | 차단 | 정상 플로우에서는 없음* | 최초 가입 미완료 |
-| `recoverable_browser_only` | 차단 | 유효 (만료까지, 최대 15분) | 삭제 유예 중 |
-| `inactive` | 차단 | 유효 (만료까지, 최대 15분) | 정지/삭제 |
+| user.Status | 토큰 갱신 (refresh) | 기존 access_token | 설명 |
+|------------|-------------------|------------------|------|
+| `active` | 허용 | 유효 (만료까지) | 정상 |
+| `pending_deletion` | 차단 | 유효 (만료까지, 최대 15분) | 삭제 유예 중 |
+| `disabled` / `deleted` | 차단 | 유효 (만료까지, 최대 15분) | 정지/삭제 |
 
-refresh 허용 조건: `DeriveLoginState = onboarding_complete`. 약관/개인정보 버전이 변경되면 `reconsent_required`가 되어 재동의 전까지 refresh도 차단된다.
+refresh 허용 조건: `user.Status = 'active'`.
 
 **구현 위치 주의**: zitadel의 `RefreshTokenRequest` 인터페이스에는 사용자 상태 정보가 없으므로,
 authgate는 `storage.TokenRequestByRefreshToken` 구현 안에서 refresh_token → user를 조회하고
-`DeriveLoginState`와 동일한 규칙으로 차단 여부를 판단해야 한다.
-
-`*` 정상 가입 플로우에서는 `initial_onboarding_incomplete` 상태에서 access_token이 발급되지 않는다.
-이 항목은 과거 버그, 운영 실수, 데이터 손상 등으로 이미 발급된 access_token이 남아 있는 비정상 상태를 방어적으로 설명한 것이다.
+`user.Status` 기반으로 차단 여부를 판단해야 한다.
 
 **access_token(JWT)은 stateless라 서버에서 즉시 폐기할 수 없다.**
 disabled/deleted 계정의 access_token은 만료(15분)를 기다린다.
@@ -149,12 +145,12 @@ sequenceDiagram
     Client->>App: API 요청 + Authorization: Bearer <access_token>
 
     Note over App: 최초 1회 JWKS fetch + 캐시
-    App->>AG: GET /.well-known/jwks.json
+    App->>AG: GET /keys
     AG-->>App: {keys: [{kty: RSA, kid: key-1, ...}]}
 
     App->>App: JWT 서명 검증 (RS256, kid 매칭)
     App->>App: iss 확인 (authgate URL)
-    App->>App: aud 확인 (내 client_id)
+    App->>App: aud 확인
     App->>App: exp 확인 (만료 안 됐나)
     App->>App: iat 확인 (미래 시각이면 거부)
     App->>App: sub 추출 → 유저 ID
@@ -173,12 +169,25 @@ sequenceDiagram
 |------|------|------|
 | 서명 검증 | **필수** | JWKS 공개키로 RS256, `kid`로 키 매칭 |
 | `iss` 확인 | **필수** | authgate의 issuer URL과 일치 |
-| `aud` 확인 | **필수** | 자신의 client_id와 일치 |
+| `aud` 확인 | **필수** | Browser/Device는 자신의 `client_id`, MCP는 자신의 canonical `resource`와 일치 |
 | `exp` 확인 | **필수** | 현재 시각보다 미래 |
 | `iat` 확인 | **필수** | 현재 시각보다 과거 (미래면 거부) |
 | JWKS 캐시 | **권장** | HTTP Cache-Control 준수, kid miss 시 1회 재fetch |
 | 키 회전 지원 | **권장** | 캐시에 없는 kid → 재fetch → 검증. Spec 009 키 로테이션 참조 |
 | clock skew | **권장** | ±30초 허용 |
+
+### 채널별 audience 규칙
+
+```text
+Browser / Device
+  -> aud = OAuth client_id
+
+MCP
+  -> aud = canonical resource
+```
+
+[Spec 004](004-mcp-login.md)의 MCP 계약에 따라,
+MCP 토큰은 특정 protected resource용으로 발급되고 검증되어야 한다.
 
 ## 토큰 폐기 (Revoke)
 
@@ -259,8 +268,6 @@ WHERE expires_at < NOW() - INTERVAL '1 hour';
 | refresh_token 만료 | `invalid_grant` | 400 | 재로그인 필요 |
 | refresh_token 이미 사용됨 | `invalid_grant` | 400 | rotation 위반 |
 | 재사용 탐지 (탈취 의심) | `invalid_grant` | 400 | family 전체 revoke + 재로그인 |
-| `DeriveLoginState = initial_onboarding_incomplete` | `invalid_grant` | 400 | 브라우저에서 가입 완료 먼저 필요 |
-| `DeriveLoginState = reconsent_required` | `invalid_grant` | 400 | 브라우저에서 재동의 먼저 필요 |
 | 계정 disabled/deleted/pending_deletion | `invalid_grant` | 400 | 토큰 갱신 차단 |
 | client_id 불일치 | `invalid_client` | 400 | |
 
