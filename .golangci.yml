@@ -1,0 +1,28 @@
+run:
+  go: "1.24"  # golangci-lint is built with go1.24; override until go1.25 support lands
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - bodyclose
+    - noctx
+
+linters-settings:
+  gosec:
+    excludes:
+      - G115  # integer overflow conversion — not relevant for this codebase
+
+issues:
+  exclude-rules:
+    # Test files: allow hardcoded credentials and unhandled errors
+    - path: "_test\\.go"
+      linters: [gosec, errcheck]
+    # Example code: allow hardcoded values
+    - path: "examples/"
+      linters: [gosec]
