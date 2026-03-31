@@ -1,0 +1,46 @@
+clients:
+  - client_id: sample-app
+    client_type: public
+    login_channel: browser
+    name: Sample Web App
+    redirect_uris:
+      - http://localhost:9090/auth/callback
+    allowed_scopes:
+      - openid
+      - profile
+      - email
+      - offline_access
+    allowed_grant_types:
+      - authorization_code
+      - refresh_token
+
+  - client_id: cli-client
+    client_type: public
+    login_channel: browser
+    name: CLI Device Flow
+    redirect_uris:
+      - http://localhost:9090/callback
+    allowed_scopes:
+      - openid
+      - profile
+      - email
+      - offline_access
+    allowed_grant_types:
+      - authorization_code
+      - "urn:ietf:params:oauth:grant-type:device_code"
+      - refresh_token
+
+  - client_id: mcp-client
+    client_type: public
+    login_channel: mcp
+    name: MCP Server
+    redirect_uris:
+      - http://localhost:9091/callback
+    allowed_scopes:
+      - openid
+      - profile
+      - email
+      - offline_access
+    allowed_grant_types:
+      - authorization_code
+      - refresh_token

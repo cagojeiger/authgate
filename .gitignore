@@ -10,6 +10,9 @@
 authgate
 app
 .playwright-mcp/
+/examples/cli/cli
+/examples/webapp/webapp
+/examples/mcp-server/mcp-server
 
 # Test binary, built with `go test -c`
 *.test
@@ -19,6 +22,10 @@ app
 coverage.*
 *.coverprofile
 profile.cov
+*.log
+
+# OS files
+.DS_Store
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
