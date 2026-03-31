@@ -12,7 +12,9 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +28,25 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func protectedResourceMetadataURL(resourceURL string) (string, string, error) {
+	u, err := url.Parse(resourceURL)
+	if err != nil {
+		return "", "", err
+	}
+	wellKnownPath := "/.well-known/oauth-protected-resource"
+	metadataPath := wellKnownPath
+	if cleaned := strings.TrimPrefix(path.Clean(u.EscapedPath()), "/"); cleaned != "" && cleaned != "." {
+		metadataPath = wellKnownPath + "/" + cleaned
+	}
+
+	metadataURL := *u
+	metadataURL.RawQuery = ""
+	metadataURL.Fragment = ""
+	metadataURL.Path = metadataPath
+	metadataURL.RawPath = metadataPath
+	return metadataURL.String(), metadataPath, nil
 }
 
 // --- JWT verification ---
@@ -196,7 +217,7 @@ func fetchUserinfo(authgateURL, accessToken string) (*Claims, error) {
 	return &c, nil
 }
 
-func authMiddleware(verifier *JWKSVerifier, authgateURL string, next http.Handler) http.Handler {
+func authMiddleware(verifier *JWKSVerifier, authgateURL, resourceMetadataURL string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Public endpoints — no auth required
 		if r.URL.Path == "/health" ||
@@ -207,7 +228,7 @@ func authMiddleware(verifier *JWKSVerifier, authgateURL string, next http.Handle
 
 		token := extractBearerToken(r)
 		if token == "" {
-			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s/.well-known/oauth-protected-resource"`, verifier.audience))
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s"`, resourceMetadataURL))
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
@@ -236,6 +257,10 @@ func main() {
 	authgateURL := envOr("AUTHGATE_URL", "http://localhost:8080")
 	resourceURL := envOr("RESOURCE_URL", "http://localhost:9091")
 	jwksURL := authgateURL + "/keys"
+	resourceMetadataURL, resourceMetadataPath, err := protectedResourceMetadataURL(resourceURL)
+	if err != nil {
+		log.Fatalf("resource metadata url: %v", err)
+	}
 
 	verifier := NewJWKSVerifier(jwksURL, authgateURL, resourceURL)
 
@@ -304,7 +329,7 @@ func main() {
 	})
 
 	// RFC 9728: OAuth Protected Resource Metadata (draft MCP spec)
-	mux.HandleFunc("/.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(resourceMetadataPath, func(w http.ResponseWriter, r *http.Request) {
 		metadata := map[string]any{
 			"resource":              resourceURL,
 			"authorization_servers": []string{authgateURL},
@@ -316,7 +341,7 @@ func main() {
 	mux.Handle("/mcp", mcpHandler)
 
 	// Wrap entire mux with auth middleware
-	handler := authMiddleware(verifier, authgateURL, mux)
+	handler := authMiddleware(verifier, authgateURL, resourceMetadataURL, mux)
 
 	slog.Info("mcp-server starting", "addr", listenAddr, "authgate", authgateURL)
 	if err := http.ListenAndServe(listenAddr, handler); err != nil {
