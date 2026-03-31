@@ -166,4 +166,4 @@ go test -tags integration ./internal/storage ./internal/service ./internal/integ
 
 ## License
 
-MIT
+Apache 2.0 — see [LICENSE](LICENSE)
