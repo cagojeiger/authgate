@@ -24,7 +24,7 @@ jobs:
       - name: Test (race detector)
         run: go test -race ./...
 
-  lint:
+  vet:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,10 +34,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      - name: go vet
+        run: go vet ./...
+      # TODO: replace with golangci-lint once it supports Go 1.25
+      # https://github.com/golangci/golangci-lint/issues/...
 
   vuln:
     runs-on: ubuntu-latest
