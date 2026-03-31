@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -59,12 +60,36 @@ func SetupPostgres(t *testing.T) *sql.DB {
 	// Wait for DB to be ready
 	for i := 0; i < 30; i++ {
 		if err := db.Ping(); err == nil {
+			applyAdditionalMigrations(t, db, migrationPath)
 			return db
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	t.Fatal("db not ready after 15s")
 	return nil
+}
+
+func applyAdditionalMigrations(t *testing.T, db *sql.DB, migrationPath string) {
+	t.Helper()
+
+	files, err := filepath.Glob(filepath.Join(migrationPath, "*.sql"))
+	if err != nil {
+		t.Fatalf("list migrations: %v", err)
+	}
+	sort.Strings(files)
+
+	for _, file := range files {
+		if filepath.Base(file) == "001_init.sql" {
+			continue
+		}
+		sqlBytes, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read migration %s: %v", filepath.Base(file), err)
+		}
+		if _, err := db.Exec(string(sqlBytes)); err != nil {
+			t.Fatalf("apply migration %s: %v", filepath.Base(file), err)
+		}
+	}
 }
 
 // findMigrations walks up from cwd to find the migrations/ directory.

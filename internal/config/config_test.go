@@ -10,7 +10,7 @@ func clearEnv() {
 		"PORT", "DATABASE_URL", "SESSION_SECRET", "PUBLIC_URL",
 		"OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL",
-		"TERMS_VERSION", "PRIVACY_VERSION", "DEV_MODE",
+		"DEV_MODE",
 	} {
 		os.Unsetenv(key)
 	}
@@ -116,9 +116,6 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.RefreshTokenTTL.Seconds() != 2592000 {
 		t.Errorf("RefreshTokenTTL = %v, want 2592000s", cfg.RefreshTokenTTL)
-	}
-	if cfg.TermsVersion != "2026-03-28" {
-		t.Errorf("TermsVersion = %q, want 2026-03-28", cfg.TermsVersion)
 	}
 }
 

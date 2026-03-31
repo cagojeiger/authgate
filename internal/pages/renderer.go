@@ -15,11 +15,6 @@ func init() {
 	templates = template.Must(template.ParseFS(templateFS, "templates/*.html"))
 }
 
-type TermsData struct {
-	AuthRequestID string
-	Error         string
-}
-
 type ErrorData struct {
 	Code    int
 	Message string
@@ -38,10 +33,6 @@ type DeviceApproveData struct {
 type ResultData struct {
 	Success bool
 	Message string
-}
-
-func RenderTerms(w io.Writer, data TermsData) error {
-	return templates.ExecuteTemplate(w, "terms.html", data)
 }
 
 func RenderError(w io.Writer, data ErrorData) error {

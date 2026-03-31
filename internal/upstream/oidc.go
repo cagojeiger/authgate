@@ -2,124 +2,122 @@ package upstream
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
-	"github.com/zitadel/oidc/v3/pkg/client"
+	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-// OIDCProvider uses OIDC Discovery to connect to any OIDC-compliant IdP.
+// OIDCProvider uses zitadel/oidc RelyingParty for OIDC Discovery, token exchange, and userinfo.
 type OIDCProvider struct {
-	name         string
-	clientID     string
-	clientSecret string
-	redirectURI  string
-	scopes       []string
-	discovery    *oidc.DiscoveryConfiguration
-	httpClient   *http.Client
+	name string
+	rp   rp.RelyingParty
 }
 
-// NewOIDCProvider creates a provider by fetching the OIDC discovery document.
-func NewOIDCProvider(ctx context.Context, issuerURL, clientID, clientSecret, redirectURI string) (*OIDCProvider, error) {
-	httpClient := &http.Client{Timeout: 10 * time.Second}
+// Option configures OIDCProvider construction.
+type Option func(*options)
 
-	disc, err := client.Discover(ctx, issuerURL, httpClient)
-	if err != nil {
-		return nil, fmt.Errorf("oidc discovery from %s: %w", issuerURL, err)
+type options struct {
+	rpOpts      []rp.Option
+	internalURL string
+}
+
+// WithRPOptions passes options to the underlying rp.NewRelyingPartyOIDC.
+func WithRPOptions(opts ...rp.Option) Option {
+	return func(o *options) { o.rpOpts = append(o.rpOpts, opts...) }
+}
+
+// WithInternalURL rewrites outgoing HTTP requests from issuerURL host to internalURL host.
+// Used in Docker/K8s where the browser reaches the IdP at localhost:8082
+// but the server reaches it at mock-idp:8082 via internal DNS.
+func WithInternalURL(internalURL string) Option {
+	return func(o *options) { o.internalURL = internalURL }
+}
+
+// NewOIDCProvider creates a provider by performing OIDC Discovery on the issuer URL.
+func NewOIDCProvider(ctx context.Context, issuerURL, clientID, clientSecret, redirectURI string, opts ...Option) (*OIDCProvider, error) {
+	o := &options{}
+	for _, opt := range opts {
+		opt(o)
 	}
 
-	// Derive provider name from issuer (e.g., "https://accounts.google.com" → "google")
-	name := deriveProviderName(disc.Issuer)
+	if o.internalURL != "" {
+		issuerParsed, _ := url.Parse(issuerURL)
+		internalParsed, _ := url.Parse(o.internalURL)
+		if issuerParsed != nil && internalParsed != nil {
+			o.rpOpts = append(o.rpOpts, rp.WithHTTPClient(&http.Client{
+				Transport: &hostRewriteTransport{
+					fromHost:  issuerParsed.Host,
+					toHost:    internalParsed.Host,
+					toScheme:  internalParsed.Scheme,
+					transport: http.DefaultTransport,
+				},
+			}))
+		}
+	}
+
+	scopes := []string{"openid", "email", "profile"}
+	relyingParty, err := rp.NewRelyingPartyOIDC(ctx, issuerURL, clientID, clientSecret, redirectURI, scopes, o.rpOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("oidc relying party for %s: %w", issuerURL, err)
+	}
 
 	return &OIDCProvider{
-		name:         name,
-		clientID:     clientID,
-		clientSecret: clientSecret,
-		redirectURI:  redirectURI,
-		scopes:       []string{"openid", "email", "profile"},
-		discovery:    disc,
-		httpClient:   httpClient,
+		name: deriveProviderName(relyingParty.Issuer()),
+		rp:   relyingParty,
 	}, nil
 }
 
 func (p *OIDCProvider) Name() string { return p.name }
 
 func (p *OIDCProvider) AuthURL(state string) string {
-	params := url.Values{
-		"client_id":     {p.clientID},
-		"redirect_uri":  {p.redirectURI},
-		"response_type": {"code"},
-		"scope":         {strings.Join(p.scopes, " ")},
-		"state":         {state},
-	}
-	return p.discovery.AuthorizationEndpoint + "?" + params.Encode()
+	return rp.AuthURL(state, p.rp)
 }
 
 func (p *OIDCProvider) Exchange(ctx context.Context, code string) (*UserInfo, error) {
-	// Step 1: Exchange code for access_token at token_endpoint
-	data := url.Values{
-		"code":          {code},
-		"client_id":     {p.clientID},
-		"client_secret": {p.clientSecret},
-		"redirect_uri":  {p.redirectURI},
-		"grant_type":    {"authorization_code"},
-	}
-
-	tokenReq, err := http.NewRequestWithContext(ctx, "POST", p.discovery.TokenEndpoint, strings.NewReader(data.Encode()))
+	tokens, err := rp.CodeExchange[*oidc.IDTokenClaims](ctx, code, p.rp)
 	if err != nil {
-		return nil, fmt.Errorf("create token request: %w", err)
+		return nil, fmt.Errorf("code exchange: %w", err)
 	}
-	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	tokenResp, err := p.httpClient.Do(tokenReq)
+	info, err := rp.Userinfo[*oidc.UserInfo](ctx, tokens.AccessToken, tokens.TokenType, tokens.IDTokenClaims.GetSubject(), p.rp)
 	if err != nil {
-		return nil, fmt.Errorf("token exchange: %w", err)
-	}
-	defer tokenResp.Body.Close()
-
-	if tokenResp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("token exchange status: %d", tokenResp.StatusCode)
+		return nil, fmt.Errorf("userinfo: %w", err)
 	}
 
-	var tokenResult struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.NewDecoder(tokenResp.Body).Decode(&tokenResult); err != nil {
-		return nil, fmt.Errorf("decode token response: %w", err)
-	}
+	return &UserInfo{
+		Sub:           info.Subject,
+		Email:         info.Email,
+		EmailVerified: bool(info.EmailVerified),
+		Name:          info.Name,
+		Picture:       info.Picture,
+	}, nil
+}
 
-	// Step 2: Fetch userinfo with access_token
-	uReq, err := http.NewRequestWithContext(ctx, "GET", p.discovery.UserinfoEndpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create userinfo request: %w", err)
-	}
-	uReq.Header.Set("Authorization", "Bearer "+tokenResult.AccessToken)
+// hostRewriteTransport rewrites the host of outgoing HTTP requests.
+// Bridges Docker internal DNS (mock-idp:8082) and browser-facing URLs (localhost:8082).
+type hostRewriteTransport struct {
+	fromHost  string
+	toHost    string
+	toScheme  string
+	transport http.RoundTripper
+}
 
-	uResp, err := p.httpClient.Do(uReq)
-	if err != nil {
-		return nil, fmt.Errorf("userinfo request: %w", err)
+func (t *hostRewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Host == t.fromHost {
+		req = req.Clone(req.Context())
+		req.URL.Host = t.toHost
+		if t.toScheme != "" {
+			req.URL.Scheme = t.toScheme
+		}
 	}
-	defer uResp.Body.Close()
-
-	if uResp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("userinfo status: %d", uResp.StatusCode)
-	}
-
-	var info UserInfo
-	if err := json.NewDecoder(uResp.Body).Decode(&info); err != nil {
-		return nil, fmt.Errorf("decode userinfo: %w", err)
-	}
-	return &info, nil
+	return t.transport.RoundTrip(req)
 }
 
 // deriveProviderName extracts a short name from the issuer URL.
-// "https://accounts.google.com" → "google"
-// "http://localhost:8082" → "localhost"
 func deriveProviderName(issuer string) string {
 	u, err := url.Parse(issuer)
 	if err != nil {
@@ -128,8 +126,7 @@ func deriveProviderName(issuer string) string {
 	host := u.Hostname()
 	parts := strings.Split(host, ".")
 	if len(parts) >= 2 {
-		// e.g., accounts.google.com → "google"
 		return parts[len(parts)-2]
 	}
-	return parts[0] // e.g., "localhost"
+	return parts[0]
 }

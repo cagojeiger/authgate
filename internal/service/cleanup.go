@@ -120,18 +120,6 @@ func (c *CleanupService) runAll(ctx context.Context) {
 	} else if n, _ := res.RowsAffected(); n > 0 {
 		slog.Info("audit_log anonymization", "anonymized", n)
 	}
-
-	// 7. Onboarding cleanup: active users with NULL terms for 7+ days
-	if res, err := c.db.ExecContext(ctx,
-		`DELETE FROM users WHERE status = 'active'
-		 AND (terms_accepted_at IS NULL OR privacy_accepted_at IS NULL)
-		 AND created_at < $1`,
-		now.Add(-7*24*time.Hour),
-	); err != nil {
-		slog.Error("onboarding cleanup", "error", err)
-	} else if n, _ := res.RowsAffected(); n > 0 {
-		slog.Info("onboarding cleanup", "deleted", n)
-	}
 }
 
 // deleteUser performs Spec 006 stage 3: explicit DELETE of child records + PII scrub.

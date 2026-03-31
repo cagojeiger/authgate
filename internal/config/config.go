@@ -14,14 +14,14 @@ type Config struct {
 	SessionSecret    string
 	PublicURL        string
 	OIDCIssuerURL    string
+	OIDCInternalURL  string // optional: internal base URL for server-to-server OIDC calls (Docker/K8s)
 	OIDCClientID     string
 	OIDCClientSecret string
 	SessionTTL       time.Duration
 	AccessTokenTTL   time.Duration
 	RefreshTokenTTL  time.Duration
-	TermsVersion     string
-	PrivacyVersion   string
 	DevMode          bool
+	ClientConfigPath string
 }
 
 func Load() (*Config, error) {
@@ -31,14 +31,14 @@ func Load() (*Config, error) {
 		SessionSecret:    os.Getenv("SESSION_SECRET"),
 		PublicURL:        os.Getenv("PUBLIC_URL"),
 		OIDCIssuerURL:    envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
+		OIDCInternalURL:  os.Getenv("OIDC_INTERNAL_URL"),
 		OIDCClientID:     envDefault("OIDC_CLIENT_ID", "authgate"),
 		OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
 		SessionTTL:       time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
 		AccessTokenTTL:   time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
 		RefreshTokenTTL:  time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
-		TermsVersion:     envDefault("TERMS_VERSION", "2026-03-28"),
-		PrivacyVersion:   envDefault("PRIVACY_VERSION", "2026-03-28"),
 		DevMode:          envBool("DEV_MODE", false),
+		ClientConfigPath: envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
 	}
 
 	if c.DatabaseURL == "" {

@@ -7,30 +7,25 @@ import (
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
-	"github.com/kangheeyong/authgate/internal/guard"
 	"github.com/kangheeyong/authgate/internal/storage"
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
 type DeviceService struct {
-	store          *storage.Storage
-	provider       upstream.Provider
-	termsVersion   string
-	privacyVersion string
-	sessionTTL     time.Duration
-	publicURL      string
-	clock          clock.Clock
+	store      *storage.Storage
+	provider   upstream.Provider
+	sessionTTL time.Duration
+	publicURL  string
+	clock      clock.Clock
 }
 
-func NewDeviceService(store *storage.Storage, provider upstream.Provider, termsVersion, privacyVersion, publicURL string, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
+func NewDeviceService(store *storage.Storage, provider upstream.Provider, publicURL string, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
 	return &DeviceService{
-		store:          store,
-		provider:       provider,
-		termsVersion:   termsVersion,
-		privacyVersion: privacyVersion,
-		publicURL:      publicURL,
-		sessionTTL:     sessionTTL,
-		clock:          clk,
+		store:      store,
+		provider:   provider,
+		publicURL:  publicURL,
+		sessionTTL: sessionTTL,
+		clock:      clk,
 	}
 }
 
@@ -96,19 +91,12 @@ func (s *DeviceService) HandleDevicePage(ctx context.Context, userCode, sessionI
 		return &DevicePageResult{Action: DeviceError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	// DeriveLoginState + GuardLoginChannel (device channel)
-	ui := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
-	result := guard.GuardLoginChannel(ui, guard.ChannelDevice, s.termsVersion, s.privacyVersion)
-
-	switch result {
-	case guard.Allow:
-		return &DevicePageResult{Action: DeviceShowApprove, UserCode: userCode}
-	case guard.SignupRequired:
-		return &DevicePageResult{Action: DeviceError, Error: "signup_required: please complete signup in browser first", ErrorCode: http.StatusForbidden}
-	default:
+	if CheckAccess(user.Status, "device") != AccessAllow {
 		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", "", "", map[string]any{"status": user.Status, "channel": "device"})
 		return &DevicePageResult{Action: DeviceError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
+
+	return &DevicePageResult{Action: DeviceShowApprove, UserCode: userCode}
 }
 
 // HandleDeviceCallback handles GET /device/auth/callback?code=xxx&state=user_code
@@ -126,19 +114,13 @@ func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode
 	// Look up user
 	user, err := s.store.GetUserByProviderIdentity(ctx, s.provider.Name(), userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
-		return &DevicePageResult{Action: DeviceError, Error: "signup_required: please sign up via browser first", ErrorCode: http.StatusForbidden}
+		return &DevicePageResult{Action: DeviceError, Error: "account_not_found: please sign up via browser first", ErrorCode: http.StatusForbidden}
 	}
 	if err != nil {
 		return &DevicePageResult{Action: DeviceError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	// DeriveLoginState check (device channel)
-	ui := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
-	result := guard.GuardLoginChannel(ui, guard.ChannelDevice, s.termsVersion, s.privacyVersion)
-	if result == guard.SignupRequired {
-		return &DevicePageResult{Action: DeviceError, Error: "signup_required", ErrorCode: http.StatusForbidden}
-	}
-	if result != guard.Allow {
+	if CheckAccess(user.Status, "device") != AccessAllow {
 		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "device"})
 		return &DevicePageResult{Action: DeviceError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
@@ -173,13 +155,7 @@ func (s *DeviceService) HandleDeviceApprove(ctx context.Context, userCode, actio
 		return &DeviceApproveResult{Success: false, Message: "invalid session", ErrorCode: http.StatusUnauthorized}
 	}
 
-	// Guard re-check at approve time
-	ui := userToGuardInfo(user, s.termsVersion, s.privacyVersion)
-	result := guard.GuardLoginChannel(ui, guard.ChannelDevice, s.termsVersion, s.privacyVersion)
-	if result == guard.SignupRequired {
-		return &DeviceApproveResult{Success: false, Message: "signup_required", ErrorCode: http.StatusForbidden}
-	}
-	if result != guard.Allow {
+	if CheckAccess(user.Status, "device") != AccessAllow {
 		return &DeviceApproveResult{Success: false, Message: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
 

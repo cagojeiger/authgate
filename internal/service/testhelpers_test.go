@@ -30,14 +30,14 @@ func setupMCPExtTest(t *testing.T, sub string) (*LoginService, *storage.Storage)
 func setupDeviceExtTest(t *testing.T, sub string) (*DeviceService, *storage.Storage, clock.Clock) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: sub, Email: sub + "@test.com", EmailVerified: true, Name: "Device Ext"},
 	}
-	svc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour, clk)
+	svc := NewDeviceService(store, fakeProvider, "http://localhost:8080", 24*time.Hour, clk)
 	return svc, store, clk
 }
 
@@ -45,28 +45,28 @@ func setupDeviceExtTest(t *testing.T, sub string) (*DeviceService, *storage.Stor
 func setupAccountExtTest(t *testing.T) (*AccountService, *storage.Storage) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
-	svc := NewAccountService(db, clk)
+	svc := NewAccountService(store)
 	return svc, store
 }
 
 // setupGapTest creates all services for cross-service gap tests.
-func setupGapTest(t *testing.T) (*LoginService, *DeviceService, *AccountService, *storage.Storage, *sql.DB, clock.FixedClock) {
+func setupGapTest(t *testing.T) (*LoginService, *DeviceService, *AccountService, *storage.Storage, *sql.DB, *clock.FixedClock) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "gap-sub", Email: "gap@test.com", EmailVerified: true, Name: "Gap User"},
 	}
-	loginSvc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
-	deviceSvc := NewDeviceService(store, fakeProvider, termsV, privacyV, "http://localhost:8080", 24*time.Hour, clk)
-	accountSvc := NewAccountService(db, clk)
+	loginSvc := NewLoginService(store, fakeProvider, fakeProvider, 24*time.Hour)
+	deviceSvc := NewDeviceService(store, fakeProvider, "http://localhost:8080", 24*time.Hour, clk)
+	accountSvc := NewAccountService(store)
 	return loginSvc, deviceSvc, accountSvc, store, db, clk
 }
 
@@ -74,13 +74,13 @@ func setupGapTest(t *testing.T) (*LoginService, *DeviceService, *AccountService,
 func setupLoginServiceWithSub(t *testing.T, sub, email string) (*LoginService, *storage.Storage) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: sub, Email: email, EmailVerified: true, Name: "Test User"},
 	}
-	svc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
+	svc := NewLoginService(store, fakeProvider, fakeProvider, 24*time.Hour)
 	return svc, store
 }

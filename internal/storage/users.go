@@ -61,14 +61,12 @@ func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, provi
 	u := &User{}
 	err := s.db.QueryRowContext(ctx,
 		`SELECT u.id, u.email, u.email_verified, u.name, u.avatar_url, u.status,
-		        u.terms_version, u.terms_accepted_at, u.privacy_version, u.privacy_accepted_at,
 		        u.created_at, u.updated_at
 		 FROM users u
 		 JOIN user_identities ui ON u.id = ui.user_id
 		 WHERE ui.provider = $1 AND ui.provider_user_id = $2`,
 		provider, providerUserID,
 	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name, &u.AvatarURL, &u.Status,
-		&u.TermsVersion, &u.TermsAcceptedAt, &u.PrivacyVersion, &u.PrivacyAcceptedAt,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -80,12 +78,9 @@ func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, provi
 func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*User, error) {
 	u := &User{}
 	err := tx.QueryRowContext(ctx,
-		`SELECT id, email, email_verified, name, status,
-		        terms_version, terms_accepted_at, privacy_version, privacy_accepted_at
+		`SELECT id, email, email_verified, name, status
 		 FROM users WHERE id = $1`, userID,
-	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name, &u.Status,
-		&u.TermsVersion, &u.TermsAcceptedAt, &u.PrivacyVersion, &u.PrivacyAcceptedAt,
-	)
+	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name, &u.Status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -97,11 +92,9 @@ func (s *Storage) GetUserByID(ctx context.Context, userID string) (*User, error)
 	u := &User{}
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, email, email_verified, name, avatar_url, status,
-		        terms_version, terms_accepted_at, privacy_version, privacy_accepted_at,
 		        created_at, updated_at
 		 FROM users WHERE id = $1`, userID,
 	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name, &u.AvatarURL, &u.Status,
-		&u.TermsVersion, &u.TermsAcceptedAt, &u.PrivacyVersion, &u.PrivacyAcceptedAt,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -141,27 +134,11 @@ func (s *Storage) RecoverUser(ctx context.Context, userID string) error {
 	return tx.Commit()
 }
 
-func (s *Storage) AcceptTerms(ctx context.Context, userID, termsVersion, privacyVersion string) error {
-	now := s.clock.Now()
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE users SET terms_version = $1, terms_accepted_at = $2, privacy_version = $3, privacy_accepted_at = $2, updated_at = $2
-		 WHERE id = $4`,
-		termsVersion, now, privacyVersion, userID,
-	)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
 func (s *Storage) CompleteAuthRequest(ctx context.Context, authRequestID, userID string) error {
 	now := s.clock.Now()
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE auth_requests SET subject = $1, auth_time = $2, done = true WHERE id = $3`,
-		userID, now, authRequestID,
+		`UPDATE auth_requests SET subject = $1, auth_time = $2, done = true WHERE id = $3 AND expires_at > $4`,
+		userID, now, authRequestID, now,
 	)
 	if err != nil {
 		return err
@@ -213,6 +190,34 @@ func (s *Storage) SetUserStatus(ctx context.Context, userID, status string) erro
 	return err
 }
 
+// RequestDeletion sets a user to pending_deletion and revokes all refresh tokens. Single TX.
+func (s *Storage) RequestDeletion(ctx context.Context, userID string) error {
+	now := s.clock.Now()
+	scheduledAt := now.Add(30 * 24 * time.Hour)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.ExecContext(ctx,
+		`UPDATE users SET status = 'pending_deletion', deletion_requested_at = $1, deletion_scheduled_at = $2, updated_at = $1
+		 WHERE id = $3`, now, scheduledAt, userID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`UPDATE refresh_tokens SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL`,
+		now, userID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // DisableUser sets a user's status to disabled.
 func (s *Storage) DisableUser(ctx context.Context, userID string) error {
 	_, err := s.db.ExecContext(ctx,
@@ -251,13 +256,11 @@ func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User,
 	now := s.clock.Now()
 	err := s.db.QueryRowContext(ctx,
 		`SELECT u.id, u.email, u.email_verified, u.name, u.avatar_url, u.status,
-		        u.terms_version, u.terms_accepted_at, u.privacy_version, u.privacy_accepted_at,
 		        u.created_at, u.updated_at
 		 FROM sessions s JOIN users u ON s.user_id = u.id
 		 WHERE s.id = $1 AND s.expires_at > $2 AND s.revoked_at IS NULL`,
 		sessionID, now,
 	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name, &u.AvatarURL, &u.Status,
-		&u.TermsVersion, &u.TermsAcceptedAt, &u.PrivacyVersion, &u.PrivacyAcceptedAt,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {

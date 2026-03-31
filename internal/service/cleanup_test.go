@@ -15,10 +15,10 @@ import (
 	"github.com/kangheeyong/authgate/internal/testutil"
 )
 
-func setupCleanupTest(t *testing.T) (*sql.DB, *storage.Storage, clock.FixedClock) {
+func setupCleanupTest(t *testing.T) (*sql.DB, *storage.Storage, *clock.FixedClock) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
@@ -80,34 +80,12 @@ func TestCleanup_ExpiredAuthRequests(t *testing.T) {
 	}
 }
 
-func TestCleanup_OnboardingIncomplete(t *testing.T) {
-	db, store, clk := setupCleanupTest(t)
-	ctx := context.Background()
-
-	// Create user 8 days ago, never accepted terms
-	user, _ := store.CreateUserWithIdentity(ctx, "stale-onboard@test.com", true, "Stale", "", "google", "stale-onboard-sub", "s@test.com")
-	db.ExecContext(ctx,
-		`UPDATE users SET created_at = $1 WHERE id = $2`,
-		clk.Now().Add(-8*24*time.Hour), user.ID,
-	)
-
-	svc := NewCleanupService(db, clk, time.Hour)
-	svc.RunOnce(ctx)
-
-	var count int
-	db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id = $1`, user.ID).Scan(&count)
-	if count != 0 {
-		t.Errorf("expected stale onboarding user to be deleted, got %d", count)
-	}
-}
-
 func TestCleanup_DeletionPIIScrub(t *testing.T) {
 	db, store, clk := setupCleanupTest(t)
 	ctx := context.Background()
 
-	// Create user, accept terms, then set to pending_deletion with past scheduled date
+	// Create user, then set to pending_deletion with past scheduled date
 	user, _ := store.CreateUserWithIdentity(ctx, "delete-me@test.com", true, "Delete Me", "", "google", "delete-sub", "d@test.com")
-	store.AcceptTerms(ctx, user.ID, "2026-03-28", "2026-03-28")
 	db.ExecContext(ctx,
 		`UPDATE users SET status = 'pending_deletion', deletion_scheduled_at = $1 WHERE id = $2`,
 		clk.Now().Add(-1*time.Hour), user.ID, // scheduled in the past
@@ -152,28 +130,6 @@ func TestCleanup_DeletionPIIScrub(t *testing.T) {
 	}
 }
 
-func TestCleanup_ReconsentNotDeleted(t *testing.T) {
-	db, store, clk := setupCleanupTest(t)
-	ctx := context.Background()
-
-	// Create user who accepted terms but version changed
-	user, _ := store.CreateUserWithIdentity(ctx, "reconsent@test.com", true, "Reconsent", "", "google", "reconsent-sub", "r@test.com")
-	store.AcceptTerms(ctx, user.ID, "old-version", "old-version")
-	db.ExecContext(ctx,
-		`UPDATE users SET created_at = $1 WHERE id = $2`,
-		clk.Now().Add(-8*24*time.Hour), user.ID, // created 8 days ago
-	)
-
-	svc := NewCleanupService(db, clk, time.Hour)
-	svc.RunOnce(ctx)
-
-	// Reconsent user should NOT be deleted (terms_accepted_at IS NOT NULL)
-	var count int
-	db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id = $1`, user.ID).Scan(&count)
-	if count != 1 {
-		t.Errorf("reconsent user should NOT be deleted, got count=%d", count)
-	}
-}
 // E2E 8: cleanup 롤백 — 중간 실패 시 데이터 일관성
 func TestE2E8_CleanupRollback(t *testing.T) {
 	_, _, _, store, db, clk := setupGapTest(t)
@@ -181,7 +137,6 @@ func TestE2E8_CleanupRollback(t *testing.T) {
 
 	// Create user set for deletion
 	user, _ := store.CreateUserWithIdentity(ctx, "rollback@test.com", true, "Test", "", "google", "rollback-sub", "rb@test.com")
-	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
 	db.ExecContext(ctx, `UPDATE users SET status='pending_deletion', deletion_scheduled_at=$1 WHERE id=$2`,
 		clk.Now().Add(-1*time.Hour), user.ID)
 

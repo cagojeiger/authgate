@@ -20,7 +20,7 @@ import (
 func setupMCPTest(t *testing.T) (*LoginService, *storage.Storage) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
-	clk := clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
 	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
@@ -29,7 +29,7 @@ func setupMCPTest(t *testing.T) (*LoginService, *storage.Storage) {
 		User: &upstream.UserInfo{Sub: "mcp-sub-123", Email: "mcp@test.com", EmailVerified: true, Name: "MCP User"},
 	}
 
-	svc := NewLoginService(store, fakeProvider, fakeProvider, termsV, privacyV, 24*time.Hour)
+	svc := NewLoginService(store, fakeProvider, fakeProvider, 24*time.Hour)
 	return svc, store
 }
 
@@ -37,14 +37,13 @@ func TestMCP_CompleteUser_AutoApprove(t *testing.T) {
 	svc, store := setupMCPTest(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "mcp-ok@test.com", true, "MCP", "", "google", "mcp-sub-123", "mcp@test.com")
-	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
+	store.CreateUserWithIdentity(ctx, "mcp-ok@test.com", true, "MCP", "", "google", "mcp-sub-123", "mcp@test.com")
 	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-ok")
 
 	result := svc.HandleMCPCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
 
 	if result.Action != ActionAutoApprove {
-		t.Errorf("action = %v, want AutoApprove (MCP complete user)", result.Action)
+		t.Errorf("action = %v, want AutoApprove (MCP active user)", result.Action)
 	}
 }
 
@@ -78,39 +77,6 @@ func TestMCP_DisabledUser_Rejected(t *testing.T) {
 		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
 	}
 }
-// mcp-003: initial_onboarding_incomplete → MCP callback → signup_required
-func TestMCP003_InitialIncomplete_Rejected(t *testing.T) {
-	svc, store := setupMCPExtTest(t, "mcp-003-sub")
-	ctx := context.Background()
-
-	user, _ := store.CreateUserWithIdentity(ctx, "mcp-incomplete@test.com", true, "Test", "", "google", "mcp-003-sub", "mi@test.com")
-	_ = user
-
-	result := svc.HandleMCPCallback(ctx, "fake-code", "req-mcp-003", "127.0.0.1", "mcp-client")
-	if result.Action != ActionError {
-		t.Errorf("action = %v, want Error (initial incomplete via MCP)", result.Action)
-	}
-	if result.ErrorCode != 403 {
-		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
-	}
-}
-
-// mcp-004: reconsent_required → MCP callback → signup_required
-func TestMCP004_Reconsent_Rejected(t *testing.T) {
-	svc, store := setupMCPExtTest(t, "mcp-004-sub")
-	ctx := context.Background()
-
-	user, _ := store.CreateUserWithIdentity(ctx, "mcp-reconsent@test.com", true, "Test", "", "google", "mcp-004-sub", "mr@test.com")
-	store.AcceptTerms(ctx, user.ID, "old-version", "old-version")
-
-	result := svc.HandleMCPCallback(ctx, "fake-code", "req-mcp-004", "127.0.0.1", "mcp-client")
-	if result.Action != ActionError {
-		t.Errorf("action = %v, want Error (reconsent via MCP)", result.Action)
-	}
-	if result.ErrorCode != 403 {
-		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
-	}
-}
 
 // mcp-005: recoverable_browser_only → MCP callback → account_inactive
 func TestMCP005_Recoverable_Rejected(t *testing.T) {
@@ -118,7 +84,6 @@ func TestMCP005_Recoverable_Rejected(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "mcp-recover@test.com", true, "Test", "", "google", "mcp-005-sub", "mrc@test.com")
-	store.AcceptTerms(ctx, user.ID, termsV, privacyV)
 	store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-005")

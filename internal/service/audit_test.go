@@ -65,9 +65,10 @@ func TestAudit001_BrowserSignup(t *testing.T) {
 	svc, store := setupLoginService(t)
 	ctx := context.Background()
 
-	result := svc.HandleCallback(ctx, "fake-code", "audit-signup", "127.0.0.1", "test-agent")
-	if result.Action != ActionShowTerms {
-		t.Fatalf("action = %v, want ShowTerms", result.Action)
+	arID, _ := store.CreateTestAuthRequest(ctx, "audit-signup")
+	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test-agent")
+	if result.Action != ActionAutoApprove {
+		t.Fatalf("action = %v, want AutoApprove", result.Action)
 	}
 
 	user, err := store.GetUserByProviderIdentity(ctx, "google", "google-sub-123")
@@ -85,9 +86,6 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		user, err := store.CreateUserWithIdentity(ctx, "audit-browser@test.com", true, "Browser", "", "google", "browser-ext-sub", "audit-browser@test.com")
 		if err != nil {
 			t.Fatalf("create user: %v", err)
-		}
-		if err := store.AcceptTerms(ctx, user.ID, termsV, privacyV); err != nil {
-			t.Fatalf("accept terms: %v", err)
 		}
 		arID, _ := store.CreateTestAuthRequest(ctx, "audit-browser")
 
@@ -110,9 +108,6 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create user: %v", err)
 		}
-		if err := store.AcceptTerms(ctx, user.ID, termsV, privacyV); err != nil {
-			t.Fatalf("accept terms: %v", err)
-		}
 
 		result := svc.HandleDeviceCallback(ctx, "fake-code", "AUDT-DEV", "127.0.0.1", "device-agent")
 		if result.Action != DeviceRedirectBack {
@@ -133,9 +128,6 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create user: %v", err)
 		}
-		if err := store.AcceptTerms(ctx, user.ID, termsV, privacyV); err != nil {
-			t.Fatalf("accept terms: %v", err)
-		}
 		arID, _ := store.CreateTestAuthRequest(ctx, "audit-mcp")
 
 		result := svc.HandleMCPCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-agent")
@@ -150,34 +142,6 @@ func TestAudit002_LoginChannels(t *testing.T) {
 	})
 }
 
-func TestAudit003_TermsAccepted(t *testing.T) {
-	svc, store := setupLoginService(t)
-	ctx := context.Background()
-
-	user, err := store.CreateUserWithIdentity(ctx, "audit-terms@test.com", true, "Terms", "", "google", "audit-terms-sub", "audit-terms@test.com")
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-	sessionID, err := store.CreateSession(ctx, user.ID, 24*time.Hour)
-	if err != nil {
-		t.Fatalf("create session: %v", err)
-	}
-	arID, _ := store.CreateTestAuthRequest(ctx, "audit-terms")
-
-	result := svc.HandleTermsSubmit(ctx, arID, sessionID, true, true, true, "127.0.0.1", "terms-agent")
-	if result.Action != ActionAutoApprove {
-		t.Fatalf("action = %v, want AutoApprove", result.Action)
-	}
-
-	event := requireSingleAuditEvent(t, store.DB(), user.ID, "auth.terms_accepted")
-	if event.Metadata["terms_version"] != termsV {
-		t.Fatalf("terms_version = %v, want %s", event.Metadata["terms_version"], termsV)
-	}
-	if event.Metadata["privacy_version"] != privacyV {
-		t.Fatalf("privacy_version = %v, want %s", event.Metadata["privacy_version"], privacyV)
-	}
-}
-
 func TestAudit004_DeviceApproved(t *testing.T) {
 	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
@@ -185,9 +149,6 @@ func TestAudit004_DeviceApproved(t *testing.T) {
 	user, err := store.CreateUserWithIdentity(ctx, "audit-approve@test.com", true, "Approve", "", "google", "device-sub-123", "audit-approve@test.com")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
-	}
-	if err := store.AcceptTerms(ctx, user.ID, termsV, privacyV); err != nil {
-		t.Fatalf("accept terms: %v", err)
 	}
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 	insertDeviceCode(t, store, "AUDT-APRV", clk)
@@ -208,9 +169,6 @@ func TestAudit005_DeviceDenied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	if err := store.AcceptTerms(ctx, user.ID, termsV, privacyV); err != nil {
-		t.Fatalf("accept terms: %v", err)
-	}
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 	insertDeviceCode(t, store, "AUDT-DENY", clk)
 
@@ -230,8 +188,12 @@ func TestAudit006_DeletionRequested(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	sessionID, err := store.CreateSession(ctx, user.ID, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 
-	result := svc.RequestDeletion(ctx, user.ID, "127.0.0.1", "delete-agent")
+	result := svc.RequestDeletion(ctx, sessionID, "127.0.0.1", "delete-agent")
 	if !result.Success {
 		t.Fatalf("request deletion failed: %s", result.Message)
 	}
@@ -246,9 +208,6 @@ func TestAudit007_DeletionCancelled(t *testing.T) {
 	user, err := store.CreateUserWithIdentity(ctx, "audit-recover@test.com", true, "Recover", "", "google", "google-sub-123", "audit-recover@test.com")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
-	}
-	if err := store.AcceptTerms(ctx, user.ID, termsV, privacyV); err != nil {
-		t.Fatalf("accept terms: %v", err)
 	}
 	if err := store.SetUserStatus(ctx, user.ID, "pending_deletion"); err != nil {
 		t.Fatalf("set pending deletion: %v", err)

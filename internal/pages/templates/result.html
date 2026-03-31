@@ -5,21 +5,142 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>authgate - Result</title>
 <style>
+  :root {
+    --bg: #f4f7fb;
+    --panel: rgba(255,255,255,0.95);
+    --border: #d7e0ea;
+    --text: #14202b;
+    --muted: #5f6f82;
+    --success: #067647;
+    --success-bg: #ecfdf3;
+    --danger: #b42318;
+    --danger-bg: #fff1f1;
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f5f5f5; }
-  .card { background: #fff; border-radius: 12px; padding: 2rem; max-width: 420px; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; }
-  .icon { font-size: 3rem; margin-bottom: 1rem; }
-  h1 { font-size: 1.2rem; color: #333; margin-bottom: 0.5rem; }
-  p { color: #666; font-size: 0.9rem; }
-  .brand { color: #999; font-size: 0.75rem; margin-top: 1.5rem; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    color: var(--text);
+    background:
+      radial-gradient(circle at top left, rgba(23,92,211,0.10), transparent 28%),
+      radial-gradient(circle at bottom right, rgba(23,92,211,0.06), transparent 26%),
+      var(--bg);
+  }
+
+  .shell {
+    width: 100%;
+    max-width: 500px;
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.72);
+    border-radius: 22px;
+    box-shadow: 0 28px 80px rgba(17, 24, 39, 0.12);
+    overflow: hidden;
+  }
+
+  .topbar {
+    padding: 14px 18px;
+    border-bottom: 1px solid #eef2f7;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255,255,255,0.72);
+    backdrop-filter: blur(10px);
+  }
+
+  .brand {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .context {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .content {
+    padding: 30px 28px;
+    display: grid;
+    gap: 18px;
+    text-align: center;
+  }
+
+  .icon-wrap {
+    width: 78px;
+    height: 78px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+    font-size: 34px;
+    font-weight: 700;
+  }
+
+  .icon-wrap.success {
+    background: var(--success-bg);
+    color: var(--success);
+  }
+
+  .icon-wrap.danger {
+    background: var(--danger-bg);
+    color: var(--danger);
+  }
+
+  h1 {
+    font-size: 28px;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+
+  p {
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .note {
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: #f8fafc;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.6;
+  }
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="icon">{{if .Success}}&#10004;{{else}}&#10008;{{end}}</div>
-  <h1>{{if .Success}}Access Approved{{else}}Access Denied{{end}}</h1>
-  <p>{{.Message}}</p>
-  <div class="brand">authgate</div>
+<div class="shell">
+  <div class="topbar">
+    <div class="brand">authgate</div>
+    <div class="context">Device Result</div>
+  </div>
+
+  <div class="content">
+    <div class="icon-wrap {{if .Success}}success{{else}}danger{{end}}">
+      {{if .Success}}&#10003;{{else}}&#10005;{{end}}
+    </div>
+
+    <h1>{{if .Success}}Access approved{{else}}Access denied{{end}}</h1>
+    <p>{{.Message}}</p>
+
+    <div class="note">
+      {{if .Success}}
+      The waiting device can now continue the login flow. You may close this window.
+      {{else}}
+      No token will be issued for this request. You may close this window and restart the flow if needed.
+      {{end}}
+    </div>
+  </div>
 </div>
 </body>
 </html>

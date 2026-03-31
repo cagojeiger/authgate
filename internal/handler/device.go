@@ -85,6 +85,10 @@ func (h *DeviceHandler) HandleDeviceCallback(w http.ResponseWriter, r *http.Requ
 
 // HandleDeviceApprove handles POST /device/approve
 func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		pages.RenderError(w, pages.ErrorData{Code: 400, Message: "invalid form"})
