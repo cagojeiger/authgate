@@ -12,18 +12,14 @@ import (
 // --- User ---
 
 type User struct {
-	ID                string
-	Email             string
-	EmailVerified     bool
-	Name              string
-	AvatarURL         *string
-	Status            string
-	TermsVersion      *string
-	TermsAcceptedAt   *time.Time
-	PrivacyVersion    *string
-	PrivacyAcceptedAt *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID            string
+	Email         string
+	EmailVerified bool
+	Name          string
+	AvatarURL     *string
+	Status        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // --- AuthRequest Model ---
@@ -31,6 +27,7 @@ type User struct {
 type AuthRequestModel struct {
 	ID                  string
 	ClientID            string
+	Resource            string
 	RedirectURI         string
 	Scopes              StringArray
 	State               string
@@ -45,11 +42,16 @@ type AuthRequestModel struct {
 	CreatedAt           time.Time
 }
 
-func (a *AuthRequestModel) GetID() string                          { return a.ID }
-func (a *AuthRequestModel) GetACR() string                        { return "" }
-func (a *AuthRequestModel) GetAMR() []string                      { return nil }
-func (a *AuthRequestModel) GetAudience() []string                 { return []string{a.ClientID} }
-func (a *AuthRequestModel) GetClientID() string                   { return a.ClientID }
+func (a *AuthRequestModel) GetID() string    { return a.ID }
+func (a *AuthRequestModel) GetACR() string   { return "" }
+func (a *AuthRequestModel) GetAMR() []string { return nil }
+func (a *AuthRequestModel) GetAudience() []string {
+	if a.Resource != "" {
+		return []string{a.Resource}
+	}
+	return []string{a.ClientID}
+}
+func (a *AuthRequestModel) GetClientID() string { return a.ClientID }
 func (a *AuthRequestModel) GetCodeChallenge() *oidc.CodeChallenge {
 	if a.CodeChallenge == "" {
 		return nil
@@ -59,13 +61,13 @@ func (a *AuthRequestModel) GetCodeChallenge() *oidc.CodeChallenge {
 		Method:    oidc.CodeChallengeMethod(a.CodeChallengeMethod),
 	}
 }
-func (a *AuthRequestModel) GetNonce() string        { return a.Nonce }
-func (a *AuthRequestModel) GetRedirectURI() string  { return a.RedirectURI }
+func (a *AuthRequestModel) GetNonce() string                   { return a.Nonce }
+func (a *AuthRequestModel) GetRedirectURI() string             { return a.RedirectURI }
 func (a *AuthRequestModel) GetResponseType() oidc.ResponseType { return oidc.ResponseTypeCode }
 func (a *AuthRequestModel) GetResponseMode() oidc.ResponseMode { return "" }
-func (a *AuthRequestModel) GetScopes() []string     { return a.Scopes }
-func (a *AuthRequestModel) GetState() string        { return a.State }
-func (a *AuthRequestModel) Done() bool              { return a.IsDone }
+func (a *AuthRequestModel) GetScopes() []string                { return a.Scopes }
+func (a *AuthRequestModel) GetState() string                   { return a.State }
+func (a *AuthRequestModel) Done() bool                         { return a.IsDone }
 
 func (a *AuthRequestModel) GetAuthTime() time.Time {
 	if a.AuthTime != nil {
@@ -89,18 +91,24 @@ type RefreshTokenModel struct {
 	FamilyID  string
 	UserID    string
 	ClientID  string
+	Resource  string
 	Scopes    StringArray
 	ExpiresAt time.Time
 	RevokedAt *time.Time
 	UsedAt    *time.Time
 }
 
-func (r *RefreshTokenModel) GetAMR() []string              { return nil }
-func (r *RefreshTokenModel) GetAudience() []string         { return []string{r.ClientID} }
-func (r *RefreshTokenModel) GetAuthTime() time.Time        { return time.Time{} }
-func (r *RefreshTokenModel) GetClientID() string           { return r.ClientID }
-func (r *RefreshTokenModel) GetScopes() []string           { return r.Scopes }
-func (r *RefreshTokenModel) GetSubject() string            { return r.UserID }
+func (r *RefreshTokenModel) GetAMR() []string { return nil }
+func (r *RefreshTokenModel) GetAudience() []string {
+	if r.Resource != "" {
+		return []string{r.Resource}
+	}
+	return []string{r.ClientID}
+}
+func (r *RefreshTokenModel) GetAuthTime() time.Time           { return time.Time{} }
+func (r *RefreshTokenModel) GetClientID() string              { return r.ClientID }
+func (r *RefreshTokenModel) GetScopes() []string              { return r.Scopes }
+func (r *RefreshTokenModel) GetSubject() string               { return r.UserID }
 func (r *RefreshTokenModel) SetCurrentScopes(scopes []string) { r.Scopes = scopes }
 
 // --- Client Model ---
@@ -117,8 +125,8 @@ type ClientModel struct {
 	AllowedGrantTypeList StringArray
 }
 
-func (c *ClientModel) GetID() string                { return c.ID }
-func (c *ClientModel) RedirectURIs() []string       { return c.RedirectURIList }
+func (c *ClientModel) GetID() string                    { return c.ID }
+func (c *ClientModel) RedirectURIs() []string           { return c.RedirectURIList }
 func (c *ClientModel) PostLogoutRedirectURIs() []string { return nil }
 func (c *ClientModel) ApplicationType() op.ApplicationType {
 	if c.Type == "confidential" {
@@ -180,10 +188,10 @@ type DeviceCodeModel struct {
 	UserCode   string
 	ClientID   string
 	Scopes     StringArray
-	State    string
-	Subject  *string
-	ExpiresAt time.Time
-	AuthTime  *time.Time
+	State      string
+	Subject    *string
+	ExpiresAt  time.Time
+	AuthTime   *time.Time
 }
 
 // --- Key Models ---
@@ -204,7 +212,7 @@ type publicKeyModel struct {
 	key       *rsa.PublicKey
 }
 
-func (k *publicKeyModel) ID() string                                  { return k.id }
-func (k *publicKeyModel) Algorithm() jose.SignatureAlgorithm          { return k.algorithm }
-func (k *publicKeyModel) Use() string                                 { return "sig" }
-func (k *publicKeyModel) Key() any                                    { return k.key }
+func (k *publicKeyModel) ID() string                         { return k.id }
+func (k *publicKeyModel) Algorithm() jose.SignatureAlgorithm { return k.algorithm }
+func (k *publicKeyModel) Use() string                        { return "sig" }
+func (k *publicKeyModel) Key() any                           { return k.key }

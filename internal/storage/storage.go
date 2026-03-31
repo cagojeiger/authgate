@@ -22,8 +22,9 @@ var (
 	ErrEmailConflict = errors.New("email_conflict")
 )
 
-// StateChecker validates user state for refresh grants.
-// Injected from main.go using guard.DeriveLoginState — storage never imports guard.
+// StateChecker validates that a user is still eligible for token issuance.
+// It is applied on both authorization_code and refresh_token grant lookups.
+// Injected from main.go — storage never imports service or guard packages.
 type StateChecker func(user *User) error
 
 type Storage struct {
@@ -75,9 +76,20 @@ func hashToken(token string) string {
 // --- op.Storage: AuthStorage ---
 
 func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, userID string) (op.AuthRequest, error) {
+	resource := ResourceFromContext(ctx)
+	if resource == "" {
+		client, err := s.GetClientByClientID(ctx, req.ClientID)
+		if err == nil {
+			if cm, ok := client.(*ClientModel); ok && cm.LoginChannel == "mcp" {
+				return nil, &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
+			}
+		}
+	}
+
 	ar := &AuthRequestModel{
 		ID:                  s.idgen.NewUUID(),
 		ClientID:            req.ClientID,
+		Resource:            resource,
 		RedirectURI:         req.RedirectURI,
 		Scopes:              StringArray(req.Scopes),
 		State:               req.State,
@@ -89,9 +101,9 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, 
 	}
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO auth_requests (id, client_id, redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method, expires_at, created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		ar.ID, ar.ClientID, ar.RedirectURI, ar.Scopes, ar.State, ar.Nonce,
+		`INSERT INTO auth_requests (id, client_id, resource, redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method, expires_at, created_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		ar.ID, ar.ClientID, ar.Resource, ar.RedirectURI, ar.Scopes, ar.State, ar.Nonce,
 		ar.CodeChallenge, ar.CodeChallengeMethod, ar.ExpiresAt, ar.CreatedAt,
 	)
 	return ar, err
@@ -100,26 +112,10 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, 
 func (s *Storage) AuthRequestByID(ctx context.Context, id string) (op.AuthRequest, error) {
 	ar := &AuthRequestModel{}
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, client_id, redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method,
+		`SELECT id, client_id, COALESCE(resource, ''), redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method,
 		        subject, auth_time, done, code, expires_at, created_at
 		 FROM auth_requests WHERE id = $1`, id,
-	).Scan(&ar.ID, &ar.ClientID, &ar.RedirectURI, &ar.Scopes, &ar.State, &ar.Nonce,
-		&ar.CodeChallenge, &ar.CodeChallengeMethod,
-		&ar.Subject, &ar.AuthTime, &ar.IsDone, &ar.Code, &ar.ExpiresAt, &ar.CreatedAt,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return ar, err
-}
-
-func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRequest, error) {
-	ar := &AuthRequestModel{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, client_id, redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method,
-		        subject, auth_time, done, code, expires_at, created_at
-		 FROM auth_requests WHERE code = $1`, code,
-	).Scan(&ar.ID, &ar.ClientID, &ar.RedirectURI, &ar.Scopes, &ar.State, &ar.Nonce,
+	).Scan(&ar.ID, &ar.ClientID, &ar.Resource, &ar.RedirectURI, &ar.Scopes, &ar.State, &ar.Nonce,
 		&ar.CodeChallenge, &ar.CodeChallengeMethod,
 		&ar.Subject, &ar.AuthTime, &ar.IsDone, &ar.Code, &ar.ExpiresAt, &ar.CreatedAt,
 	)
@@ -128,6 +124,42 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 	}
 	if err != nil {
 		return nil, err
+	}
+	if s.clock.Now().After(ar.ExpiresAt) {
+		return nil, &oidc.Error{ErrorType: "invalid_request", Description: "auth request expired"}
+	}
+	return ar, nil
+}
+
+func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRequest, error) {
+	ar := &AuthRequestModel{}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, client_id, COALESCE(resource, ''), redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method,
+		        subject, auth_time, done, code, expires_at, created_at
+		 FROM auth_requests WHERE code = $1`, code,
+	).Scan(&ar.ID, &ar.ClientID, &ar.Resource, &ar.RedirectURI, &ar.Scopes, &ar.State, &ar.Nonce,
+		&ar.CodeChallenge, &ar.CodeChallengeMethod,
+		&ar.Subject, &ar.AuthTime, &ar.IsDone, &ar.Code, &ar.ExpiresAt, &ar.CreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if s.clock.Now().After(ar.ExpiresAt) {
+		return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "authorization code expired"}
+	}
+	requestResource := ResourceFromContext(ctx)
+	if ar.Resource != "" {
+		if requestResource == "" {
+			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
+		}
+		if requestResource != ar.Resource {
+			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "resource mismatch"}
+		}
+	} else if requestResource != "" {
+		return nil, &oidc.Error{ErrorType: "invalid_target", Description: "unexpected resource"}
 	}
 	if s.stateChecker != nil && ar.Subject != nil && *ar.Subject != "" {
 		user, err := s.GetUserByID(ctx, *ar.Subject)
@@ -181,14 +213,19 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	familyID := s.idgen.NewUUID()
 	userID := request.GetSubject()
 	clientID := ""
+	resource := ""
 	var scopes []string
 
 	if ar, ok := request.(*AuthRequestModel); ok {
 		clientID = ar.GetClientID()
+		resource = ar.Resource
 		scopes = ar.GetScopes()
 	} else if rtr, ok := request.(op.RefreshTokenRequest); ok {
 		clientID = rtr.GetClientID()
 		scopes = rtr.GetScopes()
+		if existing, ok := request.(*RefreshTokenModel); ok {
+			resource = existing.Resource
+		}
 		// Read family_id BEFORE revoking old token to preserve the chain
 		if currentRefreshToken != "" {
 			oldHash := hashToken(currentRefreshToken)
@@ -215,9 +252,9 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	}
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		s.idgen.NewUUID(), newHash, familyID, userID, clientID, StringArray(scopes),
+		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, resource, scopes, expires_at, created_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		s.idgen.NewUUID(), newHash, familyID, userID, clientID, resource, StringArray(scopes),
 		now.Add(s.refreshTokenTTL), now,
 	)
 	if err != nil {
@@ -243,9 +280,9 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 
 	var rt RefreshTokenModel
 	err = tx.QueryRowContext(ctx,
-		`SELECT id, token_hash, family_id, user_id, client_id, scopes, expires_at, revoked_at, used_at
+		`SELECT id, token_hash, family_id, user_id, client_id, COALESCE(resource, ''), scopes, expires_at, revoked_at, used_at
 		 FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE`, h,
-	).Scan(&rt.ID, &rt.TokenHash, &rt.FamilyID, &rt.UserID, &rt.ClientID, &rt.Scopes,
+	).Scan(&rt.ID, &rt.TokenHash, &rt.FamilyID, &rt.UserID, &rt.ClientID, &rt.Resource, &rt.Scopes,
 		&rt.ExpiresAt, &rt.RevokedAt, &rt.UsedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, op.ErrInvalidRefreshToken
@@ -275,6 +312,20 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	if now.After(rt.ExpiresAt) {
 		tx.Commit()
 		return nil, op.ErrInvalidRefreshToken
+	}
+	requestResource := ResourceFromContext(ctx)
+	if rt.Resource != "" {
+		if requestResource == "" {
+			tx.Commit()
+			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
+		}
+		if requestResource != rt.Resource {
+			tx.Commit()
+			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "resource mismatch"}
+		}
+	} else if requestResource != "" {
+		tx.Commit()
+		return nil, &oidc.Error{ErrorType: "invalid_target", Description: "unexpected resource"}
 	}
 
 	// State check (DeriveLoginState via injected function)
@@ -583,6 +634,6 @@ func (s *Storage) DenyDeviceCode(ctx context.Context, userCode string) error {
 
 // Compile-time interface checks
 var (
-	_ op.Storage                      = (*Storage)(nil)
-	_ op.DeviceAuthorizationStorage   = (*Storage)(nil)
+	_ op.Storage                    = (*Storage)(nil)
+	_ op.DeviceAuthorizationStorage = (*Storage)(nil)
 )
