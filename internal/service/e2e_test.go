@@ -88,6 +88,49 @@ func TestE2E1_SignupToAllChannels(t *testing.T) {
 	}
 }
 
+// E2E 2: 가입 중 이탈 → Device/MCP 차단 → Browser 완료 후 정상화
+// 시나리오: 유저가 Browser 가입을 시작했지만 완료하지 않은 상태에서
+// Device/MCP 로그인을 시도하면 account_not_found로 차단된다.
+// Browser로 가입 완료 후에는 모든 채널이 정상 동작해야 한다.
+func TestE2E2_SignupAbandonAndReturn(t *testing.T) {
+	loginSvc, deviceSvc, _, store, _, clk := setupE2ETest(t)
+	ctx := context.Background()
+
+	// Step 2/3: 유저 DB 없음 → Device/MCP 차단 (account_not_found)
+	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e2", "E2E2-DCODE", clk.Now().Add(5*time.Minute), []string{"openid"})
+	devResult := deviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E2-DCODE", "127.0.0.1", "cli")
+	if devResult.Action != DeviceError {
+		t.Fatalf("device before signup: action=%v, want DeviceError", devResult.Action)
+	}
+
+	arIDMCP, _ := store.CreateTestAuthRequest(ctx, "e2e2-mcp-pre")
+	mcpResult := loginSvc.HandleMCPCallback(ctx, "fake-code", arIDMCP, "127.0.0.1", "mcp")
+	if mcpResult.Action != ActionError {
+		t.Fatalf("mcp before signup: action=%v, want ActionError", mcpResult.Action)
+	}
+
+	// Step 3: Browser 완료 → 가입 (새 유저 생성)
+	arIDBrowser, _ := store.CreateTestAuthRequest(ctx, "e2e2-browser")
+	browserResult := loginSvc.HandleCallback(ctx, "fake-code", arIDBrowser, "127.0.0.1", "browser")
+	if browserResult.Action != ActionAutoApprove {
+		t.Fatalf("browser signup: action=%v, want ActionAutoApprove", browserResult.Action)
+	}
+
+	// 가입 후 Device 정상 동작
+	store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e2-ok", "E2E2-DCODE2", clk.Now().Add(5*time.Minute), []string{"openid"})
+	devResult2 := deviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E2-DCODE2", "127.0.0.1", "cli")
+	if devResult2.Action != DeviceRedirectBack {
+		t.Fatalf("device after signup: action=%v, want DeviceRedirectBack", devResult2.Action)
+	}
+
+	// 가입 후 MCP 정상 동작
+	arIDMCP2, _ := store.CreateTestAuthRequest(ctx, "e2e2-mcp-post")
+	mcpResult2 := loginSvc.HandleMCPCallback(ctx, "fake-code", arIDMCP2, "127.0.0.1", "mcp")
+	if mcpResult2.Action != ActionAutoApprove {
+		t.Fatalf("mcp after signup: action=%v, want ActionAutoApprove", mcpResult2.Action)
+	}
+}
+
 // E2E 4: 탈퇴 후 복구
 func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 	loginSvc, deviceSvc, accountSvc, store, db, clk := setupE2ETest(t)

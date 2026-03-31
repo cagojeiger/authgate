@@ -637,3 +637,107 @@ func TestIntegration_DeleteAccount_WrongOrigin_Rejected(t *testing.T) {
 		t.Errorf("DELETE /account with wrong origin status = %d, want 403", resp.StatusCode)
 	}
 }
+
+// handler-login: session cookie HttpOnly / SameSite=Lax / Secure=false(devMode) 속성 검증
+func TestIntegration_SessionCookie_Attributes(t *testing.T) {
+	ts := SetupTestServer(t)
+
+	noFollow := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	client := NewOAuthClient(t, ts.BaseURL)
+
+	// 1. /authorize → 302 /login?authRequestID=...
+	resp1, err := noFollow.Get(client.AuthorizeURL())
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	resp1.Body.Close()
+	loginLoc := resp1.Header.Get("Location")
+	if loginLoc == "" {
+		t.Fatalf("authorize did not redirect: status=%d", resp1.StatusCode)
+	}
+
+	// 2. /login → 302 fake IdP (state=authRequestID)
+	resp2, err := noFollow.Get(ts.BaseURL + loginLoc)
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	resp2.Body.Close()
+	idpLoc := resp2.Header.Get("Location")
+
+	idpURL, _ := url.Parse(idpLoc)
+	authRequestID := idpURL.Query().Get("state")
+	if authRequestID == "" {
+		t.Fatalf("no state param in IdP redirect: %s", idpLoc)
+	}
+
+	// 3. /login/callback (simulate IdP returning) → sets session cookie
+	callbackURL := ts.BaseURL + "/login/callback?code=fake-code&state=" + authRequestID
+	resp3, err := noFollow.Get(callbackURL)
+	if err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+	resp3.Body.Close()
+
+	var sessionCookie *http.Cookie
+	for _, c := range resp3.Cookies() {
+		if c.Name == "authgate_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("authgate_session cookie not set in callback response")
+	}
+	if !sessionCookie.HttpOnly {
+		t.Error("session cookie: HttpOnly should be true")
+	}
+	if sessionCookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("session cookie: SameSite = %v, want Lax", sessionCookie.SameSite)
+	}
+	// devMode=true in TestServer → Secure must be false
+	if sessionCookie.Secure {
+		t.Error("session cookie: Secure should be false in dev mode")
+	}
+}
+
+// handler-account: 성공 시 JSON 응답 shape 검증 (status, message 필드)
+func TestIntegration_DeleteAccount_ResponseShape(t *testing.T) {
+	ts := SetupTestServer(t)
+	ctx := context.Background()
+
+	user, _ := ts.Store.CreateUserWithIdentity(ctx, "shape@test.com", true, "Shape", "", "google", "shape-sub", "shape@test.com")
+	sessionID, _ := ts.Store.CreateSession(ctx, user.ID, 24*3600*1e9)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.BaseURL+"/account", nil)
+	req.Header.Set("Origin", ts.BaseURL)
+	req.AddCookie(&http.Cookie{Name: "authgate_session", Value: sessionID})
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 200; body=%s", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body["status"] != "pending_deletion" {
+		t.Errorf("status = %q, want pending_deletion", body["status"])
+	}
+	if body["message"] == "" {
+		t.Error("message field should not be empty")
+	}
+}
