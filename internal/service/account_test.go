@@ -79,20 +79,31 @@ func TestDeleteAccount_Idempotent(t *testing.T) {
 }
 
 func TestDeleteAccount_InactiveUser_Rejected(t *testing.T) {
-	accountSvc, _, store, _, _ := setupAccountTest(t)
-	ctx := context.Background()
-
-	_, sessionID := createUserWithSession(t, store, "disabled-del@test.com", "dis-del-sub")
-	// Disable user after session creation (session still valid but user is disabled)
-	user, _ := store.GetValidSession(ctx, sessionID)
-	store.DisableUser(ctx, user.ID)
-
-	result := accountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
-	if result.Success {
-		t.Error("expected failure for disabled user")
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{name: "disabled", status: "disabled"},
+		{name: "deleted", status: "deleted"},
 	}
-	if result.ErrorCode != 403 {
-		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			accountSvc, _, store, _, _ := setupAccountTest(t)
+			ctx := context.Background()
+
+			_, sessionID := createUserWithSession(t, store, tt.name+"-del@test.com", tt.name+"-del-sub")
+			user, _ := store.GetValidSession(ctx, sessionID)
+			_ = store.SetUserStatus(ctx, user.ID, tt.status)
+
+			result := accountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
+			if result.Success {
+				t.Fatalf("expected failure for %s user", tt.status)
+			}
+			if result.ErrorCode != 403 {
+				t.Fatalf("errorCode = %d, want 403", result.ErrorCode)
+			}
+		})
 	}
 }
 

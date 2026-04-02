@@ -101,6 +101,14 @@ func TestRefreshStateCheck_AllStates(t *testing.T) {
 			wantError: true,
 			wantState: "inactive",
 		},
+		{
+			name: "inactive (deleted) - reject",
+			setup: func(id string) {
+				store.SetUserStatus(ctx, id, "deleted")
+			},
+			wantError: true,
+			wantState: "inactive",
+		},
 	}
 
 	for i, tt := range tests {
@@ -177,6 +185,14 @@ func TestAuthCodeStateCheck_AllStates(t *testing.T) {
 			name: "inactive (disabled) - reject",
 			setup: func(id string) {
 				store.SetUserStatus(ctx, id, "disabled")
+			},
+			wantError: true,
+			wantState: "inactive",
+		},
+		{
+			name: "inactive (deleted) - reject",
+			setup: func(id string) {
+				store.SetUserStatus(ctx, id, "deleted")
 			},
 			wantError: true,
 			wantState: "inactive",
