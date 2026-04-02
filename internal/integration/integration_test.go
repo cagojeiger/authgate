@@ -1044,6 +1044,49 @@ func TestIntegration_RefreshTokenRevocation_RejectsReuse(t *testing.T) {
 	}
 }
 
+// refresh-005: reused refresh token must trigger family revoke and invalidate descendant tokens.
+func TestIntegration_RefreshReuseDetection_FamilyRevokesDescendants(t *testing.T) {
+	ts := SetupTestServer(t)
+	client := NewOAuthClient(t, ts.BaseURL)
+
+	// initial login -> rt0
+	code := completeLoginFlowToCode(t, ts, client)
+	tokens0 := client.ExchangeCode(code)
+	if tokens0.StatusCode != http.StatusOK {
+		t.Fatalf("initial token exchange failed: status=%d body=%s", tokens0.StatusCode, tokens0.RawBody)
+	}
+	if tokens0.RefreshToken == "" {
+		t.Fatal("initial refresh_token should not be empty")
+	}
+
+	// first refresh with rt0 -> rt1
+	tokens1 := client.RefreshToken(tokens0.RefreshToken)
+	if tokens1.StatusCode != http.StatusOK {
+		t.Fatalf("first refresh failed: status=%d body=%s", tokens1.StatusCode, tokens1.RawBody)
+	}
+	if tokens1.RefreshToken == "" {
+		t.Fatal("rotated refresh_token should not be empty")
+	}
+
+	// reuse old rt0 -> must fail (reuse detection)
+	reused := client.RefreshToken(tokens0.RefreshToken)
+	if reused.StatusCode == http.StatusOK {
+		t.Fatalf("reused refresh token should fail, got 200 body=%s", reused.RawBody)
+	}
+	if !strings.Contains(reused.RawBody, "invalid_grant") && !strings.Contains(reused.RawBody, "invalid_refresh_token") {
+		t.Fatalf("expected invalid_grant/invalid_refresh_token for reused token, got body=%s", reused.RawBody)
+	}
+
+	// descendant rt1 should also be unusable after family revoke
+	descendant := client.RefreshToken(tokens1.RefreshToken)
+	if descendant.StatusCode == http.StatusOK {
+		t.Fatalf("descendant refresh token should fail after family revoke, got 200 body=%s", descendant.RawBody)
+	}
+	if !strings.Contains(descendant.RawBody, "invalid_grant") && !strings.Contains(descendant.RawBody, "invalid_refresh_token") {
+		t.Fatalf("expected invalid_grant/invalid_refresh_token for descendant token, got body=%s", descendant.RawBody)
+	}
+}
+
 // revocation 멱등성: 동일 refresh token을 두 번 revoke해도 200이어야 한다.
 func TestIntegration_RefreshTokenRevocation_Idempotent(t *testing.T) {
 	ts := SetupTestServer(t)
