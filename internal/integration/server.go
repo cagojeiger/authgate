@@ -125,20 +125,20 @@ func SetupTestServer(t *testing.T) *TestServer {
 	// Routes
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 		metadata := map[string]any{
-			"issuer":                                    srv.URL,
-			"authorization_endpoint":                    srv.URL + "/authorize",
-			"token_endpoint":                            srv.URL + "/oauth/token",
-			"revocation_endpoint":                       srv.URL + "/oauth/revoke",
-			"device_authorization_endpoint":             srv.URL + "/oauth/device/authorize",
-			"userinfo_endpoint":                         srv.URL + "/userinfo",
-			"end_session_endpoint":                      srv.URL + "/end_session",
-			"jwks_uri":                                  srv.URL + "/keys",
-			"response_types_supported":                  []string{"code"},
-			"grant_types_supported":                     []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
-			"code_challenge_methods_supported":          []string{"S256"},
-			"token_endpoint_auth_methods_supported":     []string{"none"},
-			"scopes_supported":                          []string{"openid", "profile", "email", "offline_access"},
-			"client_id_metadata_document_supported":     true,
+			"issuer":                                srv.URL,
+			"authorization_endpoint":                srv.URL + "/authorize",
+			"token_endpoint":                        srv.URL + "/oauth/token",
+			"revocation_endpoint":                   srv.URL + "/oauth/revoke",
+			"device_authorization_endpoint":         srv.URL + "/oauth/device/authorize",
+			"userinfo_endpoint":                     srv.URL + "/userinfo",
+			"end_session_endpoint":                  srv.URL + "/end_session",
+			"jwks_uri":                              srv.URL + "/keys",
+			"response_types_supported":              []string{"code"},
+			"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
+			"code_challenge_methods_supported":      []string{"S256"},
+			"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post"},
+			"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
+			"client_id_metadata_document_supported": true,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)

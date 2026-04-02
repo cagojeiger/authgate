@@ -25,6 +25,14 @@ type ClientConfigEntry struct {
 	AllowedGrantTypes []string `yaml:"allowed_grant_types"`
 }
 
+const (
+	maxYAMLClientIDLength    = 2048
+	maxYAMLClientNameLength  = 256
+	maxYAMLRedirectURICount  = 10
+	maxYAMLRedirectURILength = 2048
+	maxYAMLGrantTypeCount    = 3
+)
+
 // LoadClientConfig reads and parses a clients.yaml file.
 func LoadClientConfig(path string) (*ClientConfigFile, error) {
 	data, err := os.ReadFile(path)
@@ -47,6 +55,9 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		if c.ClientID == "" {
 			return nil, fmt.Errorf("client[%d]: client_id is required", i)
 		}
+		if len(c.ClientID) > maxYAMLClientIDLength {
+			return nil, fmt.Errorf("client[%d] %q: client_id exceeds %d chars", i, c.ClientID, maxYAMLClientIDLength)
+		}
 		if seen[c.ClientID] {
 			return nil, fmt.Errorf("client[%d] %q: duplicate client_id", i, c.ClientID)
 		}
@@ -65,14 +76,31 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		if c.Name == "" {
 			return nil, fmt.Errorf("client[%d] %q: name is required", i, c.ClientID)
 		}
+		if len(c.Name) > maxYAMLClientNameLength {
+			return nil, fmt.Errorf("client[%d] %q: name exceeds %d chars", i, c.ClientID, maxYAMLClientNameLength)
+		}
 		if len(c.RedirectURIs) == 0 {
 			return nil, fmt.Errorf("client[%d] %q: at least one redirect_uri is required", i, c.ClientID)
+		}
+		if len(c.RedirectURIs) > maxYAMLRedirectURICount {
+			return nil, fmt.Errorf("client[%d] %q: redirect_uris exceeds %d entries", i, c.ClientID, maxYAMLRedirectURICount)
+		}
+		for _, uri := range c.RedirectURIs {
+			if strings.TrimSpace(uri) == "" {
+				return nil, fmt.Errorf("client[%d] %q: redirect_uri cannot be empty", i, c.ClientID)
+			}
+			if len(uri) > maxYAMLRedirectURILength {
+				return nil, fmt.Errorf("client[%d] %q: redirect_uri exceeds %d chars", i, c.ClientID, maxYAMLRedirectURILength)
+			}
 		}
 		if len(c.AllowedScopes) == 0 {
 			return nil, fmt.Errorf("client[%d] %q: at least one allowed_scope is required", i, c.ClientID)
 		}
 		if len(c.AllowedGrantTypes) == 0 {
 			return nil, fmt.Errorf("client[%d] %q: at least one allowed_grant_type is required", i, c.ClientID)
+		}
+		if len(c.AllowedGrantTypes) > maxYAMLGrantTypeCount {
+			return nil, fmt.Errorf("client[%d] %q: allowed_grant_types exceeds %d entries", i, c.ClientID, maxYAMLGrantTypeCount)
 		}
 		for _, gt := range c.AllowedGrantTypes {
 			if !allowedGrants[gt] {

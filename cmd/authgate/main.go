@@ -163,24 +163,24 @@ func main() {
 	// authgate adds /login, /device, /account, /health, /ready
 	mux := http.NewServeMux()
 
-	// RFC 8414: OAuth Authorization Server Metadata with DCR endpoint
+	// RFC 8414: OAuth Authorization Server Metadata
 	// This must be registered before the provider catch-all
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 		metadata := map[string]any{
-			"issuer":                                    cfg.PublicURL,
-			"authorization_endpoint":                    cfg.PublicURL + "/authorize",
-			"token_endpoint":                            cfg.PublicURL + "/oauth/token",
-			"revocation_endpoint":                       cfg.PublicURL + "/oauth/revoke",
-			"device_authorization_endpoint":             cfg.PublicURL + "/oauth/device/authorize",
-			"userinfo_endpoint":                         cfg.PublicURL + "/userinfo",
-			"end_session_endpoint":                      cfg.PublicURL + "/end_session",
-			"jwks_uri":                                  cfg.PublicURL + "/keys",
-			"response_types_supported":                  []string{"code"},
-			"grant_types_supported":                     []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
-			"code_challenge_methods_supported":          []string{"S256"},
-			"token_endpoint_auth_methods_supported":     []string{"none", "client_secret_post"},
-			"scopes_supported":                          []string{"openid", "profile", "email", "offline_access"},
-			"client_id_metadata_document_supported":     true,
+			"issuer":                                cfg.PublicURL,
+			"authorization_endpoint":                cfg.PublicURL + "/authorize",
+			"token_endpoint":                        cfg.PublicURL + "/oauth/token",
+			"revocation_endpoint":                   cfg.PublicURL + "/oauth/revoke",
+			"device_authorization_endpoint":         cfg.PublicURL + "/oauth/device/authorize",
+			"userinfo_endpoint":                     cfg.PublicURL + "/userinfo",
+			"end_session_endpoint":                  cfg.PublicURL + "/end_session",
+			"jwks_uri":                              cfg.PublicURL + "/keys",
+			"response_types_supported":              []string{"code"},
+			"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
+			"code_challenge_methods_supported":      []string{"S256"},
+			"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post"},
+			"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
+			"client_id_metadata_document_supported": true,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)

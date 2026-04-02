@@ -39,6 +39,16 @@ type CIMDMetadata struct {
 	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 }
 
+const (
+	maxCIMDDocSize           = 10 * 1024
+	maxCIMDClientIDLength    = 2048
+	maxCIMDClientNameLength  = 256
+	maxCIMDRedirectURICount  = 10
+	maxCIMDRedirectURILength = 2048
+	maxCIMDGrantTypeCount    = 2
+	maxCIMDResponseTypeCount = 1
+)
+
 // HTTPCIMDFetcher fetches CIMD metadata via HTTP with SSRF protection and caching.
 type HTTPCIMDFetcher struct {
 	client           *http.Client
@@ -153,12 +163,11 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		return nil, fmt.Errorf("cimd: unsupported Content-Type: %q", mediaType)
 	}
 
-	const maxSize = 10 * 1024 // 10KB
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize+1))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxCIMDDocSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("cimd: read failed: %w", err)
 	}
-	if len(body) > maxSize {
+	if len(body) > maxCIMDDocSize {
 		return nil, fmt.Errorf("cimd: document exceeds 10KB limit")
 	}
 
@@ -171,11 +180,28 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 	if meta.ClientID != clientID {
 		return nil, fmt.Errorf("cimd: client_id mismatch: document=%q, url=%q", meta.ClientID, clientID)
 	}
+	if len(meta.ClientID) > maxCIMDClientIDLength {
+		return nil, fmt.Errorf("cimd: client_id exceeds %d chars", maxCIMDClientIDLength)
+	}
 	if meta.ClientName == "" {
 		return nil, fmt.Errorf("cimd: client_name is required")
 	}
+	if len(meta.ClientName) > maxCIMDClientNameLength {
+		return nil, fmt.Errorf("cimd: client_name exceeds %d chars", maxCIMDClientNameLength)
+	}
 	if len(meta.RedirectURIs) == 0 {
 		return nil, fmt.Errorf("cimd: redirect_uris is required")
+	}
+	if len(meta.RedirectURIs) > maxCIMDRedirectURICount {
+		return nil, fmt.Errorf("cimd: redirect_uris exceeds %d entries", maxCIMDRedirectURICount)
+	}
+	for _, uri := range meta.RedirectURIs {
+		if len(uri) == 0 {
+			return nil, fmt.Errorf("cimd: redirect_uri cannot be empty")
+		}
+		if len(uri) > maxCIMDRedirectURILength {
+			return nil, fmt.Errorf("cimd: redirect_uri exceeds %d chars", maxCIMDRedirectURILength)
+		}
 	}
 
 	// Defaults
@@ -194,6 +220,12 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		if rt != "code" {
 			return nil, fmt.Errorf("cimd: unsupported response_type: %q (only 'code' supported)", rt)
 		}
+	}
+	if len(meta.ResponseTypes) > maxCIMDResponseTypeCount {
+		return nil, fmt.Errorf("cimd: response_types exceeds %d entries", maxCIMDResponseTypeCount)
+	}
+	if len(meta.GrantTypes) > maxCIMDGrantTypeCount {
+		return nil, fmt.Errorf("cimd: grant_types exceeds %d entries", maxCIMDGrantTypeCount)
 	}
 	allowedGrants := map[string]bool{"authorization_code": true, "refresh_token": true}
 	for _, gt := range meta.GrantTypes {

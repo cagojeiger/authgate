@@ -261,6 +261,127 @@ func TestCIMDFetcher_UnsupportedGrantType(t *testing.T) {
 	}
 }
 
+func TestCIMDFetcher_ClientNameTooLong(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":     serverURL + "/client.json",
+			"client_name":   strings.Repeat("a", maxCIMDClientNameLength+1),
+			"redirect_uris": []string{"http://localhost:3000/callback"},
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
+	if err == nil {
+		t.Fatal("expected error for too long client_name, got nil")
+	}
+	if !strings.Contains(err.Error(), "client_name exceeds") {
+		t.Errorf("error = %q, want to contain 'client_name exceeds'", err.Error())
+	}
+}
+
+func TestCIMDFetcher_TooManyRedirectURIs(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectURIs := make([]string, maxCIMDRedirectURICount+1)
+		for i := range redirectURIs {
+			redirectURIs[i] = fmt.Sprintf("http://localhost:%d/callback", 3000+i)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":     serverURL + "/client.json",
+			"client_name":   "Too Many Redirects",
+			"redirect_uris": redirectURIs,
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
+	if err == nil {
+		t.Fatal("expected error for too many redirect_uris, got nil")
+	}
+	if !strings.Contains(err.Error(), "redirect_uris exceeds") {
+		t.Errorf("error = %q, want to contain 'redirect_uris exceeds'", err.Error())
+	}
+}
+
+func TestCIMDFetcher_RedirectURITooLong(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":     serverURL + "/client.json",
+			"client_name":   "Long Redirect",
+			"redirect_uris": []string{"http://localhost/" + strings.Repeat("a", maxCIMDRedirectURILength)},
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
+	if err == nil {
+		t.Fatal("expected error for too long redirect_uri, got nil")
+	}
+	if !strings.Contains(err.Error(), "redirect_uri exceeds") {
+		t.Errorf("error = %q, want to contain 'redirect_uri exceeds'", err.Error())
+	}
+}
+
+func TestCIMDFetcher_TooManyGrantTypes(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":     serverURL + "/client.json",
+			"client_name":   "Too Many Grants",
+			"redirect_uris": []string{"http://localhost:3000/callback"},
+			"grant_types":   []string{"authorization_code", "refresh_token", "refresh_token"},
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
+	if err == nil {
+		t.Fatal("expected error for too many grant_types, got nil")
+	}
+	if !strings.Contains(err.Error(), "grant_types exceeds") {
+		t.Errorf("error = %q, want to contain 'grant_types exceeds'", err.Error())
+	}
+}
+
+func TestCIMDFetcher_TooManyResponseTypes(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":      serverURL + "/client.json",
+			"client_name":    "Too Many RT",
+			"redirect_uris":  []string{"http://localhost:3000/callback"},
+			"response_types": []string{"code", "code"},
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
+	if err == nil {
+		t.Fatal("expected error for too many response_types, got nil")
+	}
+	if !strings.Contains(err.Error(), "response_types exceeds") {
+		t.Errorf("error = %q, want to contain 'response_types exceeds'", err.Error())
+	}
+}
+
 func TestCIMDFetcher_RedirectRejected(t *testing.T) {
 	// Target server that the redirect points to
 	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
