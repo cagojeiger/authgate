@@ -282,6 +282,47 @@ func TestIntegration_RefreshAfterLogin(t *testing.T) {
 	}
 }
 
+// refresh-002/003: refresh token issued, then user becomes recoverable/inactive -> invalid_grant
+func TestIntegration_Refresh_StateChange_InvalidGrant(t *testing.T) {
+	tests := []struct {
+		name      string
+		mutateSQL string
+	}{
+		{name: "pending_deletion", mutateSQL: `UPDATE users SET status = 'pending_deletion' WHERE id = $1`}, // refresh-002
+		{name: "disabled", mutateSQL: `UPDATE users SET status = 'disabled' WHERE id = $1`},                 // refresh-003
+		{name: "deleted", mutateSQL: `UPDATE users SET status = 'deleted' WHERE id = $1`},                   // refresh-003
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := SetupTestServer(t)
+			client := NewOAuthClient(t, ts.BaseURL)
+			ctx := context.Background()
+
+			tokens := completeLoginFlow(t, ts)
+			if tokens.StatusCode != http.StatusOK {
+				t.Fatalf("initial login failed: status=%d body=%s", tokens.StatusCode, tokens.RawBody)
+			}
+
+			user, err := ts.Store.GetUserByProviderIdentity(ctx, "google", "test-google-sub")
+			if err != nil {
+				t.Fatalf("get user: %v", err)
+			}
+			if _, err := ts.DB.ExecContext(ctx, tt.mutateSQL, user.ID); err != nil {
+				t.Fatalf("mutate user state: %v", err)
+			}
+
+			refresh := client.RefreshToken(tokens.RefreshToken)
+			if refresh.StatusCode == http.StatusOK {
+				t.Fatalf("refresh should fail after state change: %+v", refresh)
+			}
+			if !strings.Contains(refresh.RawBody, "invalid_grant") {
+				t.Fatalf("expected invalid_grant, got body=%s", refresh.RawBody)
+			}
+		})
+	}
+}
+
 // mcp-token-004: refresh token exchange must use the same MCP resource.
 func TestIntegration_MCPRefresh_MismatchedResource_Rejected(t *testing.T) {
 	ts := SetupTestServer(t)
