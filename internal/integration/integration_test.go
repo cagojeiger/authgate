@@ -261,7 +261,7 @@ func TestIntegration_MCPTokenExchange_MissingResource_Rejected(t *testing.T) {
 	}
 }
 
-// Verify refresh token works after full flow
+// refresh-001: valid refresh token for active user should rotate successfully.
 func TestIntegration_RefreshAfterLogin(t *testing.T) {
 	ts := SetupTestServer(t)
 
@@ -279,6 +279,42 @@ func TestIntegration_RefreshAfterLogin(t *testing.T) {
 	}
 	if refreshResult.AccessToken == "" {
 		t.Error("refreshed access_token should not be empty")
+	}
+}
+
+// refresh-004: same refresh token polled concurrently -> exactly one success.
+func TestIntegration_RefreshConcurrent_ExactlyOneSuccess(t *testing.T) {
+	ts := SetupTestServer(t)
+	client := NewOAuthClient(t, ts.BaseURL)
+
+	tokens := completeLoginFlow(t, ts)
+	if tokens.StatusCode != http.StatusOK {
+		t.Fatalf("initial login failed: status=%d body=%s", tokens.StatusCode, tokens.RawBody)
+	}
+
+	var wg sync.WaitGroup
+	results := make(chan *TokenResponse, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- client.RefreshToken(tokens.RefreshToken)
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	success := 0
+	fail := 0
+	for result := range results {
+		if result.StatusCode == http.StatusOK {
+			success++
+		} else {
+			fail++
+		}
+	}
+	if success != 1 || fail != 1 {
+		t.Fatalf("expected exactly one success and one failure, got success=%d fail=%d", success, fail)
 	}
 }
 
@@ -450,6 +486,70 @@ func TestIntegration_MCPCodeExchange_StateChange_InvalidGrant(t *testing.T) {
 				t.Fatalf("expected invalid_grant, got body=%s", result.RawBody)
 			}
 		})
+	}
+}
+
+// device-002: device callback must reject non-existent user (no browser signup).
+func TestIntegration_DeviceCallback_NewUser_Rejected(t *testing.T) {
+	ts := SetupTestServer(t)
+	resp, err := http.Get(ts.BaseURL + "/device/auth/callback?code=fake-code&state=TEST-CODE")
+	if err != nil {
+		t.Fatalf("device callback: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status=%d, want 403 body=%s", resp.StatusCode, string(body))
+	}
+	if !strings.Contains(string(body), "account_not_found") {
+		t.Fatalf("expected account_not_found in response, got body=%s", string(body))
+	}
+}
+
+// device-003: pending_deletion user must be rejected on device callback path.
+func TestIntegration_DeviceCallback_PendingDeletion_Rejected(t *testing.T) {
+	ts := SetupTestServer(t)
+	ctx := context.Background()
+
+	user, err := ts.Store.CreateUserWithIdentity(ctx, "device-pending@test.com", true, "Device Pending", "", "google", "test-google-sub", "device-pending@test.com")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if _, err := ts.DB.ExecContext(ctx, `UPDATE users SET status = 'pending_deletion' WHERE id = $1`, user.ID); err != nil {
+		t.Fatalf("set pending_deletion: %v", err)
+	}
+
+	resp, err := http.Get(ts.BaseURL + "/device/auth/callback?code=fake-code&state=TEST-CODE")
+	if err != nil {
+		t.Fatalf("device callback: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status=%d, want 403 body=%s", resp.StatusCode, string(body))
+	}
+	if !strings.Contains(string(body), "account_inactive") {
+		t.Fatalf("expected account_inactive in response, got body=%s", string(body))
+	}
+}
+
+// mcp-002: MCP callback must reject non-existent user (no browser signup).
+func TestIntegration_MCPCallback_NewUser_Rejected(t *testing.T) {
+	ts := SetupTestServer(t)
+	resp, err := http.Get(ts.BaseURL + "/mcp/callback?code=fake-code&state=req-mcp-new")
+	if err != nil {
+		t.Fatalf("mcp callback: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status=%d, want 403 body=%s", resp.StatusCode, string(body))
+	}
+	if !strings.Contains(string(body), "account_not_found") {
+		t.Fatalf("expected account_not_found in response, got body=%s", string(body))
 	}
 }
 
