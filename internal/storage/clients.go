@@ -36,12 +36,20 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
+	seen := make(map[string]bool, len(cfg.Clients))
 	for i, c := range cfg.Clients {
 		if c.ClientID == "" {
 			return nil, fmt.Errorf("client[%d]: client_id is required", i)
 		}
+		if seen[c.ClientID] {
+			return nil, fmt.Errorf("client[%d] %q: duplicate client_id", i, c.ClientID)
+		}
+		seen[c.ClientID] = true
 		if c.ClientType != "public" && c.ClientType != "confidential" {
 			return nil, fmt.Errorf("client[%d] %q: client_type must be public or confidential", i, c.ClientID)
+		}
+		if c.ClientType == "confidential" && c.ClientSecretHash == nil {
+			return nil, fmt.Errorf("client[%d] %q: confidential client requires client_secret_hash", i, c.ClientID)
 		}
 		if c.LoginChannel == "" {
 			cfg.Clients[i].LoginChannel = "browser"
@@ -53,6 +61,12 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		}
 		if len(c.RedirectURIs) == 0 {
 			return nil, fmt.Errorf("client[%d] %q: at least one redirect_uri is required", i, c.ClientID)
+		}
+		if len(c.AllowedScopes) == 0 {
+			return nil, fmt.Errorf("client[%d] %q: at least one allowed_scope is required", i, c.ClientID)
+		}
+		if len(c.AllowedGrantTypes) == 0 {
+			return nil, fmt.Errorf("client[%d] %q: at least one allowed_grant_type is required", i, c.ClientID)
 		}
 	}
 

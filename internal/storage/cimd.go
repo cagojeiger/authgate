@@ -47,7 +47,7 @@ type HTTPCIMDFetcher struct {
 func NewHTTPCIMDFetcher() *HTTPCIMDFetcher {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, _, err := net.SplitHostPort(addr)
+			host, port, err := net.SplitHostPort(addr)
 			if err != nil {
 				return nil, fmt.Errorf("cimd: invalid address: %s", addr)
 			}
@@ -55,14 +55,17 @@ func NewHTTPCIMDFetcher() *HTTPCIMDFetcher {
 			if err != nil {
 				return nil, fmt.Errorf("cimd: DNS lookup failed: %w", err)
 			}
+			// Find first public IP and dial it directly (prevents DNS rebinding)
 			for _, ip := range ips {
 				if isPrivateIP(ip.IP) {
-					return nil, fmt.Errorf("cimd: private IP rejected: %s", ip.IP)
+					continue
 				}
+				dialer := &net.Dialer{Timeout: 3 * time.Second}
+				return dialer.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
 			}
-			dialer := &net.Dialer{Timeout: 3 * time.Second}
-			return dialer.DialContext(ctx, network, addr)
+			return nil, fmt.Errorf("cimd: no public IP found for %s", host)
 		},
+		TLSHandshakeTimeout: 3 * time.Second,
 	}
 	return &HTTPCIMDFetcher{
 		client: &http.Client{
