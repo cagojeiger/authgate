@@ -331,7 +331,7 @@ CIMD 메타데이터 문서의 필드별 크기/개수 제한. 문서 전체 크
 | `response_types` | 최대 1개 (`code`) | 허용 값이 1종뿐 |
 | `token_endpoint_auth_method` | `none` 고정 | 허용 값이 1종뿐 |
 
-YAML 클라이언트(`clients.yaml`)에도 동일한 원칙이 적용되지만, YAML은 운영자가 직접 작성하므로 서버 시작 시 `LoadClientConfig` 검증에서 처리한다.
+YAML 클라이언트(`clients.yaml`)도 입력 크기/개수 검증 원칙은 동일하게 적용한다. 단, 허용 grant/auth 값 집합은 채널 정책에 따라 다르며 서버 시작 시 `LoadClientConfig` 검증에서 처리한다.
 
 ### CIMD 캐시 정책
 
