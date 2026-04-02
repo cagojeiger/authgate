@@ -317,6 +317,22 @@ CIMD fetch의 네트워크 제약. IETF draft에서 MUST/SHOULD인 것과 authga
 | `response_types` | `code`만 허용 | `invalid_client` |
 | `token_endpoint_auth_method` | `none`만 허용 (public client). 비어있으면 `none` 기본 | `invalid_client` |
 
+### CIMD 입력 제한
+
+CIMD 메타데이터 문서의 필드별 크기/개수 제한. 문서 전체 크기는 10KB로 제한되며, 개별 필드도 아래 상한을 초과하면 거부한다.
+
+| 필드 | 제한 | 이유 |
+|------|------|------|
+| 문서 전체 | 10KB | 네트워크/파싱 비용 제한 |
+| `client_id` (URL) | 2048자 | URL 길이 실용 상한 |
+| `client_name` | 256자 | 표시용, UI 오버플로 방지 |
+| `redirect_uris` | 최대 10개, 각 2048자 | 과도한 등록 방지 |
+| `grant_types` | 최대 2개 (`authorization_code`, `refresh_token`) | 허용 값이 2종뿐 |
+| `response_types` | 최대 1개 (`code`) | 허용 값이 1종뿐 |
+| `token_endpoint_auth_method` | `none` 고정 | 허용 값이 1종뿐 |
+
+YAML 클라이언트(`clients.yaml`)에도 동일한 원칙이 적용되지만, YAML은 운영자가 직접 작성하므로 서버 시작 시 `LoadClientConfig` 검증에서 처리한다.
+
 ### CIMD 캐시 정책
 
 IETF draft는 "HTTP 캐시 헤더 존중"과 "error/invalid 문서 캐시 금지"를 권장한다.
