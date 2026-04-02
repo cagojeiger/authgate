@@ -741,3 +741,44 @@ func TestIntegration_DeleteAccount_ResponseShape(t *testing.T) {
 		t.Error("message field should not be empty")
 	}
 }
+
+// refresh/revocation: refresh token revoke 후 재사용은 실패해야 한다.
+func TestIntegration_RefreshTokenRevocation_RejectsReuse(t *testing.T) {
+	ts := SetupTestServer(t)
+
+	client := NewOAuthClient(t, ts.BaseURL)
+	code := completeLoginFlowToCode(t, ts, client)
+	tokens := client.ExchangeCode(code)
+	if tokens.StatusCode != http.StatusOK {
+		t.Fatalf("initial token exchange failed: status=%d body=%s", tokens.StatusCode, tokens.RawBody)
+	}
+	if tokens.RefreshToken == "" {
+		t.Fatal("refresh_token should not be empty")
+	}
+
+	revokeForm := url.Values{
+		"token":           {tokens.RefreshToken},
+		"token_type_hint": {"refresh_token"},
+		"client_id":       {client.ClientID},
+	}
+	revokeResp, err := http.Post(ts.BaseURL+"/oauth/revoke", "application/x-www-form-urlencoded", strings.NewReader(revokeForm.Encode()))
+	if err != nil {
+		t.Fatalf("revoke request: %v", err)
+	}
+	defer revokeResp.Body.Close()
+
+	// RFC7009: revocation endpoint는 성공 시 200
+	if revokeResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(revokeResp.Body)
+		t.Fatalf("revoke status=%d, want 200; body=%s", revokeResp.StatusCode, body)
+	}
+
+	// revoked refresh token 재사용은 실패해야 한다.
+	refresh := client.RefreshToken(tokens.RefreshToken)
+	if refresh.StatusCode == http.StatusOK {
+		t.Fatalf("refresh with revoked token should fail, got 200 body=%s", refresh.RawBody)
+	}
+	if !strings.Contains(refresh.RawBody, "invalid_grant") && !strings.Contains(refresh.RawBody, "invalid_refresh_token") {
+		t.Fatalf("expected invalid_grant/invalid_refresh_token, got body=%s", refresh.RawBody)
+	}
+}
