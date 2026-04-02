@@ -50,7 +50,6 @@ erDiagram
         text token_hash UK "NOT NULL, SHA-256 해시"
         uuid family_id "NOT NULL, rotation 추적"
         uuid user_id FK "NOT NULL, CASCADE"
-        uuid session_id FK "nullable, SET NULL"
         text client_id "NOT NULL"
         text resource "nullable, MCP resource identifier"
         text[] scopes "NOT NULL, DEFAULT '{}'"
@@ -180,8 +179,6 @@ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 
 -- refresh_tokens
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
-
 -- audit_log
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ```
@@ -216,12 +213,6 @@ MCP
 1. `/authorize` 요청의 `resource`를 `auth_requests.resource`에 저장
 2. `/oauth/token` 요청의 `resource`와 일치해야 한다
 3. 성공적인 code exchange가 끝나면 auth_request와 함께 정리된다
-
-## session_id 규칙
-
-`refresh_tokens.session_id`는 선택적(nullable)이며, 현재 구현에서는 **모든 채널에서 NULL**이다.
-
-**revoke / cleanup / 계정 삭제는 `user_id` 또는 `family_id` 기준으로 처리한다.** `session_id`는 사용하지 않는다.
 
 ## 보안 규칙
 

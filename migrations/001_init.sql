@@ -45,7 +45,6 @@ CREATE TABLE refresh_tokens (
     token_hash TEXT NOT NULL UNIQUE,
     family_id  UUID NOT NULL,
     user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
     client_id  TEXT NOT NULL,
     resource   TEXT,
     scopes     TEXT[] NOT NULL DEFAULT '{}',
