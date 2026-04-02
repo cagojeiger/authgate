@@ -187,3 +187,39 @@ func TestE2E8_CleanupRollback(t *testing.T) {
 		t.Errorf("audit count = %d, want 0 after rollback", auditCount)
 	}
 }
+
+// E2E 6: cleanup job idempotency
+func TestCleanup_DeletionPIIScrub_Idempotent(t *testing.T) {
+	db, store, clk := setupCleanupTest(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "cleanup-idem@test.com", true, "Idem", "", "google", "cleanup-idem-sub", "cleanup-idem@test.com")
+	db.ExecContext(ctx,
+		`UPDATE users SET status = 'pending_deletion', deletion_scheduled_at = $1 WHERE id = $2`,
+		clk.Now().Add(-1*time.Hour), user.ID,
+	)
+	store.CreateSession(ctx, user.ID, 24*time.Hour)
+
+	svc := NewCleanupService(db, clk, time.Hour)
+	svc.RunOnce(ctx)
+	svc.RunOnce(ctx)
+
+	var status string
+	db.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	if status != "deleted" {
+		t.Fatalf("status = %q, want deleted", status)
+	}
+
+	var identityCount, sessionCount, refreshCount, auditCount int
+	db.QueryRowContext(ctx, `SELECT count(*) FROM user_identities WHERE user_id = $1`, user.ID).Scan(&identityCount)
+	db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE user_id = $1`, user.ID).Scan(&sessionCount)
+	db.QueryRowContext(ctx, `SELECT count(*) FROM refresh_tokens WHERE user_id = $1`, user.ID).Scan(&refreshCount)
+	db.QueryRowContext(ctx, `SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = 'auth.deletion_completed'`, user.ID).Scan(&auditCount)
+
+	if identityCount != 0 || sessionCount != 0 || refreshCount != 0 {
+		t.Fatalf("child rows should remain deleted, got identities=%d sessions=%d refresh=%d", identityCount, sessionCount, refreshCount)
+	}
+	if auditCount != 1 {
+		t.Fatalf("deletion_completed audit count = %d, want 1", auditCount)
+	}
+}

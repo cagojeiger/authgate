@@ -96,3 +96,62 @@ func TestMCP005_Recoverable_Rejected(t *testing.T) {
 		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
 	}
 }
+
+// channel-005: pending_deletion + mcp(login with session) -> account_inactive
+func TestMCPLogin_PendingDeletionSession_Rejected(t *testing.T) {
+	svc, store := setupMCPTest(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "mcp-login-pending@test.com", true, "MCP Pending", "", "google", "mcp-login-pending-sub", "mcp-login-pending@test.com")
+	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
+	_ = store.SetUserStatus(ctx, user.ID, "pending_deletion")
+	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-login-pending")
+
+	result := svc.HandleMCPLogin(ctx, arID, sessionID, "127.0.0.1", "mcp-client")
+
+	if result.Action != ActionError {
+		t.Errorf("action = %v, want Error", result.Action)
+	}
+	if result.ErrorCode != 403 {
+		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
+	}
+}
+
+// channel-005: deleted + mcp(login with session) -> account_inactive
+func TestMCPLogin_DeletedSession_Rejected(t *testing.T) {
+	svc, store := setupMCPTest(t)
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "mcp-login-deleted@test.com", true, "MCP Deleted", "", "google", "mcp-login-deleted-sub", "mcp-login-deleted@test.com")
+	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
+	_ = store.SetUserStatus(ctx, user.ID, "deleted")
+	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-login-deleted")
+
+	result := svc.HandleMCPLogin(ctx, arID, sessionID, "127.0.0.1", "mcp-client")
+
+	if result.Action != ActionError {
+		t.Errorf("action = %v, want Error", result.Action)
+	}
+	if result.ErrorCode != 403 {
+		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
+	}
+}
+
+// mcp-004: deleted user callback -> account_inactive
+func TestMCP_DeletedUser_Rejected(t *testing.T) {
+	svc, store := setupMCPExtTest(t, "mcp-deleted-sub")
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "mcp-deleted@test.com", true, "MCP", "", "google", "mcp-deleted-sub", "mcp-deleted@test.com")
+	_ = store.SetUserStatus(ctx, user.ID, "deleted")
+	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-deleted")
+
+	result := svc.HandleMCPCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+
+	if result.Action != ActionError {
+		t.Errorf("action = %v, want Error (deleted user)", result.Action)
+	}
+	if result.ErrorCode != 403 {
+		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
+	}
+}

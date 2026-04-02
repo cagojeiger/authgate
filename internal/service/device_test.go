@@ -217,6 +217,23 @@ func TestDevice006_InactiveCallback_Rejected(t *testing.T) {
 	}
 }
 
+// device-004: deleted callback -> account_inactive
+func TestDeviceCallback_DeletedUser_Rejected(t *testing.T) {
+	svc, store, _ := setupDeviceExtTest(t, "dev-deleted-sub")
+	ctx := context.Background()
+
+	user, _ := store.CreateUserWithIdentity(ctx, "dev-deleted@test.com", true, "Deleted", "", "google", "dev-deleted-sub", "dev-deleted@test.com")
+	_ = store.SetUserStatus(ctx, user.ID, "deleted")
+
+	result := svc.HandleDeviceCallback(ctx, "fake-code", "DELD-CODE", "127.0.0.1", "test")
+	if result.Action != DeviceError {
+		t.Errorf("action = %v, want DeviceError (deleted on device)", result.Action)
+	}
+	if result.ErrorCode != 403 {
+		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
+	}
+}
+
 // device-011: approve 직전 inactive로 변경 → account_inactive
 func TestDevice011_ApproveAfterDisable(t *testing.T) {
 	svc, store, clk := setupDeviceExtTest(t, "dev-approve-dis-sub")
@@ -235,5 +252,40 @@ func TestDevice011_ApproveAfterDisable(t *testing.T) {
 	}
 	if result.Message != "account_inactive" {
 		t.Errorf("message = %q, want account_inactive", result.Message)
+	}
+}
+
+// device-008 확장: approve 직전 pending/deleted 변경 시 account_inactive
+func TestDeviceApprove_AfterStatusTransition_Rejected(t *testing.T) {
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{name: "pending_deletion", status: "pending_deletion"},
+		{name: "deleted", status: "deleted"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, store, clk := setupDeviceExtTest(t, "dev-approve-"+tt.status)
+			ctx := context.Background()
+
+			user, _ := store.CreateUserWithIdentity(ctx, "dev-approve-"+tt.status+"@test.com", true, "Test", "", "google", "dev-approve-"+tt.status, "dev-approve-"+tt.status+"@test.com")
+			sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
+			insertDeviceCode(t, store, "ASTA-"+tt.status, clk)
+
+			_ = store.SetUserStatus(ctx, user.ID, tt.status)
+
+			result := svc.HandleDeviceApprove(ctx, "ASTA-"+tt.status, "approve", sessionID, "127.0.0.1", "test")
+			if result.Success {
+				t.Fatalf("expected rejection after status transition to %s", tt.status)
+			}
+			if result.ErrorCode != 403 {
+				t.Fatalf("errorCode = %d, want 403", result.ErrorCode)
+			}
+			if result.Message != "account_inactive" {
+				t.Fatalf("message = %q, want account_inactive", result.Message)
+			}
+		})
 	}
 }
