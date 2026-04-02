@@ -166,38 +166,12 @@ erDiagram
 
 ## 인덱스
 
-```sql
--- users
-CREATE UNIQUE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_deletion ON users(deletion_scheduled_at) WHERE deletion_scheduled_at IS NOT NULL;
+현재 `migrations/001_init.sql`은 테이블 제약(UNIQUE/PK/FK) 외에 별도 보조 인덱스를 생성하지 않는다.
 
--- user_identities
-CREATE UNIQUE INDEX idx_identities_provider ON user_identities(provider, provider_user_id);
-CREATE INDEX idx_identities_user ON user_identities(user_id);
-
--- sessions
-CREATE INDEX idx_sessions_user ON sessions(user_id);
-CREATE INDEX idx_sessions_expires ON sessions(expires_at);
-
--- refresh_tokens
-CREATE UNIQUE INDEX idx_rt_hash ON refresh_tokens(token_hash);
-CREATE INDEX idx_rt_family ON refresh_tokens(family_id);
-CREATE INDEX idx_rt_user ON refresh_tokens(user_id);
-CREATE INDEX idx_rt_expires ON refresh_tokens(expires_at) WHERE revoked_at IS NULL;
-
--- auth_requests
-CREATE INDEX idx_ar_expires ON auth_requests(expires_at);
-CREATE INDEX idx_ar_code ON auth_requests(code) WHERE code IS NOT NULL;
-
--- device_codes
-CREATE UNIQUE INDEX idx_dc_device ON device_codes(device_code);
-CREATE UNIQUE INDEX idx_dc_user ON device_codes(user_code);
-CREATE INDEX idx_dc_expires ON device_codes(expires_at);
-
--- audit_log
-CREATE INDEX idx_audit_user ON audit_log(user_id);
-CREATE INDEX idx_audit_created ON audit_log(created_at);
-```
+운영에서 조회 패턴이 커지면 다음 원칙으로 인덱스를 추가한다:
+1. 실제 병목 쿼리를 기준으로 추가한다.
+2. cleanup 경로(`expires_at`)와 토큰 경로(`token_hash`, `family_id`)를 우선 고려한다.
+3. 추가 시 이 문서와 마이그레이션을 함께 갱신한다.
 
 ## 제약조건
 
