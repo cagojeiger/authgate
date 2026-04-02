@@ -24,9 +24,9 @@ authgate를 처음 배포할 때 필요한 것:
      - Google 예시: OIDC_ISSUER_URL=https://accounts.google.com
 
    **주의: 이것은 upstream IdP redirect_uri다.**
-   `oauth_clients` 테이블의 `redirect_uris`와 다른 것이다.
+   `clients.yaml`의 `redirect_uris`와 다른 것이다.
    - IdP redirect_uri = "IdP가 authgate로 돌려보내는 경로"
-   - oauth_clients redirect_uri = "authgate가 각 앱으로 돌려보내는 경로"
+   - clients.yaml redirect_uri = "authgate가 각 앱으로 돌려보내는 경로"
 
 3. 시크릿 생성
    → SESSION_SECRET: openssl rand -base64 32
@@ -96,9 +96,8 @@ chmod 600 signing_key.pem
 SECRET=$(openssl rand -base64 32)
 HASH=$(htpasswd -nbBC 10 "" "$SECRET" | cut -d: -f2)
 
-# DB 등록 시 해시만 저장
-INSERT INTO oauth_clients (client_id, client_secret_hash, ...)
-VALUES ('my-app', '$2a$10$...hashed...', ...);
+# clients.yaml에 해시를 등록
+# client_secret_hash: "$2a$10$...hashed..."
 
 # 앱에게 평문 전달 (1회만, 이후 조회 불가)
 ```
@@ -162,7 +161,8 @@ authgate key remove <kid>  # 구 키 제거
 
 ### YAML 파일 기반 (권장)
 
-`clients.yaml` 파일로 클라이언트를 정의하면 authgate 시작 시 자동으로 DB에 upsert된다.
+`clients.yaml` 파일로 클라이언트를 정의하면 authgate 시작 시 메모리에 로드된다.
+DB 테이블은 사용하지 않는다.
 
 ```yaml
 # clients.yaml
@@ -185,20 +185,7 @@ clients:
       - http://localhost:8080/callback
     allowed_scopes: [openid, profile, email, offline_access]
     allowed_grant_types: [authorization_code, "urn:ietf:params:oauth:grant-type:device_code", refresh_token]
-
-  - client_id: my-mcp
-    client_type: public
-    login_channel: mcp
-    name: My MCP Client
-    redirect_uris:
-      - http://localhost:3000/callback
-    allowed_scopes: [openid, profile, email, offline_access]
-    allowed_grant_types: [authorization_code, refresh_token]
 ```
-
-MCP 클라이언트는 정적 YAML 등록 대신 [Spec 004](004-mcp-login.md)의 DCR(`POST /oauth/register`)을 사용할 수 있다.
-운영 관점에서 YAML은 정적 클라이언트용, DCR은 동적 MCP 클라이언트용이다.
-MCP는 원칙적으로 DCR 친화적인 채널로 본다.
 
 배포 환경별 마운트:
 - Docker Compose: `volumes: ["./clients.yaml:/etc/authgate/clients.yaml:ro"]`
@@ -207,51 +194,25 @@ MCP는 원칙적으로 DCR 친화적인 채널로 본다.
 
 **authgate 코드 변경 0줄.** YAML 파일만 수정하고 재시작하면 끝.
 
-동작 규칙:
-- YAML의 `client_id`가 DB에 없으면 INSERT
-- 이미 있으면 UPDATE (redirect_uris, scopes 등 갱신)
-- `client_secret_hash`를 생략하면 기존 DB 값 유지 (실수로 삭제 방지)
-- YAML에 없는 기존 클라이언트는 그대로 유지 (삭제하지 않음)
-- 파일이 없으면 경고 로그만 찍고 진행 (기존 DB 데이터 유지)
+### MCP 클라이언트 (CIMD)
 
-### SQL 직접 등록 (대안)
+MCP 클라이언트는 YAML에 등록하지 않는다. CIMD (`draft-ietf-oauth-client-id-metadata-document`)를 사용하여
+클라이언트가 HTTPS URL에 메타데이터를 호스팅하고, authgate가 on-demand로 fetch한다.
+상세는 [Spec 004](004-mcp-login.md)의 CIMD 섹션을 참조한다.
 
-YAML 대신 SQL로 직접 등록할 수도 있다:
+### 클라이언트 제거
 
-```sql
-INSERT INTO oauth_clients (client_id, client_type, login_channel, name, redirect_uris, allowed_scopes, allowed_grant_types)
-VALUES ('my-app', 'public', 'browser', 'My App', '{https://my-app.com/callback}', '{openid,profile,email}', '{authorization_code,refresh_token}');
+YAML 클라이언트: YAML에서 제거 후 서버 재시작. 메모리에서 즉시 사라진다.
+
+CIMD 클라이언트: 클라이언트가 메타데이터 URL을 내리면 CIMD 캐시 만료 후 `invalid_client`로 거부된다.
+authgate에서 별도 작업은 불필요하지만, 기존 refresh_token은 DB에 남아있다가 자연 만료된다.
+
+```text
+클라이언트 제거 후 연관 데이터 수명:
+  auth_requests  → 10분 내 만료 → cleanup 삭제
+  device_codes   → 5분 내 만료 → cleanup 삭제
+  refresh_tokens → 클라이언트 조회 실패로 갱신 불가 → 만료(최대 30일) 후 cleanup 삭제
 ```
-
-### 클라이언트 삭제
-
-`auth_requests.client_id`, `device_codes.client_id`, `refresh_tokens.client_id`는
-`oauth_clients.client_id`를 논리 참조한다. FK는 없으므로 삭제 전 운영 절차로 정합성을 보장한다.
-
-```sql
--- 1. 진행 중 auth_request 확인 (없어야 함)
-SELECT COUNT(*) FROM auth_requests WHERE client_id = 'my-cli' AND expires_at > NOW();
-
--- 2. 진행 중 device_code 확인 (없어야 함)
-SELECT COUNT(*) FROM device_codes
-WHERE client_id = 'my-cli'
-  AND expires_at > NOW()
-  AND state IN ('pending', 'approved');
-
--- 3. 남은 refresh_token 전부 revoke
-UPDATE refresh_tokens
-SET revoked_at = NOW()
-WHERE client_id = 'my-cli'
-  AND revoked_at IS NULL;
-
--- 4. 확인 후 클라이언트 삭제
-DELETE FROM oauth_clients WHERE client_id = 'my-cli';
-```
-
-운영 규칙:
-- auth_requests/device_codes가 살아 있으면 클라이언트를 삭제하지 않는다.
-- refresh_tokens는 삭제 전 전부 revoke한다.
-- 실제 hard delete는 Spec 005 token cleanup 절차에 맡긴다.
 
 ## 일상 운영
 

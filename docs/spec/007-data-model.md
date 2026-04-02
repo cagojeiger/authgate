@@ -13,109 +13,92 @@ erDiagram
     users ||--o{ sessions : "1:N (로그인 상태)"
     users ||--o{ refresh_tokens : "1:N (토큰 갱신)"
     users ||--o{ audit_log : "1:N (이벤트 기록)"
-    oauth_clients ||--o{ auth_requests : "1:N (인증 진행)"
-    oauth_clients ||--o{ device_codes : "1:N (디바이스 인증)"
-    oauth_clients ||--o{ refresh_tokens : "1:N"
-
     users {
-        uuid id PK
-        text email UK
-        boolean email_verified
-        text name
-        text avatar_url
-        text status "active/disabled/pending_deletion/deleted"
-        timestamptz deletion_requested_at
-        timestamptz deletion_scheduled_at
-        timestamptz deleted_at
-        timestamptz created_at
-        timestamptz updated_at
+        uuid id PK "DEFAULT uuid_generate_v4()"
+        text email UK "NOT NULL"
+        boolean email_verified "NOT NULL, DEFAULT false"
+        text name "nullable"
+        text avatar_url "nullable"
+        text status "NOT NULL, DEFAULT 'active', CHECK (active/disabled/pending_deletion/deleted)"
+        timestamptz deletion_requested_at "nullable"
+        timestamptz deletion_scheduled_at "nullable"
+        timestamptz deleted_at "nullable"
+        timestamptz created_at "NOT NULL, DEFAULT NOW()"
+        timestamptz updated_at "NOT NULL, DEFAULT NOW()"
     }
 
     user_identities {
-        uuid id PK
-        uuid user_id FK
-        text provider "OIDC issuer에서 파생 (예: google, mock 등)"
-        text provider_user_id UK
-        text provider_email
-        jsonb provider_raw
-        timestamptz created_at
+        uuid id PK "DEFAULT uuid_generate_v4()"
+        uuid user_id FK "NOT NULL, CASCADE"
+        text provider "NOT NULL, OIDC issuer에서 파생 (예: google, mock 등)"
+        text provider_user_id "NOT NULL, UNIQUE(provider, provider_user_id)"
+        text provider_email "nullable"
+        jsonb provider_raw "nullable"
+        timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 
     sessions {
-        uuid id PK
-        uuid user_id FK
-        timestamptz expires_at
-        timestamptz revoked_at
-        timestamptz created_at
+        uuid id PK "DEFAULT uuid_generate_v4()"
+        uuid user_id FK "NOT NULL, CASCADE"
+        timestamptz expires_at "NOT NULL, 기본 24시간(SESSION_TTL)"
+        timestamptz revoked_at "nullable, 로그아웃 시 설정"
+        timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 
     refresh_tokens {
-        uuid id PK
-        text token_hash UK "SHA-256 해시"
-        uuid family_id "rotation 추적"
-        uuid user_id FK
-        uuid session_id FK "nullable (Device/MCP은 NULL)"
-        text client_id
-        text[] scopes
-        timestamptz expires_at
-        timestamptz revoked_at
-        timestamptz used_at
-        timestamptz created_at
-    }
-
-    oauth_clients {
-        uuid id PK
-        text client_id UK
-        text client_secret_hash "bcrypt, NULL=public"
-        text client_type "confidential/public"
-        text name
-        text[] redirect_uris
-        text[] allowed_scopes
-        text[] allowed_grant_types "authorization_code, device_code, refresh_token"
-        text login_channel "browser/mcp, DEFAULT 'browser'"
-        timestamptz created_at
-        timestamptz updated_at
+        uuid id PK "DEFAULT uuid_generate_v4()"
+        text token_hash UK "NOT NULL, SHA-256 해시"
+        uuid family_id "NOT NULL, rotation 추적"
+        uuid user_id FK "NOT NULL, CASCADE"
+        uuid session_id FK "nullable, SET NULL"
+        text client_id "NOT NULL"
+        text resource "nullable, MCP resource identifier"
+        text[] scopes "NOT NULL, DEFAULT '{}'"
+        timestamptz expires_at "NOT NULL, 기본 30일(REFRESH_TOKEN_TTL)"
+        timestamptz revoked_at "nullable, revoke 시 설정"
+        timestamptz used_at "nullable, rotation 시 설정"
+        timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 
     auth_requests {
-        uuid id PK
-        text client_id
-        text redirect_uri
-        text[] scopes
-        text resource "MCP resource identifier, nullable"
-        text state
-        text nonce
-        text code_challenge
-        text code_challenge_method "S256"
-        text subject "NULL until auth"
-        timestamptz auth_time
-        boolean done
-        text code "NULL until SaveAuthCode"
-        timestamptz expires_at "10분"
-        timestamptz created_at
+        uuid id PK "DEFAULT uuid_generate_v4()"
+        text client_id "NOT NULL"
+        text resource "nullable, MCP resource identifier"
+        text redirect_uri "NOT NULL"
+        text[] scopes "NOT NULL, DEFAULT '{}'"
+        text state "nullable"
+        text nonce "nullable"
+        text code_challenge "nullable"
+        text code_challenge_method "DEFAULT 'S256'"
+        text subject "nullable, 인증 완료 시 설정"
+        timestamptz auth_time "nullable, 인증 완료 시 설정"
+        boolean done "NOT NULL, DEFAULT false"
+        text code "nullable, SaveAuthCode 시 설정"
+        timestamptz expires_at "NOT NULL, 10분"
+        timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 
     device_codes {
-        uuid id PK
-        text device_code UK "128bit+ 엔트로피"
-        text user_code UK "XXXX-XXXX"
-        text client_id
-        text[] scopes
-        text state "pending/approved/denied/consumed"
-        text subject "NULL until approve"
-        timestamptz expires_at "5분"
-        timestamptz auth_time
-        timestamptz created_at
+        uuid id PK "DEFAULT uuid_generate_v4()"
+        text device_code UK "NOT NULL, 128bit+ 엔트로피"
+        text user_code UK "NOT NULL, XXXX-XXXX"
+        text client_id "NOT NULL"
+        text[] scopes "NOT NULL, DEFAULT '{}'"
+        text state "NOT NULL, DEFAULT 'pending', CHECK (pending/approved/denied/consumed)"
+        text subject "nullable, approve 시 설정"
+        timestamptz expires_at "NOT NULL, 5분"
+        timestamptz auth_time "nullable, approve 시 설정"
+        timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 
     audit_log {
         bigserial id PK
-        uuid user_id FK "nullable"
-        text event_type
-        inet ip_address
-        text user_agent
-        jsonb metadata
-        timestamptz created_at
+        uuid user_id FK "nullable, SET NULL"
+        text event_type "NOT NULL"
+        inet ip_address "nullable"
+        text user_agent "nullable"
+        jsonb metadata "nullable"
+        timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 ```
 
@@ -127,7 +110,13 @@ erDiagram
 |--------|------|------|----------|
 | **users** | 신원 (sub, email, name, status) | 영구 | PII 스크러빙 (30일 유예 후) |
 | **user_identities** | IdP 매핑 (IdP sub ↔ 로컬 user) | 영구 | CASCADE (users 삭제 시) |
-| **oauth_clients** | 등록된 앱 | 영구 | 수동 관리 |
+
+### 설정 데이터 (DB 외부)
+
+| 데이터 | 목적 | 저장 위치 | 관리 방식 |
+|--------|------|----------|----------|
+| **클라이언트 설정** | 등록된 앱 (client_id, redirect_uri 등) | `clients.yaml` → 메모리 | YAML 파일 수정 후 서버 재시작 |
+| **CIMD 클라이언트** | MCP 클라이언트 (client_id = URL) | 클라이언트가 호스팅 → on-demand fetch | 저장 없음, HTTP 캐시만 |
 
 ### 세션/토큰 데이터
 
@@ -201,18 +190,15 @@ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 
 ## client_id 참조 규칙
 
-`auth_requests.client_id`, `device_codes.client_id`, `refresh_tokens.client_id`는 `oauth_clients.client_id`를 참조하지만 **FK를 걸지 않는다.**
+`auth_requests.client_id`, `device_codes.client_id`, `refresh_tokens.client_id`는 클라이언트 설정의 `client_id`를 논리적으로 참조한다. 클라이언트 설정은 DB가 아닌 메모리(YAML 또는 CIMD)에 존재하므로 FK는 없다.
 
-이유:
-- auth_requests, device_codes는 수분 내 만료되는 임시 데이터다. FK CASCADE가 이들의 cleanup과 결합되면 복잡도만 증가한다.
-- oauth_clients는 수동 등록/관리이며 삭제 빈도가 극히 낮다 (Spec 009).
+클라이언트 종류별 참조:
+- **YAML 클라이언트**: `client_id`는 `clients.yaml`에 정의된 문자열
+- **CIMD 클라이언트**: `client_id`는 MCP 클라이언트가 호스팅하는 메타데이터 URL
 
-**운영 불변식**: 클라이언트 삭제 전 다음을 확인한다:
-1. 해당 client_id의 auth_requests, device_codes가 전부 만료/소진되었는지 확인
-2. 해당 client_id의 refresh_tokens를 전부 revoke
-3. 확인 후 `DELETE FROM oauth_clients WHERE client_id = $1`
-
-이 절차는 Spec 009 운영 문서에서 관리한다.
+연관 데이터는 자연 소멸한다:
+- auth_requests, device_codes: 임시 데이터 (10분/5분) → 자연 만료 후 cleanup 삭제
+- refresh_tokens: 클라이언트가 메모리에서 사라져도 만료까지 DB에 남음. 갱신 시도 시 클라이언트 조회 실패로 거부 → 만료 후 cleanup 삭제
 
 ## auth_requests.resource 규칙
 
@@ -242,7 +228,7 @@ MCP
 | 규칙 | 적용 |
 |------|------|
 | refresh_token은 SHA-256 해시로 저장 | `token_hash` 컬럼 |
-| client_secret은 bcrypt 해시로 저장 | `client_secret_hash` 컬럼 |
+| client_secret은 bcrypt 해시로 저장 | `clients.yaml`의 `client_secret_hash` 필드 |
 | access_token(JWT)은 DB에 저장하지 않음 | stateless |
 | PII 스크러빙 시 email, name, avatar_url 제거 | `deleted` 상태 전이 시 |
 | audit_log는 3년 후 user_id 익명화 | cleanup job |

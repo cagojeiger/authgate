@@ -23,7 +23,7 @@ Refresh grant orchestration
 zitadel이 대부분의 프로토콜 라우팅을 소유하고 (`/.well-known/*`, `/authorize`, `/oauth/*`),
 authgate가 `op.Storage` 인터페이스로 데이터를 제공한다.
 다만 authgate는 일부 메타데이터/보조 엔드포인트를 직접 제공할 수 있다
-(`/.well-known/oauth-authorization-server`, `/oauth/register`, `/login`, `/device`, `/account` 등).
+(`/.well-known/oauth-authorization-server`, `/login`, `/device`, `/account` 등).
 
 ## authgate 내부 컴포넌트
 

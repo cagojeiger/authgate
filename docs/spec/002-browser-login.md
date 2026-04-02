@@ -8,7 +8,7 @@
 ## 전제
 
 - authgate에서 zitadel/oidc는 **내장 라이브러리**다. 별도 서버가 아니다. 모든 엔드포인트는 authgate의 단일 주소에서 제공된다.
-- 앱이 `oauth_clients` 테이블에 등록되어 있어야 함
+- 앱이 `clients.yaml`에 등록되어 있어야 함
 - authgate에 OIDC 자격증명이 설정되어 있어야 함 (OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET)
 
 ## 클라이언트 유형

@@ -270,6 +270,8 @@ WHERE expires_at < NOW() - INTERVAL '1 hour';
 | 재사용 탐지 (탈취 의심) | `invalid_grant` | 400 | family 전체 revoke + 재로그인 |
 | 계정 disabled/deleted/pending_deletion | `invalid_grant` | 400 | 토큰 갱신 차단 |
 | client_id 불일치 | `invalid_client` | 400 | |
+| CIMD fetch 실패 (URL 소멸/타임아웃) | `invalid_client` | 400 | MCP 클라이언트 재등록 + 재로그인 필요. Spec 004 참조 |
+| CIMD grant_types 변경 (refresh_token 제거됨) | `invalid_client` | 400 | 메타데이터에서 grant 허용이 철회됨 |
 
 ## 다른 스펙 참조
 
