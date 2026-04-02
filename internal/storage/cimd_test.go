@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -96,7 +97,7 @@ func TestCIMDFetcher_MissingClientName(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"client_id":    serverURL + "/client.json",
+			"client_id":     serverURL + "/client.json",
 			"redirect_uris": []string{"http://localhost:3000/callback"},
 		})
 	}))
@@ -126,6 +127,23 @@ func TestCIMDFetcher_HTTP404(t *testing.T) {
 	}
 }
 
+func TestCIMDFetcher_InvalidContentType(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte(`not-json`))
+	}))
+	defer srv.Close()
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/oauth/client.json")
+	if err == nil {
+		t.Fatal("expected error for invalid content-type, got nil")
+	}
+	if !strings.Contains(err.Error(), "Content-Type") {
+		t.Errorf("error = %q, want to contain 'Content-Type'", err.Error())
+	}
+}
+
 func TestIsCIMDClientID(t *testing.T) {
 	tests := []struct {
 		id   string
@@ -134,6 +152,10 @@ func TestIsCIMDClientID(t *testing.T) {
 		{"https://app.example.com/oauth/client.json", true},
 		{"https://app.example.com/client", true},
 		{"https://app.example.com", false},
+		{"https:///oauth/client.json", false},
+		{"https://user:pass@app.example.com/client.json", false},
+		{"https://app.example.com/client.json?x=1", false},
+		{"https://app.example.com/client.json#frag", false},
 		{"http://app.example.com/client", false},
 		{"my-app", false},
 		{"", false},
@@ -150,10 +172,10 @@ func TestCIMDFetcher_UnsupportedAuthMethod(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"client_id":                    serverURL + "/client.json",
-			"client_name":                  "Bad Auth",
-			"redirect_uris":               []string{"http://localhost:3000/callback"},
-			"token_endpoint_auth_method":   "client_secret_post",
+			"client_id":                  serverURL + "/client.json",
+			"client_name":                "Bad Auth",
+			"redirect_uris":              []string{"http://localhost:3000/callback"},
+			"token_endpoint_auth_method": "client_secret_post",
 		})
 	}))
 	defer srv.Close()
@@ -220,10 +242,10 @@ func TestCIMDFetcher_UnsupportedGrantType(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"client_id":      serverURL + "/client.json",
-			"client_name":    "Bad Grant",
-			"redirect_uris":  []string{"http://localhost:3000/callback"},
-			"grant_types":    []string{"client_credentials"},
+			"client_id":     serverURL + "/client.json",
+			"client_name":   "Bad Grant",
+			"redirect_uris": []string{"http://localhost:3000/callback"},
+			"grant_types":   []string{"client_credentials"},
 		})
 	}))
 	defer srv.Close()
@@ -254,8 +276,8 @@ func TestCIMDFetcher_RedirectRejected(t *testing.T) {
 	defer srv.Close()
 
 	fetcher := &HTTPCIMDFetcher{
-		client: srv.Client(),
-		clock:  clock.RealClock{},
+		client:   srv.Client(),
+		clock:    clock.RealClock{},
 		cacheTTL: 5 * time.Minute,
 	}
 	// CheckRedirect is only set in NewHTTPCIMDFetcher, so set it manually for test
@@ -305,6 +327,44 @@ func TestCIMDFetcher_CacheHit(t *testing.T) {
 
 	if fetchCount != 1 {
 		t.Errorf("fetchCount = %d, want 1 (second call should be cached)", fetchCount)
+	}
+}
+
+func TestCIMDFetcher_NegativeCache(t *testing.T) {
+	fetchCount := 0
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
+	fetcher := &HTTPCIMDFetcher{
+		client:           srv.Client(),
+		clock:            clk,
+		cacheTTL:         5 * time.Minute,
+		negativeCacheTTL: 30 * time.Second,
+	}
+
+	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
+	if err == nil {
+		t.Fatal("expected first fetch to fail, got nil")
+	}
+	_, err = fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
+	if err == nil {
+		t.Fatal("expected second fetch to fail from negative cache, got nil")
+	}
+	if fetchCount != 1 {
+		t.Errorf("fetchCount = %d, want 1 (second call should be negative cached)", fetchCount)
+	}
+
+	clk.T = clk.T.Add(31 * time.Second)
+	_, err = fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
+	if err == nil {
+		t.Fatal("expected third fetch to fail after negative cache expiry, got nil")
+	}
+	if fetchCount != 2 {
+		t.Errorf("fetchCount = %d, want 2 (negative cache should have expired)", fetchCount)
 	}
 }
 
@@ -412,5 +472,28 @@ func TestGetClientByClientID_CIMD(t *testing.T) {
 	}
 	if client.GetID() != clientID {
 		t.Errorf("client_id = %q, want %q", client.GetID(), clientID)
+	}
+}
+
+func TestIsPrivateIP(t *testing.T) {
+	tests := []struct {
+		ip   string
+		want bool
+	}{
+		{"127.0.0.1", true},
+		{"::1", true},
+		{"10.0.0.1", true},
+		{"169.254.1.1", true},
+		{"0.0.0.0", true},
+		{"::", true},
+		{"::ffff:127.0.0.1", true},
+		{"8.8.8.8", false},
+		{"2001:4860:4860::8888", false},
+	}
+	for _, tt := range tests {
+		ip := net.ParseIP(tt.ip)
+		if got := isPrivateIP(ip); got != tt.want {
+			t.Errorf("isPrivateIP(%q) = %v, want %v", tt.ip, got, tt.want)
+		}
 	}
 }

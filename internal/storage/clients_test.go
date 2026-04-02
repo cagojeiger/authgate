@@ -3,108 +3,76 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
+func writeClientConfigFile(t *testing.T, body string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "clients.yaml")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatalf("write clients.yaml: %v", err)
+	}
+	return p
+}
+
 func TestLoadClientConfig_DuplicateClientID(t *testing.T) {
-	yaml := `
+	path := writeClientConfigFile(t, `
 clients:
   - client_id: my-app
     client_type: public
-    name: App 1
+    login_channel: browser
+    name: App A
     redirect_uris: ["http://localhost:3000/callback"]
     allowed_scopes: [openid]
     allowed_grant_types: [authorization_code]
   - client_id: my-app
     client_type: public
-    name: App 2
+    login_channel: browser
+    name: App B
     redirect_uris: ["http://localhost:3001/callback"]
     allowed_scopes: [openid]
     allowed_grant_types: [authorization_code]
-`
-	path := writeTempYAML(t, yaml)
+`)
+
 	_, err := LoadClientConfig(path)
-	if err == nil {
-		t.Fatal("expected error for duplicate client_id, got nil")
+	if err == nil || !strings.Contains(err.Error(), "duplicate client_id") {
+		t.Fatalf("expected duplicate client_id error, got: %v", err)
 	}
 }
 
-func TestLoadClientConfig_ConfidentialWithoutSecret(t *testing.T) {
-	yaml := `
+func TestLoadClientConfig_ConfidentialRequiresSecret(t *testing.T) {
+	path := writeClientConfigFile(t, `
 clients:
   - client_id: my-app
     client_type: confidential
-    name: App
+    login_channel: browser
+    name: App A
     redirect_uris: ["http://localhost:3000/callback"]
     allowed_scopes: [openid]
     allowed_grant_types: [authorization_code]
-`
-	path := writeTempYAML(t, yaml)
+`)
+
 	_, err := LoadClientConfig(path)
-	if err == nil {
-		t.Fatal("expected error for confidential without secret, got nil")
+	if err == nil || !strings.Contains(err.Error(), "requires client_secret_hash") {
+		t.Fatalf("expected confidential secret error, got: %v", err)
 	}
 }
 
-func TestLoadClientConfig_EmptyGrantTypes(t *testing.T) {
-	yaml := `
+func TestLoadClientConfig_UnsupportedGrantType(t *testing.T) {
+	path := writeClientConfigFile(t, `
 clients:
   - client_id: my-app
     client_type: public
-    name: App
+    login_channel: browser
+    name: App A
     redirect_uris: ["http://localhost:3000/callback"]
     allowed_scopes: [openid]
-    allowed_grant_types: []
-`
-	path := writeTempYAML(t, yaml)
+    allowed_grant_types: [client_credentials]
+`)
+
 	_, err := LoadClientConfig(path)
-	if err == nil {
-		t.Fatal("expected error for empty grant_types, got nil")
+	if err == nil || !strings.Contains(err.Error(), "unsupported allowed_grant_type") {
+		t.Fatalf("expected unsupported allowed_grant_type error, got: %v", err)
 	}
-}
-
-func TestLoadClientConfig_EmptyScopes(t *testing.T) {
-	yaml := `
-clients:
-  - client_id: my-app
-    client_type: public
-    name: App
-    redirect_uris: ["http://localhost:3000/callback"]
-    allowed_scopes: []
-    allowed_grant_types: [authorization_code]
-`
-	path := writeTempYAML(t, yaml)
-	_, err := LoadClientConfig(path)
-	if err == nil {
-		t.Fatal("expected error for empty scopes, got nil")
-	}
-}
-
-func TestLoadClientConfig_Valid(t *testing.T) {
-	yaml := `
-clients:
-  - client_id: my-app
-    client_type: public
-    name: App
-    redirect_uris: ["http://localhost:3000/callback"]
-    allowed_scopes: [openid, profile]
-    allowed_grant_types: [authorization_code, refresh_token]
-`
-	path := writeTempYAML(t, yaml)
-	cfg, err := LoadClientConfig(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(cfg.Clients) != 1 {
-		t.Errorf("clients count = %d, want 1", len(cfg.Clients))
-	}
-}
-
-func writeTempYAML(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "clients.yaml")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }

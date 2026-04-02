@@ -453,6 +453,17 @@ func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.
 func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientSecret string) error {
 	v, ok := s.clients.Load(clientID)
 	if !ok {
+		if s.cimdFetcher != nil && isCIMDClientID(clientID) {
+			client, err := s.cimdFetcher.FetchClient(ctx, clientID)
+			if err != nil {
+				return ErrNotFound
+			}
+			cm := client
+			if cm.SecretHash == nil {
+				return errors.New("public client cannot use client_secret")
+			}
+			return verifyBcrypt(*cm.SecretHash, clientSecret)
+		}
 		return ErrNotFound
 	}
 	c := v.(*ClientModel)

@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -14,13 +15,13 @@ type ClientConfigFile struct {
 
 // ClientConfigEntry represents a single OAuth client in the YAML config.
 type ClientConfigEntry struct {
-	ClientID         string   `yaml:"client_id"`
-	ClientSecretHash *string  `yaml:"client_secret_hash,omitempty"`
-	ClientType       string   `yaml:"client_type"`
-	LoginChannel     string   `yaml:"login_channel"`
-	Name             string   `yaml:"name"`
-	RedirectURIs     []string `yaml:"redirect_uris"`
-	AllowedScopes    []string `yaml:"allowed_scopes"`
+	ClientID          string   `yaml:"client_id"`
+	ClientSecretHash  *string  `yaml:"client_secret_hash,omitempty"`
+	ClientType        string   `yaml:"client_type"`
+	LoginChannel      string   `yaml:"login_channel"`
+	Name              string   `yaml:"name"`
+	RedirectURIs      []string `yaml:"redirect_uris"`
+	AllowedScopes     []string `yaml:"allowed_scopes"`
 	AllowedGrantTypes []string `yaml:"allowed_grant_types"`
 }
 
@@ -37,6 +38,11 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 	}
 
 	seen := make(map[string]bool, len(cfg.Clients))
+	allowedGrants := map[string]bool{
+		"authorization_code": true,
+		"refresh_token":      true,
+		"urn:ietf:params:oauth:grant-type:device_code": true,
+	}
 	for i, c := range cfg.Clients {
 		if c.ClientID == "" {
 			return nil, fmt.Errorf("client[%d]: client_id is required", i)
@@ -48,7 +54,7 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		if c.ClientType != "public" && c.ClientType != "confidential" {
 			return nil, fmt.Errorf("client[%d] %q: client_type must be public or confidential", i, c.ClientID)
 		}
-		if c.ClientType == "confidential" && c.ClientSecretHash == nil {
+		if c.ClientType == "confidential" && (c.ClientSecretHash == nil || strings.TrimSpace(*c.ClientSecretHash) == "") {
 			return nil, fmt.Errorf("client[%d] %q: confidential client requires client_secret_hash", i, c.ClientID)
 		}
 		if c.LoginChannel == "" {
@@ -67,6 +73,11 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		}
 		if len(c.AllowedGrantTypes) == 0 {
 			return nil, fmt.Errorf("client[%d] %q: at least one allowed_grant_type is required", i, c.ClientID)
+		}
+		for _, gt := range c.AllowedGrantTypes {
+			if !allowedGrants[gt] {
+				return nil, fmt.Errorf("client[%d] %q: unsupported allowed_grant_type %q", i, c.ClientID, gt)
+			}
 		}
 	}
 

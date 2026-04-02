@@ -289,52 +289,95 @@ CIMD가 DCR을 대체하는 이유:
 | 멀티 파드 | 공유 DB 필요 | **공유 상태 없음** |
 | 삭제/정리 | cleanup job 필요 | **불필요** |
 
-보안 규칙:
-- private/loopback IP 거부 (SSRF 방어)
-- 타임아웃 3초, 응답 크기 10KB 제한
-- **리다이렉트 차단**: CIMD fetch는 리다이렉트를 따르지 않음. 301/302 응답 시 즉시 거부
-- **grant_types 제한**: `authorization_code`, `refresh_token`만 허용. 그 외(`client_credentials`, `device_code` 등) 거부
-- **token_endpoint_auth_method 제한**: `none`만 허용 (public client 전제)
-- **response_types 제한**: `code`만 허용
-- 캐시 TTL 5분, 만료 시 re-fetch
+### CIMD 네트워크/보안 규칙
 
-### CIMD 조회 정책
+CIMD fetch의 네트워크 제약. IETF draft에서 MUST/SHOULD인 것과 authgate 자체 정책을 구분한다.
+
+| 규칙 | 근거 | 값 |
+|------|------|-----|
+| HTTPS 필수 | IETF draft MUST | `https://` + path 필수 |
+| private/loopback/unspecified IP 거부 | IETF draft SHOULD (SSRF) | `0.0.0.0`, `::`, `127.0.0.1`, `10/8`, `172.16/12`, `192.168/16`, link-local 전부 차단 |
+| IPv4-mapped IPv6 정규화 | authgate 정책 | `::ffff:x.x.x.x` → IPv4로 변환 후 검사 |
+| DNS resolve → 검증된 IP로 직접 dial | authgate 정책 (DNS rebinding 방지) | resolve와 connect 사이 TOCTOU 제거 |
+| 리다이렉트 차단 | authgate 정책 | 301/302/307/308 모두 거부. CIMD URL이 곧 client_id이므로 다른 URL로의 이동은 허용 불가 |
+| 타임아웃 | authgate 정책 | 연결 3초, TLS handshake 3초, 전체 3초 |
+| 응답 크기 | authgate 정책 | 10KB 초과 시 거부 |
+| Content-Type 검증 | IETF draft MUST | `application/json`만 허용 |
+| userinfo in URL 거부 | authgate 정책 | `https://user:pass@host/path` 형식 차단 |
+| query/fragment 거부 | authgate 정책 | `?`/`#` 포함 시 차단 |
+
+### CIMD 메타데이터 검증 규칙
+
+| 필드 | 검증 | 거부 시 에러 |
+|------|------|------------|
+| `client_id` | 문서 내 값 == fetch한 URL (정확 일치) | `invalid_client` |
+| `client_name` | 필수, 비어있으면 거부 | `invalid_client` |
+| `redirect_uris` | 필수, 1개 이상 | `invalid_client` |
+| `grant_types` | `authorization_code`, `refresh_token`만 허용. 비어있으면 `authorization_code` 기본 | `invalid_client` |
+| `response_types` | `code`만 허용 | `invalid_client` |
+| `token_endpoint_auth_method` | `none`만 허용 (public client). 비어있으면 `none` 기본 | `invalid_client` |
+
+### CIMD 캐시 정책
+
+IETF draft는 "HTTP 캐시 헤더 존중"과 "error/invalid 문서 캐시 금지"를 권장한다.
+authgate는 아래 고정 TTL 기반 캐시를 사용한다.
+
+| 항목 | 값 | 이유 |
+|------|-----|------|
+| **성공 캐시 TTL** | 5분 | 메타데이터 변경이 5분 내 반영됨. 네트워크 부하와 응답성의 균형 |
+| **실패 캐시 (negative cache) TTL** | 30초 | fetch 실패 시 30초간 재시도 차단. DoS 증폭 방지 |
+| **동시 요청 합치기 (singleflight)** | 동일 client_id에 대해 1개만 실행 | cache miss 시 thundering herd 방지 |
+| **캐시 키** | client_id URL 원본 그대로 | URL 정규화 없음 (CIMD 스펙: 정확 일치) |
+| **재시도/백오프** | 없음 | 실패 시 즉시 에러 반환, negative cache로 반복 요청 차단 |
+
+```text
+캐시 동작 흐름:
+
+요청 → cache hit?
+  ├─ 성공 캐시 (TTL 내) → 캐시된 ClientModel 반환
+  ├─ 실패 캐시 (TTL 내) → 캐시된 에러 반환 (네트워크 요청 없음)
+  └─ cache miss / 만료 → singleflight로 동시 요청 합치기
+       └─ fetch 실행
+            ├─ 성공 → 캐시 저장 (5분 TTL)
+            └─ 실패 → negative 캐시 저장 (30초 TTL)
+```
+
+### CIMD 조회 시점별 동작
 
 `GetClientByClientID`는 authorize, token exchange, refresh, revoke 모든 경로에서 호출된다.
 CIMD 클라이언트(URL 형식 client_id)는 **매 호출 시 캐시 기반으로 조회**한다.
 
 ```text
-호출 시점별 동작:
-
 /authorize
-  → CIMD fetch (캐시 miss 시 HTTP 요청)
+  → CIMD fetch (캐시 기반)
   → client_id 일치, redirect_uri, grant_types 전체 검증
 
 /oauth/token (code exchange)
-  → CIMD fetch (캐시 hit 가능)
+  → CIMD fetch (캐시 기반)
   → client_id 존재 확인 + grant_types에 authorization_code 포함 확인
 
 /oauth/token (refresh)
-  → CIMD fetch (캐시 hit 가능)
+  → CIMD fetch (캐시 기반)
   → client_id 존재 확인 + grant_types에 refresh_token 포함 확인
   → fetch 실패 시 invalid_client → refresh 거부
 
 /oauth/revoke
-  → CIMD fetch (캐시 hit 가능)
+  → CIMD fetch (캐시 기반)
   → client_id 존재 확인
   → fetch 실패 시에도 RFC 7009에 따라 200 반환
 ```
 
-### CIMD URL 소멸 시 동작
+### CIMD URL 소멸 / 메타데이터 변경 시 동작
 
 클라이언트가 메타데이터 URL을 내리면:
 
 ```text
-1. 캐시 만료 전: 기존 캐시로 정상 동작
-2. 캐시 만료 후: re-fetch 실패 → invalid_client
+1. 성공 캐시 TTL 내 (최대 5분): 기존 캐시로 정상 동작
+2. 캐시 만료 후: re-fetch 실패 → negative 캐시 (30초) → invalid_client
    → refresh 거부 (사용자는 재로그인 필요)
    → DB의 refresh_token은 갱신 불가 상태로 남음
    → 만료 후 cleanup이 자연 삭제
+3. negative 캐시 만료 후: 다시 fetch 시도 (URL이 복구되면 정상화)
 ```
 
 메타데이터 내용이 중간에 바뀐 경우:

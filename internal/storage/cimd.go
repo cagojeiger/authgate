@@ -5,18 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
+	"golang.org/x/sync/singleflight"
 )
 
 // cimdCacheEntry holds a cached CIMD client with expiration.
 type cimdCacheEntry struct {
 	client    *ClientModel
+	err       error
 	expiresAt time.Time
 }
 
@@ -37,10 +41,12 @@ type CIMDMetadata struct {
 
 // HTTPCIMDFetcher fetches CIMD metadata via HTTP with SSRF protection and caching.
 type HTTPCIMDFetcher struct {
-	client   *http.Client
-	clock    clock.Clock
-	cache    sync.Map // map[string]*cimdCacheEntry
-	cacheTTL time.Duration
+	client           *http.Client
+	clock            clock.Clock
+	cache            sync.Map // map[string]*cimdCacheEntry
+	cacheTTL         time.Duration
+	negativeCacheTTL time.Duration
+	sf               singleflight.Group
 }
 
 // NewHTTPCIMDFetcher creates a CIMD fetcher with SSRF-safe HTTP client.
@@ -75,31 +81,51 @@ func NewHTTPCIMDFetcher() *HTTPCIMDFetcher {
 				return fmt.Errorf("cimd: redirects not allowed")
 			},
 		},
-		clock:    clock.RealClock{},
-		cacheTTL: 5 * time.Minute,
+		clock:            clock.RealClock{},
+		cacheTTL:         5 * time.Minute,
+		negativeCacheTTL: 30 * time.Second,
 	}
 }
 
 func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*ClientModel, error) {
+	if !isCIMDClientID(clientID) {
+		return nil, fmt.Errorf("cimd: invalid client_id URL")
+	}
+
 	// Check cache
 	if entry, ok := f.cache.Load(clientID); ok {
 		ce := entry.(*cimdCacheEntry)
 		if f.clock.Now().Before(ce.expiresAt) {
+			if ce.err != nil {
+				return nil, ce.err
+			}
 			return ce.client, nil
 		}
 		f.cache.Delete(clientID)
 	}
 
-	client, err := f.fetchAndValidate(ctx, clientID)
+	// Collapse concurrent cache-miss fetches for the same client_id.
+	v, err, _ := f.sf.Do(clientID, func() (any, error) {
+		client, err := f.fetchAndValidate(ctx, clientID)
+		if err != nil {
+			f.cache.Store(clientID, &cimdCacheEntry{
+				err:       err,
+				expiresAt: f.clock.Now().Add(f.negativeCacheTTL),
+			})
+			return nil, err
+		}
+
+		f.cache.Store(clientID, &cimdCacheEntry{
+			client:    client,
+			expiresAt: f.clock.Now().Add(f.cacheTTL),
+		})
+		return client, nil
+	})
 	if err != nil {
 		return nil, err
 	}
+	client := v.(*ClientModel)
 
-	// Store in cache
-	f.cache.Store(clientID, &cimdCacheEntry{
-		client:    client,
-		expiresAt: f.clock.Now().Add(f.cacheTTL),
-	})
 	return client, nil
 }
 
@@ -118,6 +144,13 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("cimd: HTTP %d from %s", resp.StatusCode, clientID)
+	}
+	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil {
+		return nil, fmt.Errorf("cimd: invalid Content-Type header: %w", err)
+	}
+	if mediaType != "application/json" {
+		return nil, fmt.Errorf("cimd: unsupported Content-Type: %q", mediaType)
 	}
 
 	const maxSize = 10 * 1024 // 10KB
@@ -182,10 +215,44 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 
 // isCIMDClientID checks if a client_id is a CIMD URL (HTTPS with path component).
 func isCIMDClientID(clientID string) bool {
-	return strings.HasPrefix(clientID, "https://") && strings.Contains(clientID[len("https://"):], "/")
+	// ParseRequestURI doesn't parse fragments, check raw string
+	if strings.Contains(clientID, "#") {
+		return false
+	}
+	u, err := url.ParseRequestURI(clientID)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "https" {
+		return false
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return false
+	}
+	if u.User != nil {
+		return false
+	}
+	if u.Path == "" || u.Path == "/" {
+		return false
+	}
+	if u.RawQuery != "" {
+		return false
+	}
+	return true
 }
 
 // isPrivateIP checks if an IP is private/loopback/link-local.
 func isPrivateIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+	if ip == nil {
+		return true
+	}
+	// Normalize IPv4-mapped IPv6 addresses (::ffff:a.b.c.d) to IPv4.
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified()
 }
