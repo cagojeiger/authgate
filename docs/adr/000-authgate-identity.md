@@ -11,7 +11,7 @@ Accepted (2026-03-29)
 ## 목표
 
 새 서비스는 authgate를 재사용하여 인증을 공통화한다. 서비스별 인증 구현은 하지 않는다.
-새 서비스를 추가할 때 authgate 코드 변경은 0줄 — DB에 클라이언트 1개 등록하면 끝이다.
+새 서비스를 추가할 때 authgate 코드 변경은 0줄 — `clients.yaml`에 클라이언트 1개 추가하면 끝이다.
 서비스는 어떤 언어/프레임워크든 상관없다. JWKS로 토큰을 검증하면 된다.
 
 ## Context
@@ -258,7 +258,7 @@ JWKS는 캐시하되 키 회전을 지원해야 한다. 검증 실패 시 fallba
 | **user_identities** | IdP 매핑 (IdP sub ↔ 로컬 user) | 영구 (삭제 시 CASCADE) |
 | **sessions** | 로그인 상태 | 24시간 (기본) |
 | **refresh_tokens** | 토큰 갱신 권한 (해시 저장) | 30일 (기본) |
-| **oauth_clients** | 등록된 앱 (client_id, redirect_uri) | 영구 |
+| **클라이언트 설정** | 등록된 앱 (client_id, redirect_uri) | `clients.yaml` → 메모리, MCP는 CIMD |
 | **auth_requests** | 로그인 진행 중 상태 | 10분 (임시) |
 | **device_codes** | CLI 로그인 진행 중 상태 | 5분 (임시) |
 | **audit_log** | 운영 이벤트 (로그인, 가입, 탈퇴) | 보존 정책에 따름 |
@@ -299,7 +299,7 @@ authgate는 다음을 제공하지 않는다:
 
 ### Positive
 - authgate는 1,700줄 이하로 유지 가능
-- 앱 추가 시 authgate 코드 변경 불필요 (클라이언트 등록만)
+- 앱 추가 시 authgate 코드 변경 불필요 (`clients.yaml`에 추가만, MCP는 CIMD로 자동)
 - 각 앱이 독립적으로 권한 체계를 설계 가능
 - 3개 플로우가 동일한 토큰 계약 → 앱은 로그인 방식을 몰라도 됨
 

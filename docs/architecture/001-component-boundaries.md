@@ -23,7 +23,7 @@ Refresh grant orchestration
 zitadel이 대부분의 프로토콜 라우팅을 소유하고 (`/.well-known/*`, `/authorize`, `/oauth/*`),
 authgate가 `op.Storage` 인터페이스로 데이터를 제공한다.
 다만 authgate는 일부 메타데이터/보조 엔드포인트를 직접 제공할 수 있다
-(`/.well-known/oauth-authorization-server`, `/oauth/register`, `/login`, `/device`, `/account` 등).
+(`/.well-known/oauth-authorization-server`, `/login`, `/device`, `/account` 등).
 
 ## authgate 내부 컴포넌트
 
@@ -186,7 +186,7 @@ ID와 토큰을 생성한다. 테스트에서 **예측 가능한 값**을 만들
 | **인터페이스** | `IDGenerator` (메서드: `NewUUID`, `NewOpaqueToken`) |
 | **구현체** | `CryptoGenerator` (프로덕션: crypto/rand), `SequentialGenerator` (테스트: 예측 가능한 순차 값) |
 | **의존** | 없음 |
-| **사용처** | storage (session_id, token_id, refresh_token 생성) |
+| **사용처** | storage (token_id, refresh_token 생성) |
 
 프로덕션에서는 128bit+ 엔트로피를 보장하고, 테스트에서는 `token-1`, `token-2` 같은 순차 값으로 assertion을 쉽게 한다.
 

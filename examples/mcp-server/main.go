@@ -317,12 +317,12 @@ func main() {
 			"issuer":                                authgateURL,
 			"authorization_endpoint":                authgateURL + "/authorize",
 			"token_endpoint":                        authgateURL + "/oauth/token",
-			"registration_endpoint":                 authgateURL + "/oauth/register",
 			"revocation_endpoint":                   authgateURL + "/oauth/revoke",
 			"response_types_supported":              []string{"code"},
 			"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 			"code_challenge_methods_supported":      []string{"S256"},
 			"token_endpoint_auth_methods_supported": []string{"none"},
+			"client_id_metadata_document_supported": true,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)

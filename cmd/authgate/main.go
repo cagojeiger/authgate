@@ -64,7 +64,7 @@ func main() {
 	}
 	store.SetSigningKey(key, "authgate-key-1")
 
-	// Client config (YAML)
+	// Client config (YAML → memory)
 	if cfg.ClientConfigPath != "" {
 		clientCfg, err := storage.LoadClientConfig(cfg.ClientConfigPath)
 		if err != nil {
@@ -74,12 +74,13 @@ func main() {
 				log.Fatalf("client config: %v", err)
 			}
 		} else {
-			if err := store.UpsertClients(context.Background(), clientCfg.Clients); err != nil {
-				log.Fatalf("upsert clients: %v", err)
-			}
+			store.LoadClients(clientCfg.Clients)
 			slog.Info("client config loaded", "path", cfg.ClientConfigPath, "count", len(clientCfg.Clients))
 		}
 	}
+
+	// CIMD fetcher for MCP clients (URL-based client_id)
+	store.SetCIMDFetcher(storage.NewHTTPCIMDFetcher())
 
 	// zitadel OP config
 	cryptoKey := sha256.Sum256([]byte(cfg.SessionSecret))
@@ -162,14 +163,13 @@ func main() {
 	// authgate adds /login, /device, /account, /health, /ready
 	mux := http.NewServeMux()
 
-	// RFC 8414: OAuth Authorization Server Metadata with DCR endpoint
+	// RFC 8414: OAuth Authorization Server Metadata
 	// This must be registered before the provider catch-all
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 		metadata := map[string]any{
 			"issuer":                                cfg.PublicURL,
 			"authorization_endpoint":                cfg.PublicURL + "/authorize",
 			"token_endpoint":                        cfg.PublicURL + "/oauth/token",
-			"registration_endpoint":                 cfg.PublicURL + "/oauth/register",
 			"revocation_endpoint":                   cfg.PublicURL + "/oauth/revoke",
 			"device_authorization_endpoint":         cfg.PublicURL + "/oauth/device/authorize",
 			"userinfo_endpoint":                     cfg.PublicURL + "/userinfo",
@@ -180,6 +180,7 @@ func main() {
 			"code_challenge_methods_supported":      []string{"S256"},
 			"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post"},
 			"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
+			"client_id_metadata_document_supported": true,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)
@@ -206,31 +207,6 @@ func main() {
 
 	// authgate account routes
 	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
-
-	// DCR (RFC 7591) — Dynamic Client Registration for MCP clients
-	mux.HandleFunc("/oauth/register", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		var req storage.DCRRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client_metadata"})
-			return
-		}
-		resp, err := store.RegisterClient(r.Context(), &req)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client_metadata", "error_description": err.Error()})
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(resp)
-	})
 
 	// authgate device routes
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)

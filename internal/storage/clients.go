@@ -1,9 +1,9 @@
 package storage
 
 import (
-	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,15 +15,23 @@ type ClientConfigFile struct {
 
 // ClientConfigEntry represents a single OAuth client in the YAML config.
 type ClientConfigEntry struct {
-	ClientID         string   `yaml:"client_id"`
-	ClientSecretHash *string  `yaml:"client_secret_hash,omitempty"`
-	ClientType       string   `yaml:"client_type"`
-	LoginChannel     string   `yaml:"login_channel"`
-	Name             string   `yaml:"name"`
-	RedirectURIs     []string `yaml:"redirect_uris"`
-	AllowedScopes    []string `yaml:"allowed_scopes"`
+	ClientID          string   `yaml:"client_id"`
+	ClientSecretHash  *string  `yaml:"client_secret_hash,omitempty"`
+	ClientType        string   `yaml:"client_type"`
+	LoginChannel      string   `yaml:"login_channel"`
+	Name              string   `yaml:"name"`
+	RedirectURIs      []string `yaml:"redirect_uris"`
+	AllowedScopes     []string `yaml:"allowed_scopes"`
 	AllowedGrantTypes []string `yaml:"allowed_grant_types"`
 }
+
+const (
+	maxYAMLClientIDLength    = 2048
+	maxYAMLClientNameLength  = 256
+	maxYAMLRedirectURICount  = 10
+	maxYAMLRedirectURILength = 2048
+	maxYAMLGrantTypeCount    = 3
+)
 
 // LoadClientConfig reads and parses a clients.yaml file.
 func LoadClientConfig(path string) (*ClientConfigFile, error) {
@@ -37,12 +45,28 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
+	seen := make(map[string]bool, len(cfg.Clients))
+	allowedGrants := map[string]bool{
+		"authorization_code": true,
+		"refresh_token":      true,
+		"urn:ietf:params:oauth:grant-type:device_code": true,
+	}
 	for i, c := range cfg.Clients {
 		if c.ClientID == "" {
 			return nil, fmt.Errorf("client[%d]: client_id is required", i)
 		}
+		if len(c.ClientID) > maxYAMLClientIDLength {
+			return nil, fmt.Errorf("client[%d] %q: client_id exceeds %d chars", i, c.ClientID, maxYAMLClientIDLength)
+		}
+		if seen[c.ClientID] {
+			return nil, fmt.Errorf("client[%d] %q: duplicate client_id", i, c.ClientID)
+		}
+		seen[c.ClientID] = true
 		if c.ClientType != "public" && c.ClientType != "confidential" {
 			return nil, fmt.Errorf("client[%d] %q: client_type must be public or confidential", i, c.ClientID)
+		}
+		if c.ClientType == "confidential" && (c.ClientSecretHash == nil || strings.TrimSpace(*c.ClientSecretHash) == "") {
+			return nil, fmt.Errorf("client[%d] %q: confidential client requires client_secret_hash", i, c.ClientID)
 		}
 		if c.LoginChannel == "" {
 			cfg.Clients[i].LoginChannel = "browser"
@@ -52,42 +76,60 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		if c.Name == "" {
 			return nil, fmt.Errorf("client[%d] %q: name is required", i, c.ClientID)
 		}
+		if len(c.Name) > maxYAMLClientNameLength {
+			return nil, fmt.Errorf("client[%d] %q: name exceeds %d chars", i, c.ClientID, maxYAMLClientNameLength)
+		}
 		if len(c.RedirectURIs) == 0 {
 			return nil, fmt.Errorf("client[%d] %q: at least one redirect_uri is required", i, c.ClientID)
+		}
+		if len(c.RedirectURIs) > maxYAMLRedirectURICount {
+			return nil, fmt.Errorf("client[%d] %q: redirect_uris exceeds %d entries", i, c.ClientID, maxYAMLRedirectURICount)
+		}
+		for _, uri := range c.RedirectURIs {
+			if strings.TrimSpace(uri) == "" {
+				return nil, fmt.Errorf("client[%d] %q: redirect_uri cannot be empty", i, c.ClientID)
+			}
+			if len(uri) > maxYAMLRedirectURILength {
+				return nil, fmt.Errorf("client[%d] %q: redirect_uri exceeds %d chars", i, c.ClientID, maxYAMLRedirectURILength)
+			}
+		}
+		if len(c.AllowedScopes) == 0 {
+			return nil, fmt.Errorf("client[%d] %q: at least one allowed_scope is required", i, c.ClientID)
+		}
+		if len(c.AllowedGrantTypes) == 0 {
+			return nil, fmt.Errorf("client[%d] %q: at least one allowed_grant_type is required", i, c.ClientID)
+		}
+		if len(c.AllowedGrantTypes) > maxYAMLGrantTypeCount {
+			return nil, fmt.Errorf("client[%d] %q: allowed_grant_types exceeds %d entries", i, c.ClientID, maxYAMLGrantTypeCount)
+		}
+		for _, gt := range c.AllowedGrantTypes {
+			if !allowedGrants[gt] {
+				return nil, fmt.Errorf("client[%d] %q: unsupported allowed_grant_type %q", i, c.ClientID, gt)
+			}
 		}
 	}
 
 	return &cfg, nil
 }
 
-// UpsertClients inserts or updates OAuth clients from config. All in one transaction.
-func (s *Storage) UpsertClients(ctx context.Context, clients []ClientConfigEntry) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
+// LoadClients loads client config entries into the in-memory client store.
+func (s *Storage) LoadClients(clients []ClientConfigEntry) {
 	for _, c := range clients {
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO oauth_clients (client_id, client_secret_hash, client_type, login_channel, name, redirect_uris, allowed_scopes, allowed_grant_types, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-			 ON CONFLICT (client_id) DO UPDATE SET
-			   client_secret_hash = COALESCE(EXCLUDED.client_secret_hash, oauth_clients.client_secret_hash),
-			   client_type = EXCLUDED.client_type,
-			   login_channel = EXCLUDED.login_channel,
-			   name = EXCLUDED.name,
-			   redirect_uris = EXCLUDED.redirect_uris,
-			   allowed_scopes = EXCLUDED.allowed_scopes,
-			   allowed_grant_types = EXCLUDED.allowed_grant_types,
-			   updated_at = NOW()`,
-			c.ClientID, c.ClientSecretHash, c.ClientType, c.LoginChannel, c.Name,
-			StringArray(c.RedirectURIs), StringArray(c.AllowedScopes), StringArray(c.AllowedGrantTypes),
-		)
-		if err != nil {
-			return fmt.Errorf("upsert client %q: %w", c.ClientID, err)
+		cm := &ClientModel{
+			ID:                   c.ClientID,
+			SecretHash:           c.ClientSecretHash,
+			Type:                 c.ClientType,
+			LoginChannel:         c.LoginChannel,
+			Name:                 c.Name,
+			RedirectURIList:      StringArray(c.RedirectURIs),
+			AllowedScopeList:     StringArray(c.AllowedScopes),
+			AllowedGrantTypeList: StringArray(c.AllowedGrantTypes),
 		}
+		s.clients.Store(c.ClientID, cm)
 	}
+}
 
-	return tx.Commit()
+// SetCIMDFetcher sets the CIMD fetcher for URL-based client_id resolution.
+func (s *Storage) SetCIMDFetcher(f CIMDFetcher) {
+	s.cimdFetcher = f
 }

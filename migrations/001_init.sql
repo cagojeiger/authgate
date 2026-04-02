@@ -45,7 +45,6 @@ CREATE TABLE refresh_tokens (
     token_hash TEXT NOT NULL UNIQUE,
     family_id  UUID NOT NULL,
     user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
     client_id  TEXT NOT NULL,
     resource   TEXT,
     scopes     TEXT[] NOT NULL DEFAULT '{}',
@@ -53,22 +52,6 @@ CREATE TABLE refresh_tokens (
     revoked_at TIMESTAMPTZ,
     used_at    TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- oauth_clients
-CREATE TABLE oauth_clients (
-    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    client_id           TEXT NOT NULL UNIQUE,
-    client_secret_hash  TEXT,
-    client_type         TEXT NOT NULL CHECK (client_type IN ('confidential', 'public')),
-    login_channel       TEXT NOT NULL DEFAULT 'browser'
-                        CHECK (login_channel IN ('browser', 'mcp')),
-    name                TEXT NOT NULL,
-    redirect_uris       TEXT[] NOT NULL DEFAULT '{}',
-    allowed_scopes      TEXT[] NOT NULL DEFAULT '{}',
-    allowed_grant_types TEXT[] NOT NULL DEFAULT '{authorization_code,refresh_token}',
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- auth_requests
