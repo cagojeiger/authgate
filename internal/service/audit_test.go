@@ -280,4 +280,30 @@ func TestAuditSecurity003_DeviceInactiveUser(t *testing.T) {
 	}
 }
 
+func TestAuditSecurity_DevicePendingDeletionInactiveUser(t *testing.T) {
+	svc, store, _ := setupDeviceExtTest(t, "audit-device-pending-sub")
+	ctx := context.Background()
+
+	user, err := store.CreateUserWithIdentity(ctx, "audit-device-pending@test.com", true, "Pending Device", "", "google", "audit-device-pending-sub", "audit-device-pending@test.com")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := store.SetUserStatus(ctx, user.ID, "pending_deletion"); err != nil {
+		t.Fatalf("set pending_deletion: %v", err)
+	}
+
+	result := svc.HandleDeviceCallback(ctx, "fake-code", "AUDT-PEND", "127.0.0.1", "device-pending-agent")
+	if result.Action != DeviceError {
+		t.Fatalf("action = %v, want DeviceError", result.Action)
+	}
+
+	event := requireSingleAuditEvent(t, store.DB(), user.ID, "auth.inactive_user")
+	if event.Metadata["status"] != "pending_deletion" {
+		t.Fatalf("status = %v, want pending_deletion", event.Metadata["status"])
+	}
+	if event.Metadata["channel"] != "device" {
+		t.Fatalf("channel = %v, want device", event.Metadata["channel"])
+	}
+}
+
 var _ = storage.ErrNotFound
