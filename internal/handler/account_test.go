@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/kangheeyong/authgate/internal/service"
 )
 
 // newTestAccountHandler creates an AccountHandler with nil service.
@@ -73,4 +75,25 @@ func TestDeleteAccount_OriginMatch_PassesOriginCheck(t *testing.T) {
 	}
 	// Either panicked at service call or returned normally; both confirm origin check passed
 	_ = panicked
+}
+
+func TestDeleteAccount_NoSession_Unauthorized(t *testing.T) {
+	svc := service.NewAccountService(nil)
+	h := NewAccountHandler(svc, "http://authgate.example.com")
+
+	req := httptest.NewRequest(http.MethodDelete, "/account", nil)
+	w := httptest.NewRecorder()
+	h.HandleDeleteAccount(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("response body is not valid JSON: %v", err)
+	}
+	if body["error"] == "" {
+		t.Fatal("error field should be present")
+	}
 }

@@ -100,3 +100,19 @@ func TestDevicePage_NoUserCode_Renders200HTML(t *testing.T) {
 		t.Errorf("Content-Type = %q, want text/html", ct)
 	}
 }
+
+// /device/auth/callback에서 code/state 누락 시 400 에러 페이지를 반환해야 한다.
+func TestDeviceCallback_MissingCodeOrState_ReturnsBadRequest(t *testing.T) {
+	h := newTestDeviceHandler()
+	req := httptest.NewRequest(http.MethodGet, "/device/auth/callback", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleDeviceCallback(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Fatalf("Content-Type = %q, want text/html", ct)
+	}
+}
