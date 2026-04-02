@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -211,6 +212,63 @@ func TestCIMDFetcher_OversizedDocument(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "10KB") {
 		t.Errorf("error = %q, want to contain '10KB'", err.Error())
+	}
+}
+
+func TestCIMDFetcher_UnsupportedGrantType(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":      serverURL + "/client.json",
+			"client_name":    "Bad Grant",
+			"redirect_uris":  []string{"http://localhost:3000/callback"},
+			"grant_types":    []string{"client_credentials"},
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
+	if err == nil {
+		t.Fatal("expected error for unsupported grant_type, got nil")
+	}
+	if !strings.Contains(err.Error(), "grant_type") {
+		t.Errorf("error = %q, want to contain 'grant_type'", err.Error())
+	}
+}
+
+func TestCIMDFetcher_RedirectRejected(t *testing.T) {
+	// Target server that the redirect points to
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"client_id":"x","client_name":"x","redirect_uris":["http://localhost:3000/callback"]}`))
+	}))
+	defer target.Close()
+
+	// Server that redirects to target
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/client.json", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	fetcher := &HTTPCIMDFetcher{
+		client: srv.Client(),
+		clock:  clock.RealClock{},
+		cacheTTL: 5 * time.Minute,
+	}
+	// CheckRedirect is only set in NewHTTPCIMDFetcher, so set it manually for test
+	fetcher.client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return fmt.Errorf("cimd: redirects not allowed")
+	}
+
+	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
+	if err == nil {
+		t.Fatal("expected error for redirect, got nil")
+	}
+	if !strings.Contains(err.Error(), "redirect") {
+		t.Errorf("error = %q, want to contain 'redirect'", err.Error())
 	}
 }
 

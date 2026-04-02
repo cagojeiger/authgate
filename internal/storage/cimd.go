@@ -68,6 +68,9 @@ func NewHTTPCIMDFetcher() *HTTPCIMDFetcher {
 		client: &http.Client{
 			Transport: transport,
 			Timeout:   3 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return fmt.Errorf("cimd: redirects not allowed")
+			},
 		},
 		clock:    clock.RealClock{},
 		cacheTTL: 5 * time.Minute,
@@ -154,6 +157,12 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 	for _, rt := range meta.ResponseTypes {
 		if rt != "code" {
 			return nil, fmt.Errorf("cimd: unsupported response_type: %q (only 'code' supported)", rt)
+		}
+	}
+	allowedGrants := map[string]bool{"authorization_code": true, "refresh_token": true}
+	for _, gt := range meta.GrantTypes {
+		if !allowedGrants[gt] {
+			return nil, fmt.Errorf("cimd: unsupported grant_type: %q (only authorization_code, refresh_token supported)", gt)
 		}
 	}
 

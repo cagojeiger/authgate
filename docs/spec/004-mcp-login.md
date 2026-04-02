@@ -289,10 +289,14 @@ CIMD가 DCR을 대체하는 이유:
 | 멀티 파드 | 공유 DB 필요 | **공유 상태 없음** |
 | 삭제/정리 | cleanup job 필요 | **불필요** |
 
-SSRF 방어:
-- private/loopback IP 거부 (CIMD fetch 대상)
+보안 규칙:
+- private/loopback IP 거부 (SSRF 방어)
 - 타임아웃 3초, 응답 크기 10KB 제한
-- HTTP 캐시 헤더 준수 (`Cache-Control`, `ETag`)
+- **리다이렉트 차단**: CIMD fetch는 리다이렉트를 따르지 않음. 301/302 응답 시 즉시 거부
+- **grant_types 제한**: `authorization_code`, `refresh_token`만 허용. 그 외(`client_credentials`, `device_code` 등) 거부
+- **token_endpoint_auth_method 제한**: `none`만 허용 (public client 전제)
+- **response_types 제한**: `code`만 허용
+- 캐시 TTL 5분, 만료 시 re-fetch
 
 ### CIMD 조회 정책
 
