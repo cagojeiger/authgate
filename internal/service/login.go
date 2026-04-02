@@ -157,7 +157,7 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 	// Access check
 	switch CheckAccess(user.Status, channel) {
 	case AccessDeny:
-		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status})
+		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": channel})
 		return &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 
 	case AccessRecover:
@@ -191,4 +191,3 @@ func (s *LoginService) providerForChannel(channel string) upstream.Provider {
 	}
 	return s.browserProvider
 }
-
