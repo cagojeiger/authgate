@@ -8,8 +8,15 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
+
+// cimdCacheEntry holds a cached CIMD client with expiration.
+type cimdCacheEntry struct {
+	client    *ClientModel
+	expiresAt time.Time
+}
 
 // CIMDFetcher fetches and validates CIMD (Client ID Metadata Document) clients.
 type CIMDFetcher interface {
@@ -26,9 +33,11 @@ type CIMDMetadata struct {
 	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 }
 
-// HTTPCIMDFetcher fetches CIMD metadata via HTTP with SSRF protection.
+// HTTPCIMDFetcher fetches CIMD metadata via HTTP with SSRF protection and caching.
 type HTTPCIMDFetcher struct {
-	client *http.Client
+	client   *http.Client
+	cache    sync.Map // map[string]*cimdCacheEntry
+	cacheTTL time.Duration
 }
 
 // NewHTTPCIMDFetcher creates a CIMD fetcher with SSRF-safe HTTP client.
@@ -57,10 +66,34 @@ func NewHTTPCIMDFetcher() *HTTPCIMDFetcher {
 			Transport: transport,
 			Timeout:   3 * time.Second,
 		},
+		cacheTTL: 5 * time.Minute,
 	}
 }
 
 func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*ClientModel, error) {
+	// Check cache
+	if entry, ok := f.cache.Load(clientID); ok {
+		ce := entry.(*cimdCacheEntry)
+		if time.Now().Before(ce.expiresAt) {
+			return ce.client, nil
+		}
+		f.cache.Delete(clientID)
+	}
+
+	client, err := f.fetchAndValidate(ctx, clientID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache
+	f.cache.Store(clientID, &cimdCacheEntry{
+		client:    client,
+		expiresAt: time.Now().Add(f.cacheTTL),
+	})
+	return client, nil
+}
+
+func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string) (*ClientModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("cimd: invalid URL: %w", err)
@@ -77,9 +110,13 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*Cl
 		return nil, fmt.Errorf("cimd: HTTP %d from %s", resp.StatusCode, clientID)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024)) // 10KB limit
+	const maxSize = 10 * 1024 // 10KB
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("cimd: read failed: %w", err)
+	}
+	if len(body) > maxSize {
+		return nil, fmt.Errorf("cimd: document exceeds 10KB limit")
 	}
 
 	var meta CIMDMetadata
@@ -104,6 +141,16 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*Cl
 	}
 	if meta.TokenEndpointAuthMethod == "" {
 		meta.TokenEndpointAuthMethod = "none"
+	}
+
+	// Validate supported values
+	if meta.TokenEndpointAuthMethod != "none" {
+		return nil, fmt.Errorf("cimd: unsupported token_endpoint_auth_method: %q (only 'none' supported)", meta.TokenEndpointAuthMethod)
+	}
+	for _, rt := range meta.ResponseTypes {
+		if rt != "code" {
+			return nil, fmt.Errorf("cimd: unsupported response_type: %q (only 'code' supported)", rt)
+		}
 	}
 
 	return &ClientModel{

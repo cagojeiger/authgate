@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCIMDFetcher_Success(t *testing.T) {
@@ -138,6 +139,112 @@ func TestIsCIMDClientID(t *testing.T) {
 		if got := isCIMDClientID(tt.id); got != tt.want {
 			t.Errorf("isCIMDClientID(%q) = %v, want %v", tt.id, got, tt.want)
 		}
+	}
+}
+
+func TestCIMDFetcher_UnsupportedAuthMethod(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":                    serverURL + "/client.json",
+			"client_name":                  "Bad Auth",
+			"redirect_uris":               []string{"http://localhost:3000/callback"},
+			"token_endpoint_auth_method":   "client_secret_post",
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
+	if err == nil {
+		t.Fatal("expected error for unsupported auth method, got nil")
+	}
+	if !strings.Contains(err.Error(), "token_endpoint_auth_method") {
+		t.Errorf("error = %q, want to contain 'token_endpoint_auth_method'", err.Error())
+	}
+}
+
+func TestCIMDFetcher_UnsupportedResponseType(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":      serverURL + "/client.json",
+			"client_name":    "Bad RT",
+			"redirect_uris":  []string{"http://localhost:3000/callback"},
+			"response_types": []string{"token"},
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
+	if err == nil {
+		t.Fatal("expected error for unsupported response_type, got nil")
+	}
+	if !strings.Contains(err.Error(), "response_type") {
+		t.Errorf("error = %q, want to contain 'response_type'", err.Error())
+	}
+}
+
+func TestCIMDFetcher_OversizedDocument(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Write 11KB of padding
+		w.Write([]byte(`{"client_id":"x","padding":"`))
+		for i := 0; i < 11*1024; i++ {
+			w.Write([]byte("a"))
+		}
+		w.Write([]byte(`"}`))
+	}))
+	defer srv.Close()
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
+	if err == nil {
+		t.Fatal("expected error for oversized document, got nil")
+	}
+	if !strings.Contains(err.Error(), "10KB") {
+		t.Errorf("error = %q, want to contain '10KB'", err.Error())
+	}
+}
+
+func TestCIMDFetcher_CacheHit(t *testing.T) {
+	fetchCount := 0
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount++
+		meta := CIMDMetadata{
+			ClientID:     serverURL + "/client.json",
+			ClientName:   "Cached Client",
+			RedirectURIs: []string{"http://localhost:3000/callback"},
+			GrantTypes:   []string{"authorization_code"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(meta)
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), cacheTTL: 5 * time.Minute}
+	clientID := serverURL + "/client.json"
+
+	// First fetch — network call
+	_, err := fetcher.FetchClient(context.Background(), clientID)
+	if err != nil {
+		t.Fatalf("first fetch failed: %v", err)
+	}
+	// Second fetch — should be cached
+	_, err = fetcher.FetchClient(context.Background(), clientID)
+	if err != nil {
+		t.Fatalf("second fetch failed: %v", err)
+	}
+
+	if fetchCount != 1 {
+		t.Errorf("fetchCount = %d, want 1 (second call should be cached)", fetchCount)
 	}
 }
 
