@@ -55,22 +55,6 @@ CREATE TABLE refresh_tokens (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- oauth_clients
-CREATE TABLE oauth_clients (
-    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    client_id           TEXT NOT NULL UNIQUE,
-    client_secret_hash  TEXT,
-    client_type         TEXT NOT NULL CHECK (client_type IN ('confidential', 'public')),
-    login_channel       TEXT NOT NULL DEFAULT 'browser'
-                        CHECK (login_channel IN ('browser', 'mcp')),
-    name                TEXT NOT NULL,
-    redirect_uris       TEXT[] NOT NULL DEFAULT '{}',
-    allowed_scopes      TEXT[] NOT NULL DEFAULT '{}',
-    allowed_grant_types TEXT[] NOT NULL DEFAULT '{authorization_code,refresh_token}',
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 -- auth_requests
 CREATE TABLE auth_requests (
     id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

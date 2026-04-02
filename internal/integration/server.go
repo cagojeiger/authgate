@@ -60,15 +60,27 @@ func SetupTestServer(t *testing.T) *TestServer {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	// Register test client in DB
-	db.Exec(`INSERT INTO oauth_clients (client_id, client_type, login_channel, name, redirect_uris, allowed_scopes, allowed_grant_types)
-		VALUES ('test-client', 'public', 'browser', 'Test', $1, '{openid,profile,email,offline_access}', '{authorization_code,refresh_token,urn:ietf:params:oauth:grant-type:device_code}')
-		ON CONFLICT (client_id) DO NOTHING`,
-		storage.StringArray{srv.URL + "/callback"})
-	db.Exec(`INSERT INTO oauth_clients (client_id, client_type, login_channel, name, redirect_uris, allowed_scopes, allowed_grant_types)
-		VALUES ('mcp-client', 'public', 'mcp', 'MCP Test', $1, '{openid,profile,email,offline_access}', '{authorization_code,refresh_token}')
-		ON CONFLICT (client_id) DO NOTHING`,
-		storage.StringArray{srv.URL + "/callback"})
+	// Register test clients in memory
+	store.LoadClients([]storage.ClientConfigEntry{
+		{
+			ClientID:          "test-client",
+			ClientType:        "public",
+			LoginChannel:      "browser",
+			Name:              "Test",
+			RedirectURIs:      []string{srv.URL + "/callback"},
+			AllowedScopes:     []string{"openid", "profile", "email", "offline_access"},
+			AllowedGrantTypes: []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
+		},
+		{
+			ClientID:          "mcp-client",
+			ClientType:        "public",
+			LoginChannel:      "mcp",
+			Name:              "MCP Test",
+			RedirectURIs:      []string{srv.URL + "/callback"},
+			AllowedScopes:     []string{"openid", "profile", "email", "offline_access"},
+			AllowedGrantTypes: []string{"authorization_code", "refresh_token"},
+		},
+	})
 
 	// zitadel OP
 	cryptoKey := sha256.Sum256([]byte("test-secret-32-chars-long-enough!"))
@@ -113,20 +125,20 @@ func SetupTestServer(t *testing.T) *TestServer {
 	// Routes
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 		metadata := map[string]any{
-			"issuer":                                srv.URL,
-			"authorization_endpoint":                srv.URL + "/authorize",
-			"token_endpoint":                        srv.URL + "/oauth/token",
-			"registration_endpoint":                 srv.URL + "/oauth/register",
-			"revocation_endpoint":                   srv.URL + "/oauth/revoke",
-			"device_authorization_endpoint":         srv.URL + "/oauth/device/authorize",
-			"userinfo_endpoint":                     srv.URL + "/userinfo",
-			"end_session_endpoint":                  srv.URL + "/end_session",
-			"jwks_uri":                              srv.URL + "/keys",
-			"response_types_supported":              []string{"code"},
-			"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
-			"code_challenge_methods_supported":      []string{"S256"},
-			"token_endpoint_auth_methods_supported": []string{"none"},
-			"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
+			"issuer":                                    srv.URL,
+			"authorization_endpoint":                    srv.URL + "/authorize",
+			"token_endpoint":                            srv.URL + "/oauth/token",
+			"revocation_endpoint":                       srv.URL + "/oauth/revoke",
+			"device_authorization_endpoint":             srv.URL + "/oauth/device/authorize",
+			"userinfo_endpoint":                         srv.URL + "/userinfo",
+			"end_session_endpoint":                      srv.URL + "/end_session",
+			"jwks_uri":                                  srv.URL + "/keys",
+			"response_types_supported":                  []string{"code"},
+			"grant_types_supported":                     []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
+			"code_challenge_methods_supported":          []string{"S256"},
+			"token_endpoint_auth_methods_supported":     []string{"none"},
+			"scopes_supported":                          []string{"openid", "profile", "email", "offline_access"},
+			"client_id_metadata_document_supported":     true,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)
@@ -148,28 +160,6 @@ func SetupTestServer(t *testing.T) *TestServer {
 	mux.HandleFunc("/device/approve", deviceHandler.HandleDeviceApprove)
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
 	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
-	mux.HandleFunc("/oauth/register", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		var req storage.DCRRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client_metadata"})
-			return
-		}
-		resp, err := store.RegisterClient(r.Context(), &req)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client_metadata", "error_description": err.Error()})
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
-	})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"healthy"}`))

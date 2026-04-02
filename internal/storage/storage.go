@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"sync"
 	"time"
 
 	jose "github.com/go-jose/go-jose/v4"
@@ -38,6 +39,8 @@ type Storage struct {
 	previousKeyID   string
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
+	clients         sync.Map // map[string]*ClientModel (client_id → client)
+	cimdFetcher     CIMDFetcher
 }
 
 func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
@@ -436,29 +439,23 @@ func (s *Storage) KeySet(ctx context.Context) ([]op.Key, error) {
 // --- op.Storage: OPStorage ---
 
 func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.Client, error) {
-	c := &ClientModel{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, client_id, client_secret_hash, client_type, login_channel, name, redirect_uris, allowed_scopes, allowed_grant_types
-		 FROM oauth_clients WHERE client_id = $1`, clientID,
-	).Scan(&c.UUID, &c.ID, &c.SecretHash, &c.Type, &c.LoginChannel, &c.Name, &c.RedirectURIList,
-		&c.AllowedScopeList, &c.AllowedGrantTypeList)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+	// 1. YAML 클라이언트: 메모리 조회
+	if v, ok := s.clients.Load(clientID); ok {
+		return v.(*ClientModel), nil
 	}
-	return c, err
+	// 2. CIMD 클라이언트: URL 형식이면 fetch
+	if s.cimdFetcher != nil && isCIMDClientID(clientID) {
+		return s.cimdFetcher.FetchClient(ctx, clientID)
+	}
+	return nil, ErrNotFound
 }
 
 func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientSecret string) error {
-	c := &ClientModel{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT client_secret_hash FROM oauth_clients WHERE client_id = $1`, clientID,
-	).Scan(&c.SecretHash)
-	if errors.Is(err, sql.ErrNoRows) {
+	v, ok := s.clients.Load(clientID)
+	if !ok {
 		return ErrNotFound
 	}
-	if err != nil {
-		return err
-	}
+	c := v.(*ClientModel)
 	if c.SecretHash == nil {
 		return errors.New("public client cannot use client_secret")
 	}

@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -60,34 +59,24 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 	return &cfg, nil
 }
 
-// UpsertClients inserts or updates OAuth clients from config. All in one transaction.
-func (s *Storage) UpsertClients(ctx context.Context, clients []ClientConfigEntry) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
+// LoadClients loads client config entries into the in-memory client store.
+func (s *Storage) LoadClients(clients []ClientConfigEntry) {
 	for _, c := range clients {
-		_, err := tx.ExecContext(ctx,
-			`INSERT INTO oauth_clients (client_id, client_secret_hash, client_type, login_channel, name, redirect_uris, allowed_scopes, allowed_grant_types, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-			 ON CONFLICT (client_id) DO UPDATE SET
-			   client_secret_hash = COALESCE(EXCLUDED.client_secret_hash, oauth_clients.client_secret_hash),
-			   client_type = EXCLUDED.client_type,
-			   login_channel = EXCLUDED.login_channel,
-			   name = EXCLUDED.name,
-			   redirect_uris = EXCLUDED.redirect_uris,
-			   allowed_scopes = EXCLUDED.allowed_scopes,
-			   allowed_grant_types = EXCLUDED.allowed_grant_types,
-			   updated_at = NOW()`,
-			c.ClientID, c.ClientSecretHash, c.ClientType, c.LoginChannel, c.Name,
-			StringArray(c.RedirectURIs), StringArray(c.AllowedScopes), StringArray(c.AllowedGrantTypes),
-		)
-		if err != nil {
-			return fmt.Errorf("upsert client %q: %w", c.ClientID, err)
+		cm := &ClientModel{
+			ID:                   c.ClientID,
+			SecretHash:           c.ClientSecretHash,
+			Type:                 c.ClientType,
+			LoginChannel:         c.LoginChannel,
+			Name:                 c.Name,
+			RedirectURIList:      StringArray(c.RedirectURIs),
+			AllowedScopeList:     StringArray(c.AllowedScopes),
+			AllowedGrantTypeList: StringArray(c.AllowedGrantTypes),
 		}
+		s.clients.Store(c.ClientID, cm)
 	}
+}
 
-	return tx.Commit()
+// SetCIMDFetcher sets the CIMD fetcher for URL-based client_id resolution.
+func (s *Storage) SetCIMDFetcher(f CIMDFetcher) {
+	s.cimdFetcher = f
 }
