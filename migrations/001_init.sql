@@ -18,8 +18,6 @@ CREATE TABLE users (
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_users_deletion ON users(deletion_scheduled_at) WHERE deletion_scheduled_at IS NOT NULL;
-
 -- user_identities
 CREATE TABLE user_identities (
     id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -32,8 +30,6 @@ CREATE TABLE user_identities (
     UNIQUE (provider, provider_user_id)
 );
 
-CREATE INDEX idx_identities_user ON user_identities(user_id);
-
 -- sessions
 CREATE TABLE sessions (
     id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -42,9 +38,6 @@ CREATE TABLE sessions (
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_sessions_user ON sessions(user_id);
-CREATE INDEX idx_sessions_expires ON sessions(expires_at);
 
 -- refresh_tokens
 CREATE TABLE refresh_tokens (
@@ -61,10 +54,6 @@ CREATE TABLE refresh_tokens (
     used_at    TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_rt_family ON refresh_tokens(family_id);
-CREATE INDEX idx_rt_user ON refresh_tokens(user_id);
-CREATE INDEX idx_rt_expires ON refresh_tokens(expires_at) WHERE revoked_at IS NULL;
 
 -- oauth_clients
 CREATE TABLE oauth_clients (
@@ -101,9 +90,6 @@ CREATE TABLE auth_requests (
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_ar_expires ON auth_requests(expires_at);
-CREATE INDEX idx_ar_code ON auth_requests(code) WHERE code IS NOT NULL;
-
 -- device_codes
 CREATE TABLE device_codes (
     id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -119,8 +105,6 @@ CREATE TABLE device_codes (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_dc_expires ON device_codes(expires_at);
-
 -- audit_log
 CREATE TABLE audit_log (
     id         BIGSERIAL PRIMARY KEY,
@@ -131,6 +115,3 @@ CREATE TABLE audit_log (
     metadata   JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_audit_user ON audit_log(user_id);
-CREATE INDEX idx_audit_created ON audit_log(created_at);
