@@ -782,3 +782,57 @@ func TestIntegration_RefreshTokenRevocation_RejectsReuse(t *testing.T) {
 		t.Fatalf("expected invalid_grant/invalid_refresh_token, got body=%s", refresh.RawBody)
 	}
 }
+
+// revocation 멱등성: 동일 refresh token을 두 번 revoke해도 200이어야 한다.
+func TestIntegration_RefreshTokenRevocation_Idempotent(t *testing.T) {
+	ts := SetupTestServer(t)
+
+	client := NewOAuthClient(t, ts.BaseURL)
+	code := completeLoginFlowToCode(t, ts, client)
+	tokens := client.ExchangeCode(code)
+	if tokens.StatusCode != http.StatusOK || tokens.RefreshToken == "" {
+		t.Fatalf("initial token exchange failed: status=%d body=%s", tokens.StatusCode, tokens.RawBody)
+	}
+
+	revoke := func(token string) int {
+		form := url.Values{
+			"token":           {token},
+			"token_type_hint": {"refresh_token"},
+			"client_id":       {client.ClientID},
+		}
+		resp, err := http.Post(ts.BaseURL+"/oauth/revoke", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+		if err != nil {
+			t.Fatalf("revoke request: %v", err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if code := revoke(tokens.RefreshToken); code != http.StatusOK {
+		t.Fatalf("first revoke status=%d, want 200", code)
+	}
+	if code := revoke(tokens.RefreshToken); code != http.StatusOK {
+		t.Fatalf("second revoke status=%d, want 200", code)
+	}
+}
+
+// RFC7009: 존재하지 않는 token revoke 요청도 200으로 응답해야 한다.
+func TestIntegration_Revocation_UnknownToken_Returns200(t *testing.T) {
+	ts := SetupTestServer(t)
+
+	form := url.Values{
+		"token":           {"not-a-real-token"},
+		"token_type_hint": {"refresh_token"},
+		"client_id":       {"test-client"},
+	}
+	resp, err := http.Post(ts.BaseURL+"/oauth/revoke", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("revoke unknown token: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d, want 200; body=%s", resp.StatusCode, body)
+	}
+}

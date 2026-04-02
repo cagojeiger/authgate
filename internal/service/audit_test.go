@@ -306,4 +306,44 @@ func TestAuditSecurity_DevicePendingDeletionInactiveUser(t *testing.T) {
 	}
 }
 
+func TestAuditSecurity_MCPInactiveUser_Metadata(t *testing.T) {
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{name: "pending_deletion", status: "pending_deletion"},
+		{name: "disabled", status: "disabled"},
+		{name: "deleted", status: "deleted"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, store := setupMCPExtTest(t, "audit-mcp-"+tt.name+"-sub")
+			ctx := context.Background()
+
+			user, err := store.CreateUserWithIdentity(ctx, "audit-mcp-"+tt.name+"@test.com", true, "MCP Inactive", "", "google", "audit-mcp-"+tt.name+"-sub", "audit-mcp-"+tt.name+"@test.com")
+			if err != nil {
+				t.Fatalf("create user: %v", err)
+			}
+			if err := store.SetUserStatus(ctx, user.ID, tt.status); err != nil {
+				t.Fatalf("set status %s: %v", tt.status, err)
+			}
+			arID, _ := store.CreateTestAuthRequest(ctx, "audit-mcp-"+tt.name)
+
+			result := svc.HandleMCPCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-agent")
+			if result.Action != ActionError {
+				t.Fatalf("action = %v, want ActionError", result.Action)
+			}
+
+			event := requireSingleAuditEvent(t, store.DB(), user.ID, "auth.inactive_user")
+			if event.Metadata["status"] != tt.status {
+				t.Fatalf("status = %v, want %s", event.Metadata["status"], tt.status)
+			}
+			if event.Metadata["channel"] != "mcp" {
+				t.Fatalf("channel = %v, want mcp", event.Metadata["channel"])
+			}
+		})
+	}
+}
+
 var _ = storage.ErrNotFound
