@@ -124,6 +124,9 @@ func deriveProviderName(issuer string) string {
 		return "unknown"
 	}
 	host := u.Hostname()
+	if host == "" {
+		return "unknown"
+	}
 	parts := strings.Split(host, ".")
 	if len(parts) >= 2 {
 		return parts[len(parts)-2]

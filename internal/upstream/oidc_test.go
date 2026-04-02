@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -163,6 +164,12 @@ func TestDeriveProviderName_Localhost(t *testing.T) {
 func TestDeriveProviderName_Microsoft(t *testing.T) {
 	if got := deriveProviderName("https://login.microsoftonline.com"); got != "microsoftonline" {
 		t.Errorf("got %q, want %q", got, "microsoftonline")
+	}
+}
+
+func TestDeriveProviderName_InvalidURL(t *testing.T) {
+	if got := deriveProviderName("not-a-url"); got != "unknown" {
+		t.Errorf("got %q, want %q", got, "unknown")
 	}
 }
 
@@ -378,5 +385,36 @@ func TestOIDCProvider_FullPath(t *testing.T) {
 	}
 	if info.Sub == "" || info.Email == "" {
 		t.Errorf("incomplete UserInfo after full path: sub=%q email=%q", info.Sub, info.Email)
+	}
+}
+
+func TestOIDCProvider_MultiRedirectURIs(t *testing.T) {
+	idp := newFakeIdP(t)
+
+	tests := []struct {
+		name        string
+		redirectURI string
+	}{
+		{name: "browser", redirectURI: "http://localhost:8080/login/callback"},
+		{name: "mcp", redirectURI: "http://localhost:8080/mcp/callback"},
+		{name: "device", redirectURI: "http://localhost:8080/device/auth/callback"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := NewOIDCProvider(context.Background(), idp.srv.URL, testClientID, testClientSecret, tt.redirectURI)
+			if err != nil {
+				t.Fatalf("NewOIDCProvider: %v", err)
+			}
+
+			authURL := p.AuthURL("state-" + tt.name)
+			u, err := url.Parse(authURL)
+			if err != nil {
+				t.Fatalf("parse authURL: %v", err)
+			}
+			if got := u.Query().Get("redirect_uri"); got != tt.redirectURI {
+				t.Fatalf("redirect_uri = %q, want %q", got, tt.redirectURI)
+			}
+		})
 	}
 }
