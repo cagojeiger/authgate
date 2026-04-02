@@ -453,6 +453,70 @@ func TestIntegration_MCPCodeExchange_StateChange_InvalidGrant(t *testing.T) {
 	}
 }
 
+// channel-006: pending_deletion user must be rejected on MCP callback path.
+func TestIntegration_MCPCallback_PendingDeletion_Rejected(t *testing.T) {
+	ts := SetupTestServer(t)
+	client := NewOAuthClientFor(t, ts.BaseURL, "mcp-client", "/mcp/callback")
+	ctx := context.Background()
+
+	user, err := ts.Store.CreateUserWithIdentity(ctx, "mcp-callback-pending@test.com", true, "MCP Callback Pending", "", "google", "test-google-sub", "mcp-callback-pending@test.com")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	// Stop on redirects so we can extract authRequestID before callback execution.
+	noFollowClient := *client.Client
+	noFollowClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
+	resp1, err := noFollowClient.Get(client.AuthorizeURL())
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	resp1.Body.Close()
+
+	loginLoc := resp1.Header.Get("Location")
+	if loginLoc == "" {
+		t.Fatalf("authorize did not redirect, status=%d", resp1.StatusCode)
+	}
+
+	resp2, err := noFollowClient.Get(ts.BaseURL + loginLoc)
+	if err != nil {
+		t.Fatalf("mcp login: %v", err)
+	}
+	resp2.Body.Close()
+
+	idpLoc := resp2.Header.Get("Location")
+	idpURL, err := url.Parse(idpLoc)
+	if err != nil {
+		t.Fatalf("parse idp redirect url: %v", err)
+	}
+	authRequestID := idpURL.Query().Get("state")
+	if authRequestID == "" {
+		t.Fatalf("no authRequestID(state) in idp redirect: %s", idpLoc)
+	}
+
+	if _, err := ts.DB.ExecContext(ctx, `UPDATE users SET status = 'pending_deletion' WHERE id = $1`, user.ID); err != nil {
+		t.Fatalf("set pending_deletion: %v", err)
+	}
+
+	callbackURL := ts.BaseURL + "/mcp/callback?code=fake-code&state=" + authRequestID
+	cbResp, err := noFollowClient.Get(callbackURL)
+	if err != nil {
+		t.Fatalf("mcp callback: %v", err)
+	}
+	defer cbResp.Body.Close()
+	body, _ := io.ReadAll(cbResp.Body)
+
+	if cbResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("mcp callback status=%d, want 403 body=%s", cbResp.StatusCode, string(body))
+	}
+	if !strings.Contains(string(body), "account_inactive") {
+		t.Fatalf("expected account_inactive in response body, got %s", string(body))
+	}
+}
+
 // Verify second login (existing user) auto-approves
 func TestIntegration_SecondLogin_AutoApprove(t *testing.T) {
 	ts := SetupTestServer(t)
@@ -678,6 +742,60 @@ func TestIntegration_DeleteAccount_WrongOrigin_Rejected(t *testing.T) {
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("DELETE /account with wrong origin status = %d, want 403", resp.StatusCode)
+	}
+}
+
+// account-005: disabled/deleted users must be rejected on DELETE /account.
+func TestIntegration_DeleteAccount_InactiveUser_Rejected(t *testing.T) {
+	tests := []struct {
+		name      string
+		userState string
+	}{
+		{name: "disabled", userState: "disabled"},
+		{name: "deleted", userState: "deleted"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := SetupTestServer(t)
+			ctx := context.Background()
+
+			user, err := ts.Store.CreateUserWithIdentity(ctx, "inactive-delete-"+tt.name+"@test.com", true, "Inactive Delete", "", "google", "inactive-delete-sub-"+tt.name, "inactive-delete-"+tt.name+"@test.com")
+			if err != nil {
+				t.Fatalf("create user: %v", err)
+			}
+			sessionID, err := ts.Store.CreateSession(ctx, user.ID, 24*3600*1e9)
+			if err != nil {
+				t.Fatalf("create session: %v", err)
+			}
+
+			if _, err := ts.DB.ExecContext(ctx, `UPDATE users SET status = $1 WHERE id = $2`, tt.userState, user.ID); err != nil {
+				t.Fatalf("set user state: %v", err)
+			}
+
+			req, _ := http.NewRequest(http.MethodDelete, ts.BaseURL+"/account", nil)
+			req.Header.Set("Origin", ts.BaseURL)
+			req.AddCookie(&http.Cookie{Name: "authgate_session", Value: sessionID})
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("request: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusForbidden {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("status=%d, want 403 body=%s", resp.StatusCode, body)
+			}
+
+			var body map[string]string
+			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if body["error"] != "account_inactive" {
+				t.Fatalf("error=%q, want account_inactive", body["error"])
+			}
+		})
 	}
 }
 
