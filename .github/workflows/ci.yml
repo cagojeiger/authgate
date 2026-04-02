@@ -13,6 +13,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  CGO_ENABLED: "0"
 
 permissions:
   contents: read
@@ -23,6 +24,7 @@ jobs:
   test:
     name: Test
     runs-on: arc-runner-set-authgate
+    container: golang:1.24
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-go@v5.2.0
@@ -34,9 +36,7 @@ jobs:
         run: go build ./...
 
       - name: Run all tests with coverage
-        env:
-          CGO_ENABLED: 1
-        run: go test -race -coverprofile=coverage.out -tags=integration ./internal/...
+        run: go test -coverprofile=coverage.out -tags=integration ./internal/...
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
@@ -63,6 +63,7 @@ jobs:
   vet:
     name: Go Vet
     runs-on: arc-runner-set-authgate
+    container: golang:1.24
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-go@v5.2.0
@@ -74,6 +75,7 @@ jobs:
   vuln:
     name: Vulnerability Check
     runs-on: arc-runner-set-authgate
+    container: golang:1.24
     steps:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-go@v5.2.0
