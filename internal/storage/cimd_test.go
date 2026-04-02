@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kangheeyong/authgate/internal/clock"
 )
 
 func TestCIMDFetcher_Success(t *testing.T) {
@@ -27,7 +29,7 @@ func TestCIMDFetcher_Success(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client()}
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	clientID := serverURL + "/oauth/client.json"
 
 	client, err := fetcher.FetchClient(context.Background(), clientID)
@@ -66,7 +68,7 @@ func TestCIMDFetcher_ClientIDMismatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client()}
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/oauth/client.json")
 	if err == nil {
 		t.Fatal("expected error for client_id mismatch, got nil")
@@ -81,7 +83,7 @@ func TestCIMDFetcher_ServerDown(t *testing.T) {
 	client := srv.Client()
 	srv.Close()
 
-	fetcher := &HTTPCIMDFetcher{client: client}
+	fetcher := &HTTPCIMDFetcher{client: client, clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), "https://localhost:99999/client.json")
 	if err == nil {
 		t.Fatal("expected error for server down, got nil")
@@ -100,7 +102,7 @@ func TestCIMDFetcher_MissingClientName(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client()}
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for missing client_name, got nil")
@@ -116,7 +118,7 @@ func TestCIMDFetcher_HTTP404(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client()}
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/oauth/client.json")
 	if err == nil {
 		t.Fatal("expected error for 404, got nil")
@@ -156,7 +158,7 @@ func TestCIMDFetcher_UnsupportedAuthMethod(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for unsupported auth method, got nil")
@@ -180,7 +182,7 @@ func TestCIMDFetcher_UnsupportedResponseType(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for unsupported response_type, got nil")
@@ -202,7 +204,7 @@ func TestCIMDFetcher_OversizedDocument(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for oversized document, got nil")
@@ -229,7 +231,7 @@ func TestCIMDFetcher_CacheHit(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	clientID := serverURL + "/client.json"
 
 	// First fetch — network call
@@ -290,7 +292,7 @@ func TestGetClientByClientID_CIMD(t *testing.T) {
 	serverURL = srv.URL
 
 	store := &Storage{}
-	store.SetCIMDFetcher(&HTTPCIMDFetcher{client: srv.Client()})
+	store.SetCIMDFetcher(&HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute})
 
 	clientID := serverURL + "/oauth/client.json"
 	client, err := store.GetClientByClientID(context.Background(), clientID)

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kangheeyong/authgate/internal/clock"
 )
 
 // cimdCacheEntry holds a cached CIMD client with expiration.
@@ -36,6 +38,7 @@ type CIMDMetadata struct {
 // HTTPCIMDFetcher fetches CIMD metadata via HTTP with SSRF protection and caching.
 type HTTPCIMDFetcher struct {
 	client   *http.Client
+	clock    clock.Clock
 	cache    sync.Map // map[string]*cimdCacheEntry
 	cacheTTL time.Duration
 }
@@ -66,6 +69,7 @@ func NewHTTPCIMDFetcher() *HTTPCIMDFetcher {
 			Transport: transport,
 			Timeout:   3 * time.Second,
 		},
+		clock:    clock.RealClock{},
 		cacheTTL: 5 * time.Minute,
 	}
 }
@@ -74,7 +78,7 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*Cl
 	// Check cache
 	if entry, ok := f.cache.Load(clientID); ok {
 		ce := entry.(*cimdCacheEntry)
-		if time.Now().Before(ce.expiresAt) {
+		if f.clock.Now().Before(ce.expiresAt) {
 			return ce.client, nil
 		}
 		f.cache.Delete(clientID)
@@ -88,7 +92,7 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*Cl
 	// Store in cache
 	f.cache.Store(clientID, &cimdCacheEntry{
 		client:    client,
-		expiresAt: time.Now().Add(f.cacheTTL),
+		expiresAt: f.clock.Now().Add(f.cacheTTL),
 	})
 	return client, nil
 }
