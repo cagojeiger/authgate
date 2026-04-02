@@ -344,6 +344,7 @@ func TestIntegration_BrowserCodeExchange_StateChange_InvalidGrant(t *testing.T) 
 	}{
 		{name: "pending_deletion", mutateSQL: `UPDATE users SET status = 'pending_deletion' WHERE id = $1`},
 		{name: "disabled", mutateSQL: `UPDATE users SET status = 'disabled' WHERE id = $1`},
+		{name: "deleted", mutateSQL: `UPDATE users SET status = 'deleted' WHERE id = $1`},
 	}
 
 	for _, tt := range tests {
@@ -380,6 +381,7 @@ func TestIntegration_MCPCodeExchange_StateChange_InvalidGrant(t *testing.T) {
 	}{
 		{name: "pending_deletion", mutateSQL: `UPDATE users SET status = 'pending_deletion' WHERE id = $1`},
 		{name: "disabled", mutateSQL: `UPDATE users SET status = 'disabled' WHERE id = $1`},
+		{name: "deleted", mutateSQL: `UPDATE users SET status = 'deleted' WHERE id = $1`},
 	}
 
 	for _, tt := range tests {
