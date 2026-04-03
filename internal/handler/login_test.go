@@ -67,9 +67,8 @@ func TestMCPCallback_MissingCodeOrState_ReturnsBadRequest(t *testing.T) {
 
 func TestSetSessionCookie_SecureDependsOnDevMode(t *testing.T) {
 	t.Run("prod mode uses Secure", func(t *testing.T) {
-		h := newTestLoginHandler(false)
 		w := httptest.NewRecorder()
-		h.setSessionCookie(w, "sess-prod")
+		setSessionCookie(w, "sess-prod", false)
 
 		resp := w.Result()
 		cookies := resp.Cookies()
@@ -89,9 +88,8 @@ func TestSetSessionCookie_SecureDependsOnDevMode(t *testing.T) {
 	})
 
 	t.Run("dev mode disables Secure", func(t *testing.T) {
-		h := newTestLoginHandler(true)
 		w := httptest.NewRecorder()
-		h.setSessionCookie(w, "sess-dev")
+		setSessionCookie(w, "sess-dev", true)
 
 		resp := w.Result()
 		cookies := resp.Cookies()

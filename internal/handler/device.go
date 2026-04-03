@@ -70,11 +70,11 @@ func (h *DeviceHandler) HandleDeviceCallback(w http.ResponseWriter, r *http.Requ
 	result := h.deviceService.HandleDeviceCallback(r.Context(), code, userCode, r.RemoteAddr, r.UserAgent())
 
 	switch result.Action {
-		case service.DeviceRedirectBack:
-			if result.SessionID != "" {
-				h.setSessionCookie(w, result.SessionID)
-			}
-			http.Redirect(w, r, "/device?user_code="+result.UserCode, http.StatusFound)
+	case service.DeviceRedirectBack:
+		if result.SessionID != "" {
+			setSessionCookie(w, result.SessionID, h.devMode)
+		}
+		http.Redirect(w, r, "/device?user_code="+result.UserCode, http.StatusFound)
 
 	case service.DeviceError:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -129,15 +129,4 @@ func generateCSRFToken() string {
 		panic("crypto/rand failed: " + err.Error())
 	}
 	return hex.EncodeToString(b)
-}
-
-func (h *DeviceHandler) setSessionCookie(w http.ResponseWriter, sessionID string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    sessionID,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   !h.devMode,
-	})
 }

@@ -7,8 +7,6 @@ import (
 	"github.com/kangheeyong/authgate/internal/service"
 )
 
-const sessionCookieName = "authgate_session"
-
 type LoginHandler struct {
 	loginService *service.LoginService
 	devMode      bool
@@ -73,7 +71,7 @@ func (h *LoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	result := h.loginService.HandleCallback(r.Context(), code, authRequestID, ipAddress, userAgent)
 
 	if result.SessionID != "" {
-		h.setSessionCookie(w, result.SessionID)
+		setSessionCookie(w, result.SessionID, h.devMode)
 	}
 
 	switch result.Action {
@@ -95,7 +93,7 @@ func (h *LoginHandler) HandleMCPCallback(w http.ResponseWriter, r *http.Request)
 	result := h.loginService.HandleMCPCallback(r.Context(), code, authRequestID, ipAddress, userAgent)
 
 	if result.SessionID != "" {
-		h.setSessionCookie(w, result.SessionID)
+		setSessionCookie(w, result.SessionID, h.devMode)
 	}
 
 	switch result.Action {
@@ -114,23 +112,4 @@ func (h *LoginHandler) renderError(w http.ResponseWriter, code int, message stri
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
 	pages.RenderError(w, pages.ErrorData{Code: code, Message: message})
-}
-
-func (h *LoginHandler) setSessionCookie(w http.ResponseWriter, sessionID string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    sessionID,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   !h.devMode,
-	})
-}
-
-func getSessionCookie(r *http.Request) string {
-	c, err := r.Cookie(sessionCookieName)
-	if err != nil {
-		return ""
-	}
-	return c.Value
 }
