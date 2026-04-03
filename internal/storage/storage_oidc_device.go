@@ -10,7 +10,7 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
-	"github.com/kangheeyong/authgate/internal/storage/storeq"
+	"github.com/kangheeyong/authgate/internal/db/storeq"
 )
 
 func (s *Storage) SigningKey(ctx context.Context) (op.SigningKey, error) {
