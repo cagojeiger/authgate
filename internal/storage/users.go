@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kangheeyong/authgate/internal/storage/storeq"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
@@ -19,12 +20,16 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, email string, emai
 
 	now := s.clock.Now()
 	userID := s.idgen.NewUUID()
+	qtx := storeq.New(tx)
 
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO users (id, email, email_verified, name, avatar_url, status, created_at, updated_at)
-		 VALUES ($1,$2,$3,$4,$5,'active',$6,$6)`,
-		userID, email, emailVerified, name, avatarURL, now,
-	)
+	err = qtx.InsertUser(ctx, storeq.InsertUserParams{
+		ID:            userID,
+		Email:         email,
+		EmailVerified: emailVerified,
+		Name:          sql.NullString{String: name, Valid: true},
+		AvatarUrl:     sql.NullString{String: avatarURL, Valid: true},
+		CreatedAt:     now,
+	})
 	if err != nil {
 		if isUniqueViolation(err, "users_email_key") {
 			return nil, ErrEmailConflict
@@ -33,11 +38,14 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, email string, emai
 	}
 
 	identityID := s.idgen.NewUUID()
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO user_identities (id, user_id, provider, provider_user_id, provider_email, created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6)`,
-		identityID, userID, provider, providerUserID, providerEmail, now,
-	)
+	err = qtx.InsertUserIdentity(ctx, storeq.InsertUserIdentityParams{
+		ID:             identityID,
+		UserID:         userID,
+		Provider:       provider,
+		ProviderUserID: providerUserID,
+		ProviderEmail:  sql.NullString{String: providerEmail, Valid: true},
+		CreatedAt:      now,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -58,49 +66,64 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, email string, emai
 }
 
 func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*User, error) {
-	u := &User{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT u.id, u.email, u.email_verified, u.name, u.avatar_url, u.status,
-		        u.created_at, u.updated_at
-		 FROM users u
-		 JOIN user_identities ui ON u.id = ui.user_id
-		 WHERE ui.provider = $1 AND ui.provider_user_id = $2`,
-		provider, providerUserID,
-	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name, &u.AvatarURL, &u.Status,
-		&u.CreatedAt, &u.UpdatedAt,
-	)
+	row, err := storeq.New(s.db).GetUserByProviderIdentity(ctx, storeq.GetUserByProviderIdentityParams{
+		Provider:       provider,
+		ProviderUserID: providerUserID,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return u, err
+	if err != nil {
+		return nil, err
+	}
+	return &User{
+		ID:            row.ID,
+		Email:         row.Email,
+		EmailVerified: row.EmailVerified,
+		Name:          nullStringToString(row.Name),
+		AvatarURL:     nullStringToPtr(row.AvatarUrl),
+		Status:        row.Status,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+	}, nil
 }
 
 func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*User, error) {
-	u := &User{}
-	err := tx.QueryRowContext(ctx,
-		`SELECT id, email, email_verified, name, status
-		 FROM users WHERE id = $1`, userID,
-	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name, &u.Status)
+	row, err := storeq.New(tx).GetUserForTxByID(ctx, userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return u, err
+	if err != nil {
+		return nil, err
+	}
+	return &User{
+		ID:            row.ID,
+		Email:         row.Email,
+		EmailVerified: row.EmailVerified,
+		Name:          nullStringToString(row.Name),
+		Status:        row.Status,
+	}, nil
 }
 
 // GetUserByID returns a user by ID. Public wrapper for DB-level re-read after mutations.
 func (s *Storage) GetUserByID(ctx context.Context, userID string) (*User, error) {
-	u := &User{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, email, email_verified, name, avatar_url, status,
-		        created_at, updated_at
-		 FROM users WHERE id = $1`, userID,
-	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name, &u.AvatarURL, &u.Status,
-		&u.CreatedAt, &u.UpdatedAt,
-	)
+	row, err := storeq.New(s.db).GetUserByID(ctx, userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return u, err
+	if err != nil {
+		return nil, err
+	}
+	return &User{
+		ID:            row.ID,
+		Email:         row.Email,
+		EmailVerified: row.EmailVerified,
+		Name:          nullStringToString(row.Name),
+		AvatarURL:     nullStringToPtr(row.AvatarUrl),
+		Status:        row.Status,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+	}, nil
 }
 
 // RecoverUser atomically recovers a pending_deletion user to active.
@@ -150,15 +173,18 @@ func (s *Storage) CompleteAuthRequest(ctx context.Context, authRequestID, userID
 }
 
 func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, userID string, scopes []string) error {
-	u := &User{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, email, email_verified, name FROM users WHERE id = $1`, userID,
-	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name)
+	row, err := storeq.New(s.db).GetUserInfoFieldsByID(ctx, userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
 	if err != nil {
 		return err
+	}
+	u := &User{
+		ID:            row.ID,
+		Email:         row.Email,
+		EmailVerified: row.EmailVerified,
+		Name:          nullStringToString(row.Name),
 	}
 
 	for _, scope := range scopes {
@@ -179,6 +205,21 @@ func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, user
 func isUniqueViolation(err error, constraintName string) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "23505") || strings.Contains(msg, constraintName)
+}
+
+func nullStringToString(v sql.NullString) string {
+	if !v.Valid {
+		return ""
+	}
+	return v.String
+}
+
+func nullStringToPtr(v sql.NullString) *string {
+	if !v.Valid {
+		return nil
+	}
+	s := v.String
+	return &s
 }
 
 // SetUserStatus sets a user's status directly. For testing and admin operations.

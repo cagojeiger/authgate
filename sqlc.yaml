@@ -1,0 +1,14 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "migrations"
+    queries: "internal/storage/queries"
+    gen:
+      go:
+        package: "storeq"
+        out: "internal/storage/storeq"
+        sql_package: "database/sql"
+        emit_interface: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "string"
