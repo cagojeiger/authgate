@@ -4,8 +4,20 @@ on:
   pull_request:
     types: [opened, reopened, synchronize]
     branches: [main]
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "migrations/**"
+      - ".github/workflows/ci.yml"
   push:
     branches: [main]
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "migrations/**"
+      - ".github/workflows/ci.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
