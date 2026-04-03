@@ -125,8 +125,8 @@ func (s *Storage) GetUserByID(ctx context.Context, userID string) (*User, error)
 	}, nil
 }
 
-// RecoverUser atomically recovers a pending_deletion user to active.
-// Uses SELECT FOR UPDATE to prevent race conditions.
+// RecoverUser recovers a pending_deletion user to active.
+// If the user is not pending_deletion, it is a no-op.
 func (s *Storage) RecoverUser(ctx context.Context, userID string) error {
 	return storeq.New(s.db).RecoverPendingDeletionUserByID(ctx, storeq.RecoverPendingDeletionUserByIDParams{
 		UpdatedAt: s.clock.Now(),
