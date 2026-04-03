@@ -104,31 +104,31 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, 
 		CreatedAt:           s.clock.Now(),
 	}
 
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO auth_requests (id, client_id, resource, redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method, expires_at, created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		ar.ID, ar.ClientID, ar.Resource, ar.RedirectURI, ar.Scopes, ar.State, ar.Nonce,
-		ar.CodeChallenge, ar.CodeChallengeMethod, ar.ExpiresAt, ar.CreatedAt,
-	)
+	err := storeq.New(s.db).InsertAuthRequest(ctx, storeq.InsertAuthRequestParams{
+		ID:                  ar.ID,
+		ClientID:            ar.ClientID,
+		Resource:            sql.NullString{String: ar.Resource, Valid: true},
+		RedirectUri:         ar.RedirectURI,
+		Scopes:              []string(ar.Scopes),
+		State:               sql.NullString{String: ar.State, Valid: true},
+		Nonce:               sql.NullString{String: ar.Nonce, Valid: true},
+		CodeChallenge:       sql.NullString{String: ar.CodeChallenge, Valid: true},
+		CodeChallengeMethod: sql.NullString{String: ar.CodeChallengeMethod, Valid: true},
+		ExpiresAt:           ar.ExpiresAt,
+		CreatedAt:           ar.CreatedAt,
+	})
 	return ar, err
 }
 
 func (s *Storage) AuthRequestByID(ctx context.Context, id string) (op.AuthRequest, error) {
-	ar := &AuthRequestModel{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, client_id, COALESCE(resource, ''), redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method,
-		        subject, auth_time, done, code, expires_at, created_at
-		 FROM auth_requests WHERE id = $1`, id,
-	).Scan(&ar.ID, &ar.ClientID, &ar.Resource, &ar.RedirectURI, &ar.Scopes, &ar.State, &ar.Nonce,
-		&ar.CodeChallenge, &ar.CodeChallengeMethod,
-		&ar.Subject, &ar.AuthTime, &ar.IsDone, &ar.Code, &ar.ExpiresAt, &ar.CreatedAt,
-	)
+	row, err := storeq.New(s.db).GetAuthRequestByID(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	ar := authRequestModelFromRowByID(row)
 	if s.clock.Now().After(ar.ExpiresAt) {
 		return nil, &oidc.Error{ErrorType: "invalid_request", Description: "auth request expired"}
 	}
@@ -136,21 +136,14 @@ func (s *Storage) AuthRequestByID(ctx context.Context, id string) (op.AuthReques
 }
 
 func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRequest, error) {
-	ar := &AuthRequestModel{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, client_id, COALESCE(resource, ''), redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method,
-		        subject, auth_time, done, code, expires_at, created_at
-		 FROM auth_requests WHERE code = $1`, code,
-	).Scan(&ar.ID, &ar.ClientID, &ar.Resource, &ar.RedirectURI, &ar.Scopes, &ar.State, &ar.Nonce,
-		&ar.CodeChallenge, &ar.CodeChallengeMethod,
-		&ar.Subject, &ar.AuthTime, &ar.IsDone, &ar.Code, &ar.ExpiresAt, &ar.CreatedAt,
-	)
+	row, err := storeq.New(s.db).GetAuthRequestByCode(ctx, code)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
+	ar := authRequestModelFromRowByCode(row)
 	if s.clock.Now().After(ar.ExpiresAt) {
 		return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "authorization code expired"}
 	}
@@ -178,15 +171,14 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 }
 
 func (s *Storage) SaveAuthCode(ctx context.Context, id string, code string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE auth_requests SET code = $1 WHERE id = $2`, code, id)
-	return err
+	return storeq.New(s.db).UpdateAuthRequestCode(ctx, storeq.UpdateAuthRequestCodeParams{
+		Code: sql.NullString{String: code, Valid: true},
+		ID:   id,
+	})
 }
 
 func (s *Storage) DeleteAuthRequest(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM auth_requests WHERE id = $1`, id)
-	return err
+	return storeq.New(s.db).DeleteAuthRequestByID(ctx, id)
 }
 
 func (s *Storage) CreateAccessToken(ctx context.Context, request op.TokenRequest) (string, time.Time, error) {
@@ -429,6 +421,46 @@ func nullTimePtr(v sql.NullTime) *time.Time {
 	}
 	t := v.Time
 	return &t
+}
+
+func authRequestModelFromRowByID(row storeq.GetAuthRequestByIDRow) *AuthRequestModel {
+	return &AuthRequestModel{
+		ID:                  row.ID,
+		ClientID:            row.ClientID,
+		Resource:            row.Resource,
+		RedirectURI:         row.RedirectUri,
+		Scopes:              StringArray(row.Scopes),
+		State:               row.State,
+		Nonce:               row.Nonce,
+		CodeChallenge:       row.CodeChallenge,
+		CodeChallengeMethod: row.CodeChallengeMethod,
+		Subject:             nullStringToPtr(row.Subject),
+		AuthTime:            nullTimePtr(row.AuthTime),
+		IsDone:              row.Done,
+		Code:                nullStringToPtr(row.Code),
+		ExpiresAt:           row.ExpiresAt,
+		CreatedAt:           row.CreatedAt,
+	}
+}
+
+func authRequestModelFromRowByCode(row storeq.GetAuthRequestByCodeRow) *AuthRequestModel {
+	return &AuthRequestModel{
+		ID:                  row.ID,
+		ClientID:            row.ClientID,
+		Resource:            row.Resource,
+		RedirectURI:         row.RedirectUri,
+		Scopes:              StringArray(row.Scopes),
+		State:               row.State,
+		Nonce:               row.Nonce,
+		CodeChallenge:       row.CodeChallenge,
+		CodeChallengeMethod: row.CodeChallengeMethod,
+		Subject:             nullStringToPtr(row.Subject),
+		AuthTime:            nullTimePtr(row.AuthTime),
+		IsDone:              row.Done,
+		Code:                nullStringToPtr(row.Code),
+		ExpiresAt:           row.ExpiresAt,
+		CreatedAt:           row.CreatedAt,
+	}
 }
 
 func (s *Storage) SigningKey(ctx context.Context) (op.SigningKey, error) {
