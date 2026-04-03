@@ -575,12 +575,15 @@ func (s *Storage) Health(ctx context.Context) error {
 // --- DeviceAuthorizationStorage ---
 
 func (s *Storage) StoreDeviceAuthorization(ctx context.Context, clientID, deviceCode, userCode string, expires time.Time, scopes []string) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO device_codes (id, device_code, user_code, client_id, scopes, state, expires_at, created_at)
-		 VALUES ($1,$2,$3,$4,$5,'pending',$6,$7)`,
-		s.idgen.NewUUID(), deviceCode, userCode, clientID, StringArray(scopes), expires, s.clock.Now(),
-	)
-	return err
+	return storeq.New(s.db).InsertDeviceCode(ctx, storeq.InsertDeviceCodeParams{
+		ID:         s.idgen.NewUUID(),
+		DeviceCode: deviceCode,
+		UserCode:   userCode,
+		ClientID:   clientID,
+		Scopes:     scopes,
+		ExpiresAt:  expires,
+		CreatedAt:  s.clock.Now(),
+	})
 }
 
 func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, deviceCode string) (*op.DeviceAuthorizationState, error) {
@@ -589,18 +592,26 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 		return nil, err
 	}
 	defer tx.Rollback()
+	qtx := storeq.New(tx)
 
-	var dc DeviceCodeModel
-	err = tx.QueryRowContext(ctx,
-		`SELECT id, client_id, scopes, state, subject, expires_at, auth_time
-		 FROM device_codes WHERE device_code = $1 AND client_id = $2 FOR UPDATE`,
-		deviceCode, clientID,
-	).Scan(&dc.ID, &dc.ClientID, &dc.Scopes, &dc.State, &dc.Subject, &dc.ExpiresAt, &dc.AuthTime)
+	row, err := qtx.GetDeviceAuthorizationForUpdate(ctx, storeq.GetDeviceAuthorizationForUpdateParams{
+		DeviceCode: deviceCode,
+		ClientID:   clientID,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
+	}
+	dc := &DeviceCodeModel{
+		ID:        row.ID,
+		ClientID:  row.ClientID,
+		Scopes:    StringArray(row.Scopes),
+		State:     row.State,
+		Subject:   nullStringToPtr(row.Subject),
+		ExpiresAt: row.ExpiresAt,
+		AuthTime:  nullTimePtr(row.AuthTime),
 	}
 
 	now := s.clock.Now()
@@ -619,8 +630,7 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 
 	// Approved → atomically transition to consumed
 	if dc.State == "approved" {
-		_, err = tx.ExecContext(ctx,
-			`UPDATE device_codes SET state = 'consumed' WHERE id = $1`, dc.ID)
+		err = qtx.UpdateDeviceCodeStateConsumedByID(ctx, dc.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -664,30 +674,37 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 
 // GetDeviceCodeByUserCode looks up a device code by user_code for the approval page.
 func (s *Storage) GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*DeviceCodeModel, error) {
-	dc := &DeviceCodeModel{}
-	err := s.db.QueryRowContext(ctx,
-		`SELECT id, device_code, user_code, client_id, scopes, state, subject, expires_at, auth_time
-		 FROM device_codes WHERE user_code = $1`, userCode,
-	).Scan(&dc.ID, &dc.DeviceCode, &dc.UserCode, &dc.ClientID, &dc.Scopes, &dc.State,
-		&dc.Subject, &dc.ExpiresAt, &dc.AuthTime)
+	row, err := storeq.New(s.db).GetDeviceCodeByUserCode(ctx, userCode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return dc, err
+	if err != nil {
+		return nil, err
+	}
+	return &DeviceCodeModel{
+		ID:         row.ID,
+		DeviceCode: row.DeviceCode,
+		UserCode:   row.UserCode,
+		ClientID:   row.ClientID,
+		Scopes:     StringArray(row.Scopes),
+		State:      row.State,
+		Subject:    nullStringToPtr(row.Subject),
+		ExpiresAt:  row.ExpiresAt,
+		AuthTime:   nullTimePtr(row.AuthTime),
+	}, nil
 }
 
 // ApproveDeviceCode sets a device code to approved state with subject and auth_time.
 func (s *Storage) ApproveDeviceCode(ctx context.Context, userCode, subject string) error {
 	now := s.clock.Now()
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE device_codes SET state = 'approved', subject = $1, auth_time = $2
-		 WHERE user_code = $3 AND state = 'pending' AND expires_at > $2`,
-		subject, now, userCode,
-	)
+	rows, err := storeq.New(s.db).ApproveDeviceCodeByUserCode(ctx, storeq.ApproveDeviceCodeByUserCodeParams{
+		Subject:  sql.NullString{String: subject, Valid: true},
+		AuthTime: sql.NullTime{Time: now, Valid: true},
+		UserCode: userCode,
+	})
 	if err != nil {
 		return err
 	}
-	rows, _ := res.RowsAffected()
 	if rows == 0 {
 		return errors.New("device code not found, expired, or already processed")
 	}
@@ -696,12 +713,7 @@ func (s *Storage) ApproveDeviceCode(ctx context.Context, userCode, subject strin
 
 // DenyDeviceCode sets a device code to denied state.
 func (s *Storage) DenyDeviceCode(ctx context.Context, userCode string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE device_codes SET state = 'denied'
-		 WHERE user_code = $1 AND state = 'pending'`,
-		userCode,
-	)
-	return err
+	return storeq.New(s.db).DenyDeviceCodeByUserCode(ctx, userCode)
 }
 
 // Compile-time interface checks
