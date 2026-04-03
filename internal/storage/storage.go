@@ -370,10 +370,10 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 }
 
 func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL`,
-		s.clock.Now(), userID)
-	return err
+	return storeq.New(s.db).RevokeSessionsByUserID(ctx, storeq.RevokeSessionsByUserIDParams{
+		RevokedAt: sql.NullTime{Time: s.clock.Now(), Valid: true},
+		UserID:    userID,
+	})
 }
 
 func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID string, clientID string) *oidc.Error {

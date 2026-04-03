@@ -285,27 +285,35 @@ func (s *Storage) CreateTestAuthRequest(ctx context.Context, label string) (stri
 func (s *Storage) CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error) {
 	sessionID := s.idgen.NewUUID()
 	now := s.clock.Now()
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES ($1,$2,$3,$4)`,
-		sessionID, userID, now.Add(ttl), now,
-	)
+	err := storeq.New(s.db).InsertSession(ctx, storeq.InsertSessionParams{
+		ID:        sessionID,
+		UserID:    userID,
+		ExpiresAt: now.Add(ttl),
+		CreatedAt: now,
+	})
 	return sessionID, err
 }
 
 func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User, error) {
-	u := &User{}
 	now := s.clock.Now()
-	err := s.db.QueryRowContext(ctx,
-		`SELECT u.id, u.email, u.email_verified, u.name, u.avatar_url, u.status,
-		        u.created_at, u.updated_at
-		 FROM sessions s JOIN users u ON s.user_id = u.id
-		 WHERE s.id = $1 AND s.expires_at > $2 AND s.revoked_at IS NULL`,
-		sessionID, now,
-	).Scan(&u.ID, &u.Email, &u.EmailVerified, &u.Name, &u.AvatarURL, &u.Status,
-		&u.CreatedAt, &u.UpdatedAt,
-	)
+	row, err := storeq.New(s.db).GetValidSessionUser(ctx, storeq.GetValidSessionUserParams{
+		ID:        sessionID,
+		ExpiresAt: now,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return u, err
+	if err != nil {
+		return nil, err
+	}
+	return &User{
+		ID:            row.ID,
+		Email:         row.Email,
+		EmailVerified: row.EmailVerified,
+		Name:          nullStringToString(row.Name),
+		AvatarURL:     nullStringToPtr(row.AvatarUrl),
+		Status:        row.Status,
+		CreatedAt:     row.CreatedAt,
+		UpdatedAt:     row.UpdatedAt,
+	}, nil
 }

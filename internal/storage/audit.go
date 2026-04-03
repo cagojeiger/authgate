@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/kangheeyong/authgate/internal/storage/storeq"
 )
 
 func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
@@ -15,12 +17,19 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 		}
 	}
 
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO audit_log (user_id, event_type, ip_address, user_agent, metadata, created_at)
-		 VALUES ($1, $2, $3::inet, $4, $5::jsonb, $6)`,
-		userID, eventType, nilIfEmpty(ipAddress), userAgent, nilIfEmptyBytes(metaJSON), s.clock.Now(),
-	)
-	return err
+	userIDValue := ""
+	if userID != nil {
+		userIDValue = *userID
+	}
+
+	return storeq.New(s.db).InsertAuditLog(ctx, storeq.InsertAuditLogParams{
+		UserID:    userIDValue,
+		EventType: eventType,
+		IpAddress: nilIfEmpty(ipAddress),
+		UserAgent: nilIfEmpty(userAgent),
+		Metadata:  nilIfEmptyBytes(metaJSON),
+		CreatedAt: s.clock.Now(),
+	})
 }
 
 func nilIfEmpty(s string) *string {

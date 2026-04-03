@@ -23,15 +23,19 @@ type Querier interface {
 	GetUserByProviderIdentity(ctx context.Context, arg GetUserByProviderIdentityParams) (GetUserByProviderIdentityRow, error)
 	GetUserForTxByID(ctx context.Context, id string) (GetUserForTxByIDRow, error)
 	GetUserInfoFieldsByID(ctx context.Context, id string) (GetUserInfoFieldsByIDRow, error)
+	GetValidSessionUser(ctx context.Context, arg GetValidSessionUserParams) (GetValidSessionUserRow, error)
+	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
 	InsertAuthRequest(ctx context.Context, arg InsertAuthRequestParams) error
 	InsertDeviceCode(ctx context.Context, arg InsertDeviceCodeParams) error
 	InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) error
+	InsertSession(ctx context.Context, arg InsertSessionParams) error
 	InsertUser(ctx context.Context, arg InsertUserParams) error
 	InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error
 	MarkRefreshTokenUsedAndRevokedByID(ctx context.Context, arg MarkRefreshTokenUsedAndRevokedByIDParams) error
 	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
 	RevokeRefreshTokenByIDText(ctx context.Context, arg RevokeRefreshTokenByIDTextParams) error
+	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error
 	UpdateAuthRequestCode(ctx context.Context, arg UpdateAuthRequestCodeParams) error
 	UpdateDeviceCodeStateConsumedByID(ctx context.Context, id string) error
 }
