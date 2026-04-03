@@ -9,7 +9,7 @@ on:
       - "go.mod"
       - "go.sum"
       - "migrations/**"
-      - "internal/storage/queries/**"
+      - "internal/db/queries/**"
       - "sqlc.yaml"
       - ".github/workflows/ci.yml"
   push:
@@ -19,7 +19,7 @@ on:
       - "go.mod"
       - "go.sum"
       - "migrations/**"
-      - "internal/storage/queries/**"
+      - "internal/db/queries/**"
       - "sqlc.yaml"
       - ".github/workflows/ci.yml"
 
@@ -56,7 +56,7 @@ jobs:
             internal/storage \
             --glob '!**/storeq/**' \
             --glob '!**/*_test.go'; then
-            echo "Direct SQL calls are not allowed in runtime storage code. Use sqlc queries in internal/storage/queries and generated storeq."
+            echo "Direct SQL calls are not allowed in runtime storage code. Use sqlc queries in internal/db/queries and generated storeq."
             exit 1
           fi
           if rg -n 'parsePostgresArray|func \(a \*?StringArray\) (Scan|Value)\(' internal/storage; then
@@ -69,7 +69,7 @@ jobs:
 
       - name: Verify generated files are up to date
         run: |
-          if ! git diff --exit-code -- internal/storage/storeq; then
+          if ! git diff --exit-code -- internal/db/storeq; then
             echo "sqlc generated files are out of date. Run sqlc generate and commit results."
             exit 1
           fi

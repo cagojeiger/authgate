@@ -2,11 +2,11 @@ version: "2"
 sql:
   - engine: "postgresql"
     schema: "migrations"
-    queries: "internal/storage/queries"
+    queries: "internal/db/queries"
     gen:
       go:
         package: "storeq"
-        out: "internal/storage/storeq"
+        out: "internal/db/storeq"
         sql_package: "database/sql"
         emit_interface: true
         overrides:

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/kangheeyong/authgate/internal/storage/storeq"
+	"github.com/kangheeyong/authgate/internal/db/storeq"
 )
 
 func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {

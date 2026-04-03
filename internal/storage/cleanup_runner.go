@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/kangheeyong/authgate/internal/storage/storeq"
+	"github.com/kangheeyong/authgate/internal/db/storeq"
 )
 
 // CleanupRunner encapsulates sqlc-backed cleanup queries.

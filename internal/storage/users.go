@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/kangheeyong/authgate/internal/storage/storeq"
+	"github.com/kangheeyong/authgate/internal/db/storeq"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
