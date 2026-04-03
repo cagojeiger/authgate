@@ -83,4 +83,7 @@ jobs:
           cache: true
       - run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+          # integration/test utility packages pull docker/testcontainers only for tests.
+          # Vulnerability checks here focus on runtime packages used in production code paths.
+          PKGS=$(go list ./... | grep -v '/internal/testutil' | grep -v '/internal/integration')
+          govulncheck ${PKGS}
