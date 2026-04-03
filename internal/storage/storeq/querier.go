@@ -6,11 +6,22 @@ package storeq
 
 import (
 	"context"
+	"database/sql"
+	"time"
 )
 
 type Querier interface {
+	AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
+	DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteExpiredOrRevokedSessions(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteExpiredRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteRefreshTokensByUserID(ctx context.Context, userID string) error
+	DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff sql.NullTime) (int64, error)
+	DeleteSessionsByUserID(ctx context.Context, userID string) error
+	DeleteUserIdentitiesByUserID(ctx context.Context, userID string) error
 	DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error
 	GetAuthRequestByCode(ctx context.Context, dollar_1 string) (GetAuthRequestByCodeRow, error)
 	GetAuthRequestByID(ctx context.Context, id string) (GetAuthRequestByIDRow, error)
@@ -26,12 +37,15 @@ type Querier interface {
 	GetValidSessionUser(ctx context.Context, arg GetValidSessionUserParams) (GetValidSessionUserRow, error)
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
 	InsertAuthRequest(ctx context.Context, arg InsertAuthRequestParams) error
+	InsertDeletionCompletedAudit(ctx context.Context, arg InsertDeletionCompletedAuditParams) error
 	InsertDeviceCode(ctx context.Context, arg InsertDeviceCodeParams) error
 	InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) error
 	InsertSession(ctx context.Context, arg InsertSessionParams) error
 	InsertUser(ctx context.Context, arg InsertUserParams) error
 	InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error
+	ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff sql.NullTime) ([]string, error)
 	MarkRefreshTokenUsedAndRevokedByID(ctx context.Context, arg MarkRefreshTokenUsedAndRevokedByIDParams) error
+	MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedByIDParams) error
 	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
 	RevokeRefreshTokenByIDText(ctx context.Context, arg RevokeRefreshTokenByIDTextParams) error
