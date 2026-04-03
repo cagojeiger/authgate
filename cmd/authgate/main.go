@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -194,6 +195,20 @@ func main() {
 	mux.Handle("/oauth/token", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
+	}))
+	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// RFC 7009: revocation endpoint should still return 200 even if a CIMD
+		// client metadata document is temporarily unavailable.
+		if err := r.ParseForm(); err == nil {
+			clientID := strings.TrimSpace(r.Form.Get("client_id"))
+			if storage.IsCIMDClientID(clientID) {
+				if _, err := store.GetClientByClientID(r.Context(), clientID); err != nil {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+			}
+		}
+		provider.ServeHTTP(w, r)
 	}))
 
 	// zitadel provider handles all OIDC routes (including /.well-known/openid-configuration)

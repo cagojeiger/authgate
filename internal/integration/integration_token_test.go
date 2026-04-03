@@ -246,3 +246,26 @@ func TestIntegration_Revocation_UnknownToken_Returns200(t *testing.T) {
 		t.Fatalf("status=%d, want 200; body=%s", resp.StatusCode, body)
 	}
 }
+
+// RFC7009 + CIMD: revocation must return 200 even when CIMD client lookup/fetch fails.
+func TestIntegration_Revocation_CIMDFetchFailure_Returns200(t *testing.T) {
+	ts := SetupTestServer(t)
+
+	// .invalid TLD is reserved and should fail DNS resolution.
+	invalidCIMDClientID := "https://cimd-client.invalid/oauth/client.json"
+	form := url.Values{
+		"token":           {"not-a-real-token"},
+		"token_type_hint": {"refresh_token"},
+		"client_id":       {invalidCIMDClientID},
+	}
+	resp, err := http.Post(ts.BaseURL+"/oauth/revoke", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("revoke with invalid CIMD client_id: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d, want 200; body=%s", resp.StatusCode, body)
+	}
+}
