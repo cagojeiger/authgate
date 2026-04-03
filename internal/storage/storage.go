@@ -16,6 +16,7 @@ import (
 
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/idgen"
+	"github.com/kangheeyong/authgate/internal/storage/storeq"
 )
 
 var (
@@ -211,6 +212,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		return "", "", time.Time{}, err
 	}
 	defer tx.Rollback()
+	qtx := storeq.New(tx)
 
 	// Determine family_id, user_id, client_id, scopes from request
 	familyID := s.idgen.NewUUID()
@@ -232,8 +234,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		// Read family_id BEFORE revoking old token to preserve the chain
 		if currentRefreshToken != "" {
 			oldHash := hashToken(currentRefreshToken)
-			var fid string
-			err = tx.QueryRowContext(ctx, `SELECT family_id FROM refresh_tokens WHERE token_hash = $1`, oldHash).Scan(&fid)
+			fid, err := qtx.GetRefreshFamilyIDByTokenHash(ctx, oldHash)
 			if err == nil {
 				familyID = fid
 			}
@@ -246,20 +247,26 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	// Revoke old refresh token AFTER reading family_id
 	if currentRefreshToken != "" {
 		oldHash := hashToken(currentRefreshToken)
-		_, err = tx.ExecContext(ctx,
-			`UPDATE refresh_tokens SET revoked_at = $1, used_at = $1 WHERE token_hash = $2 AND revoked_at IS NULL`,
-			now, oldHash)
+		_, err = qtx.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
+			RevokedAt: sql.NullTime{Time: now, Valid: true},
+			TokenHash: oldHash,
+		})
 		if err != nil {
 			return "", "", time.Time{}, err
 		}
 	}
 
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, resource, scopes, expires_at, created_at)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		s.idgen.NewUUID(), newHash, familyID, userID, clientID, resource, StringArray(scopes),
-		now.Add(s.refreshTokenTTL), now,
-	)
+	err = qtx.InsertRefreshToken(ctx, storeq.InsertRefreshTokenParams{
+		ID:        s.idgen.NewUUID(),
+		TokenHash: newHash,
+		FamilyID:  familyID,
+		UserID:    userID,
+		ClientID:  clientID,
+		Resource:  sql.NullString{String: resource, Valid: true},
+		Scopes:    scopes,
+		ExpiresAt: now.Add(s.refreshTokenTTL),
+		CreatedAt: now,
+	})
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
@@ -280,25 +287,34 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		return nil, err
 	}
 	defer tx.Rollback()
+	qtx := storeq.New(tx)
 
-	var rt RefreshTokenModel
-	err = tx.QueryRowContext(ctx,
-		`SELECT id, token_hash, family_id, user_id, client_id, COALESCE(resource, ''), scopes, expires_at, revoked_at, used_at
-		 FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE`, h,
-	).Scan(&rt.ID, &rt.TokenHash, &rt.FamilyID, &rt.UserID, &rt.ClientID, &rt.Resource, &rt.Scopes,
-		&rt.ExpiresAt, &rt.RevokedAt, &rt.UsedAt)
+	row, err := qtx.GetRefreshTokenForUpdateByHash(ctx, h)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, op.ErrInvalidRefreshToken
 	}
 	if err != nil {
 		return nil, err
 	}
+	rt := RefreshTokenModel{
+		ID:        row.ID,
+		TokenHash: row.TokenHash,
+		FamilyID:  row.FamilyID,
+		UserID:    row.UserID,
+		ClientID:  row.ClientID,
+		Resource:  row.Resource,
+		Scopes:    StringArray(row.Scopes),
+		ExpiresAt: row.ExpiresAt,
+		RevokedAt: nullTimePtr(row.RevokedAt),
+		UsedAt:    nullTimePtr(row.UsedAt),
+	}
 
 	// Already used/revoked → reuse detection → family revoke
 	if rt.RevokedAt != nil || rt.UsedAt != nil {
-		_, revokeErr := tx.ExecContext(ctx,
-			`UPDATE refresh_tokens SET revoked_at = $1 WHERE family_id = $2 AND revoked_at IS NULL`,
-			now, rt.FamilyID)
+		revokeErr := qtx.RevokeRefreshFamily(ctx, storeq.RevokeRefreshFamilyParams{
+			RevokedAt: sql.NullTime{Time: now, Valid: true},
+			FamilyID:  rt.FamilyID,
+		})
 		if revokeErr != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
@@ -347,8 +363,10 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	// Atomically claim the token within the FOR UPDATE transaction.
 	// This prevents race conditions: a concurrent request will see used_at != nil
 	// and trigger family revoke (reuse detection) above.
-	_, err = tx.ExecContext(ctx,
-		`UPDATE refresh_tokens SET used_at = $1, revoked_at = $1 WHERE id = $2`, now, rt.ID)
+	err = qtx.MarkRefreshTokenUsedAndRevokedByID(ctx, storeq.MarkRefreshTokenUsedAndRevokedByIDParams{
+		UsedAt: sql.NullTime{Time: now, Valid: true},
+		ID:     rt.ID,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -368,20 +386,23 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 
 func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID string, clientID string) *oidc.Error {
 	now := s.clock.Now()
+	q := storeq.New(s.db)
 
 	// Try as raw token (hash it) first
 	h := hashToken(tokenOrTokenID)
-	res, _ := s.db.ExecContext(ctx,
-		`UPDATE refresh_tokens SET revoked_at = $1 WHERE token_hash = $2 AND revoked_at IS NULL`,
-		now, h)
-	if rows, _ := res.RowsAffected(); rows > 0 {
+	rows, _ := q.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		TokenHash: h,
+	})
+	if rows > 0 {
 		return nil
 	}
 
 	// Try as token ID (UUID) directly
-	s.db.ExecContext(ctx,
-		`UPDATE refresh_tokens SET revoked_at = $1 WHERE id::text = $2 AND revoked_at IS NULL`,
-		now, tokenOrTokenID)
+	_ = q.RevokeRefreshTokenByIDText(ctx, storeq.RevokeRefreshTokenByIDTextParams{
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		ID:        tokenOrTokenID,
+	})
 
 	// RFC 7009: always return 200 regardless of whether anything was revoked
 	return nil
@@ -389,14 +410,25 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 
 func (s *Storage) GetRefreshTokenInfo(ctx context.Context, clientID string, token string) (string, string, error) {
 	h := hashToken(token)
-	var userID, tokenID string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT user_id, id FROM refresh_tokens WHERE token_hash = $1 AND client_id = $2`, h, clientID,
-	).Scan(&userID, &tokenID)
+	row, err := storeq.New(s.db).GetRefreshTokenInfoByHashAndClientID(ctx, storeq.GetRefreshTokenInfoByHashAndClientIDParams{
+		TokenHash: h,
+		ClientID:  clientID,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", "", op.ErrInvalidRefreshToken
 	}
-	return userID, tokenID, err
+	if err != nil {
+		return "", "", err
+	}
+	return row.UserID, row.ID, nil
+}
+
+func nullTimePtr(v sql.NullTime) *time.Time {
+	if !v.Valid {
+		return nil
+	}
+	t := v.Time
+	return &t
 }
 
 func (s *Storage) SigningKey(ctx context.Context) (op.SigningKey, error) {
