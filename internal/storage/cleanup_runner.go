@@ -17,8 +17,8 @@ func NewCleanupRunner(db *sql.DB) *CleanupRunner {
 	return &CleanupRunner{db: db}
 }
 
-func (r *CleanupRunner) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff sql.NullTime) (int64, error) {
-	return storeq.New(r.db).DeleteRevokedRefreshTokensBefore(ctx, cutoff)
+func (r *CleanupRunner) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	return storeq.New(r.db).DeleteRevokedRefreshTokensBefore(ctx, sql.NullTime{Time: cutoff, Valid: true})
 }
 
 func (r *CleanupRunner) DeleteExpiredRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
@@ -37,8 +37,8 @@ func (r *CleanupRunner) DeleteExpiredDeviceCodesBefore(ctx context.Context, cuto
 	return storeq.New(r.db).DeleteExpiredDeviceCodesBefore(ctx, cutoff)
 }
 
-func (r *CleanupRunner) ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff sql.NullTime) ([]string, error) {
-	return storeq.New(r.db).ListPendingDeletionUserIDsBefore(ctx, cutoff)
+func (r *CleanupRunner) ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff time.Time) ([]string, error) {
+	return storeq.New(r.db).ListPendingDeletionUserIDsBefore(ctx, sql.NullTime{Time: cutoff, Valid: true})
 }
 
 func (r *CleanupRunner) AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
@@ -49,7 +49,7 @@ func (r *CleanupRunner) DeleteUser(
 	ctx context.Context,
 	userID string,
 	now time.Time,
-	hook func(ctx context.Context, tx *sql.Tx, userID string) error,
+	hook func(ctx context.Context, userID string) error,
 ) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -68,7 +68,7 @@ func (r *CleanupRunner) DeleteUser(
 		return err
 	}
 	if hook != nil {
-		if err := hook(ctx, tx, userID); err != nil {
+		if err := hook(ctx, userID); err != nil {
 			return err
 		}
 	}
