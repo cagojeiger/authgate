@@ -9,12 +9,20 @@ import (
 )
 
 type Querier interface {
+	GetRefreshFamilyIDByTokenHash(ctx context.Context, tokenHash string) (string, error)
+	GetRefreshTokenForUpdateByHash(ctx context.Context, tokenHash string) (GetRefreshTokenForUpdateByHashRow, error)
+	GetRefreshTokenInfoByHashAndClientID(ctx context.Context, arg GetRefreshTokenInfoByHashAndClientIDParams) (GetRefreshTokenInfoByHashAndClientIDRow, error)
 	GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error)
 	GetUserByProviderIdentity(ctx context.Context, arg GetUserByProviderIdentityParams) (GetUserByProviderIdentityRow, error)
 	GetUserForTxByID(ctx context.Context, id string) (GetUserForTxByIDRow, error)
 	GetUserInfoFieldsByID(ctx context.Context, id string) (GetUserInfoFieldsByIDRow, error)
+	InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) error
 	InsertUser(ctx context.Context, arg InsertUserParams) error
 	InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error
+	MarkRefreshTokenUsedAndRevokedByID(ctx context.Context, arg MarkRefreshTokenUsedAndRevokedByIDParams) error
+	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error
+	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
+	RevokeRefreshTokenByIDText(ctx context.Context, arg RevokeRefreshTokenByIDTextParams) error
 }
 
 var _ Querier = (*Queries)(nil)
