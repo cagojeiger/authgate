@@ -128,44 +128,23 @@ func (s *Storage) GetUserByID(ctx context.Context, userID string) (*User, error)
 // RecoverUser atomically recovers a pending_deletion user to active.
 // Uses SELECT FOR UPDATE to prevent race conditions.
 func (s *Storage) RecoverUser(ctx context.Context, userID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	now := s.clock.Now()
-	var status string
-	err = tx.QueryRowContext(ctx,
-		`SELECT status FROM users WHERE id = $1 FOR UPDATE`, userID,
-	).Scan(&status)
-	if err != nil {
-		return err
-	}
-	if status != "pending_deletion" {
-		return tx.Commit() // Not pending_deletion, nothing to do
-	}
-
-	_, err = tx.ExecContext(ctx,
-		`UPDATE users SET status = 'active', deletion_requested_at = NULL, deletion_scheduled_at = NULL, updated_at = $1
-		 WHERE id = $2`, now, userID,
-	)
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
+	return storeq.New(s.db).RecoverPendingDeletionUserByID(ctx, storeq.RecoverPendingDeletionUserByIDParams{
+		UpdatedAt: s.clock.Now(),
+		ID:        userID,
+	})
 }
 
 func (s *Storage) CompleteAuthRequest(ctx context.Context, authRequestID, userID string) error {
 	now := s.clock.Now()
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE auth_requests SET subject = $1, auth_time = $2, done = true WHERE id = $3 AND expires_at > $4`,
-		userID, now, authRequestID, now,
-	)
+	rows, err := storeq.New(s.db).CompleteAuthRequestByID(ctx, storeq.CompleteAuthRequestByIDParams{
+		Subject:  sql.NullString{String: userID, Valid: true},
+		AuthTime: sql.NullTime{Time: now, Valid: true},
+		ID:       authRequestID,
+	})
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	if rows == 0 {
 		return ErrNotFound
 	}
 	return nil
@@ -202,11 +181,11 @@ func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, user
 
 // SetUserStatus sets a user's status directly. For testing and admin operations.
 func (s *Storage) SetUserStatus(ctx context.Context, userID, status string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE users SET status = $1, updated_at = $2 WHERE id = $3`,
-		status, s.clock.Now(), userID,
-	)
-	return err
+	return storeq.New(s.db).SetUserStatusByID(ctx, storeq.SetUserStatusByIDParams{
+		Status:    status,
+		UpdatedAt: s.clock.Now(),
+		ID:        userID,
+	})
 }
 
 // RequestDeletion sets a user to pending_deletion and revokes all refresh tokens. Single TX.
@@ -220,16 +199,21 @@ func (s *Storage) RequestDeletion(ctx context.Context, userID string) error {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx,
-		`UPDATE users SET status = 'pending_deletion', deletion_requested_at = $1, deletion_scheduled_at = $2, updated_at = $1
-		 WHERE id = $3`, now, scheduledAt, userID)
+	qtx := storeq.New(tx)
+
+	err = qtx.MarkUserPendingDeletionByID(ctx, storeq.MarkUserPendingDeletionByIDParams{
+		DeletionRequestedAt: sql.NullTime{Time: now, Valid: true},
+		DeletionScheduledAt: sql.NullTime{Time: scheduledAt, Valid: true},
+		ID:                  userID,
+	})
 	if err != nil {
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx,
-		`UPDATE refresh_tokens SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL`,
-		now, userID)
+	err = qtx.RevokeActiveRefreshTokensByUserID(ctx, storeq.RevokeActiveRefreshTokensByUserIDParams{
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		UserID:    userID,
+	})
 	if err != nil {
 		return err
 	}
@@ -239,22 +223,23 @@ func (s *Storage) RequestDeletion(ctx context.Context, userID string) error {
 
 // DisableUser sets a user's status to disabled.
 func (s *Storage) DisableUser(ctx context.Context, userID string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE users SET status = 'disabled', updated_at = $1 WHERE id = $2`,
-		s.clock.Now(), userID,
-	)
-	return err
+	return storeq.New(s.db).SetUserStatusByID(ctx, storeq.SetUserStatusByIDParams{
+		Status:    "disabled",
+		UpdatedAt: s.clock.Now(),
+		ID:        userID,
+	})
 }
 
 // CreateTestAuthRequest creates a minimal auth request for testing purposes.
 // Returns the UUID id assigned to the auth request.
 func (s *Storage) CreateTestAuthRequest(ctx context.Context, label string) (string, error) {
 	id := s.idgen.NewUUID()
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO auth_requests (id, client_id, redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method, expires_at, created_at)
-		 VALUES ($1, 'test-app', 'http://localhost/callback', '{openid}', $2, 'test-nonce', 'E9Melhoa2OwvFrEMT', 'S256', $3, $4)`,
-		id, label, s.clock.Now().Add(10*time.Minute), s.clock.Now(),
-	)
+	err := storeq.New(s.db).InsertTestAuthRequest(ctx, storeq.InsertTestAuthRequestParams{
+		ID:        id,
+		State:     sql.NullString{String: label, Valid: true},
+		ExpiresAt: s.clock.Now().Add(10 * time.Minute),
+		CreatedAt: s.clock.Now(),
+	})
 	return id, err
 }
 

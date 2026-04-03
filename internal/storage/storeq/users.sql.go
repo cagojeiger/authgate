@@ -11,6 +11,26 @@ import (
 	"time"
 )
 
+const completeAuthRequestByID = `-- name: CompleteAuthRequestByID :execrows
+UPDATE auth_requests
+SET subject = $1, auth_time = $2, done = true
+WHERE id = $3 AND expires_at > $2
+`
+
+type CompleteAuthRequestByIDParams struct {
+	Subject  sql.NullString
+	AuthTime sql.NullTime
+	ID       string
+}
+
+func (q *Queries) CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, completeAuthRequestByID, arg.Subject, arg.AuthTime, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, email, email_verified, name, avatar_url, status,
        created_at, updated_at
@@ -137,6 +157,50 @@ func (q *Queries) GetUserInfoFieldsByID(ctx context.Context, id string) (GetUser
 	return i, err
 }
 
+const insertTestAuthRequest = `-- name: InsertTestAuthRequest :exec
+INSERT INTO auth_requests (
+  id,
+  client_id,
+  redirect_uri,
+  scopes,
+  state,
+  nonce,
+  code_challenge,
+  code_challenge_method,
+  expires_at,
+  created_at
+)
+VALUES (
+  $1,
+  'test-app',
+  'http://localhost/callback',
+  '{openid}',
+  $2,
+  'test-nonce',
+  'E9Melhoa2OwvFrEMT',
+  'S256',
+  $3,
+  $4
+)
+`
+
+type InsertTestAuthRequestParams struct {
+	ID        string
+	State     sql.NullString
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+func (q *Queries) InsertTestAuthRequest(ctx context.Context, arg InsertTestAuthRequestParams) error {
+	_, err := q.db.ExecContext(ctx, insertTestAuthRequest,
+		arg.ID,
+		arg.State,
+		arg.ExpiresAt,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const insertUser = `-- name: InsertUser :exec
 INSERT INTO users (id, email, email_verified, name, avatar_url, status, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, 'active', $6, $6)
@@ -186,5 +250,77 @@ func (q *Queries) InsertUserIdentity(ctx context.Context, arg InsertUserIdentity
 		arg.ProviderEmail,
 		arg.CreatedAt,
 	)
+	return err
+}
+
+const markUserPendingDeletionByID = `-- name: MarkUserPendingDeletionByID :exec
+UPDATE users
+SET status = 'pending_deletion',
+    deletion_requested_at = $1,
+    deletion_scheduled_at = $2,
+    updated_at = $1
+WHERE id = $3
+`
+
+type MarkUserPendingDeletionByIDParams struct {
+	DeletionRequestedAt sql.NullTime
+	DeletionScheduledAt sql.NullTime
+	ID                  string
+}
+
+func (q *Queries) MarkUserPendingDeletionByID(ctx context.Context, arg MarkUserPendingDeletionByIDParams) error {
+	_, err := q.db.ExecContext(ctx, markUserPendingDeletionByID, arg.DeletionRequestedAt, arg.DeletionScheduledAt, arg.ID)
+	return err
+}
+
+const recoverPendingDeletionUserByID = `-- name: RecoverPendingDeletionUserByID :exec
+UPDATE users
+SET status = 'active',
+    deletion_requested_at = NULL,
+    deletion_scheduled_at = NULL,
+    updated_at = $1
+WHERE id = $2 AND status = 'pending_deletion'
+`
+
+type RecoverPendingDeletionUserByIDParams struct {
+	UpdatedAt time.Time
+	ID        string
+}
+
+func (q *Queries) RecoverPendingDeletionUserByID(ctx context.Context, arg RecoverPendingDeletionUserByIDParams) error {
+	_, err := q.db.ExecContext(ctx, recoverPendingDeletionUserByID, arg.UpdatedAt, arg.ID)
+	return err
+}
+
+const revokeActiveRefreshTokensByUserID = `-- name: RevokeActiveRefreshTokensByUserID :exec
+UPDATE refresh_tokens
+SET revoked_at = $1
+WHERE user_id = $2 AND revoked_at IS NULL
+`
+
+type RevokeActiveRefreshTokensByUserIDParams struct {
+	RevokedAt sql.NullTime
+	UserID    string
+}
+
+func (q *Queries) RevokeActiveRefreshTokensByUserID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDParams) error {
+	_, err := q.db.ExecContext(ctx, revokeActiveRefreshTokensByUserID, arg.RevokedAt, arg.UserID)
+	return err
+}
+
+const setUserStatusByID = `-- name: SetUserStatusByID :exec
+UPDATE users
+SET status = $1, updated_at = $2
+WHERE id = $3
+`
+
+type SetUserStatusByIDParams struct {
+	Status    string
+	UpdatedAt time.Time
+	ID        string
+}
+
+func (q *Queries) SetUserStatusByID(ctx context.Context, arg SetUserStatusByIDParams) error {
+	_, err := q.db.ExecContext(ctx, setUserStatusByID, arg.Status, arg.UpdatedAt, arg.ID)
 	return err
 }
