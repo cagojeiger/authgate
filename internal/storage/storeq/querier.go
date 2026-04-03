@@ -13,6 +13,7 @@ import (
 type Querier interface {
 	AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
+	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
 	DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error)
@@ -41,15 +42,20 @@ type Querier interface {
 	InsertDeviceCode(ctx context.Context, arg InsertDeviceCodeParams) error
 	InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) error
 	InsertSession(ctx context.Context, arg InsertSessionParams) error
+	InsertTestAuthRequest(ctx context.Context, arg InsertTestAuthRequestParams) error
 	InsertUser(ctx context.Context, arg InsertUserParams) error
 	InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error
 	ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff sql.NullTime) ([]string, error)
 	MarkRefreshTokenUsedAndRevokedByID(ctx context.Context, arg MarkRefreshTokenUsedAndRevokedByIDParams) error
 	MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedByIDParams) error
+	MarkUserPendingDeletionByID(ctx context.Context, arg MarkUserPendingDeletionByIDParams) error
+	RecoverPendingDeletionUserByID(ctx context.Context, arg RecoverPendingDeletionUserByIDParams) error
+	RevokeActiveRefreshTokensByUserID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDParams) error
 	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
 	RevokeRefreshTokenByIDText(ctx context.Context, arg RevokeRefreshTokenByIDTextParams) error
 	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error
+	SetUserStatusByID(ctx context.Context, arg SetUserStatusByIDParams) error
 	UpdateAuthRequestCode(ctx context.Context, arg UpdateAuthRequestCodeParams) error
 	UpdateDeviceCodeStateConsumedByID(ctx context.Context, id string) error
 }
