@@ -12,13 +12,24 @@ import (
 )
 
 type LoginService struct {
-	store           *storage.Storage
+	store           LoginStore
 	browserProvider upstream.Provider
 	mcpProvider     upstream.Provider
 	sessionTTL      time.Duration
 }
 
-func NewLoginService(store *storage.Storage, browserProvider, mcpProvider upstream.Provider, sessionTTL time.Duration) *LoginService {
+type LoginStore interface {
+	GetValidSession(ctx context.Context, sessionID string) (*storage.User, error)
+	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+	RecoverUser(ctx context.Context, userID string) error
+	CompleteAuthRequest(ctx context.Context, authRequestID, userID string) error
+	GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*storage.User, error)
+	CreateUserWithIdentity(ctx context.Context, email string, emailVerified bool, name, avatarURL, provider, providerUserID, providerEmail string) (*storage.User, error)
+	GetUserByID(ctx context.Context, userID string) (*storage.User, error)
+	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
+}
+
+func NewLoginService(store LoginStore, browserProvider, mcpProvider upstream.Provider, sessionTTL time.Duration) *LoginService {
 	if mcpProvider == nil {
 		mcpProvider = browserProvider
 	}

@@ -8,10 +8,16 @@ import (
 )
 
 type AccountService struct {
-	store *storage.Storage
+	store AccountStore
 }
 
-func NewAccountService(store *storage.Storage) *AccountService {
+type AccountStore interface {
+	GetValidSession(ctx context.Context, sessionID string) (*storage.User, error)
+	RequestDeletion(ctx context.Context, userID string) error
+	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+}
+
+func NewAccountService(store AccountStore) *AccountService {
 	return &AccountService{store: store}
 }
 

@@ -12,14 +12,24 @@ import (
 )
 
 type DeviceService struct {
-	store      *storage.Storage
+	store      DeviceStore
 	provider   upstream.Provider
 	sessionTTL time.Duration
 	publicURL  string
 	clock      clock.Clock
 }
 
-func NewDeviceService(store *storage.Storage, provider upstream.Provider, publicURL string, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
+type DeviceStore interface {
+	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*storage.DeviceCodeModel, error)
+	GetValidSession(ctx context.Context, sessionID string) (*storage.User, error)
+	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+	GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*storage.User, error)
+	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
+	DenyDeviceCode(ctx context.Context, userCode string) error
+	ApproveDeviceCode(ctx context.Context, userCode, subject string) error
+}
+
+func NewDeviceService(store DeviceStore, provider upstream.Provider, publicURL string, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
 	return &DeviceService{
 		store:      store,
 		provider:   provider,
