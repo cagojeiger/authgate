@@ -415,14 +415,6 @@ func (s *Storage) GetRefreshTokenInfo(ctx context.Context, clientID string, toke
 	return row.UserID, row.ID, nil
 }
 
-func nullTimePtr(v sql.NullTime) *time.Time {
-	if !v.Valid {
-		return nil
-	}
-	t := v.Time
-	return &t
-}
-
 func authRequestModelFromRowByID(row storeq.GetAuthRequestByIDRow) *AuthRequestModel {
 	return &AuthRequestModel{
 		ID:                  row.ID,
