@@ -247,6 +247,42 @@ func TestIntegration_Revocation_UnknownToken_Returns200(t *testing.T) {
 	}
 }
 
+// RFC7009: token_type_hint is optional and unrecognized hints must not break revocation behavior.
+func TestIntegration_Revocation_TokenTypeHintVariants_Returns200(t *testing.T) {
+	tests := []struct {
+		name string
+		hint string
+	}{
+		{name: "missing_hint", hint: ""},
+		{name: "unknown_hint", hint: "access_token"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := SetupTestServer(t)
+
+			form := url.Values{
+				"token":     {"not-a-real-token"},
+				"client_id": {"test-client"},
+			}
+			if tt.hint != "" {
+				form.Set("token_type_hint", tt.hint)
+			}
+
+			resp, err := http.Post(ts.BaseURL+"/oauth/revoke", "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
+			if err != nil {
+				t.Fatalf("revoke request: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("status=%d, want 200; body=%s", resp.StatusCode, body)
+			}
+		})
+	}
+}
+
 // RFC7009 + CIMD: revocation must return 200 even when CIMD client lookup/fetch fails.
 func TestIntegration_Revocation_CIMDFetchFailure_Returns200(t *testing.T) {
 	ts := SetupTestServer(t)
