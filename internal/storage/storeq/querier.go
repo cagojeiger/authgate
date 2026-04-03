@@ -9,9 +9,13 @@ import (
 )
 
 type Querier interface {
+	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
+	DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error
 	GetAuthRequestByCode(ctx context.Context, dollar_1 string) (GetAuthRequestByCodeRow, error)
 	GetAuthRequestByID(ctx context.Context, id string) (GetAuthRequestByIDRow, error)
+	GetDeviceAuthorizationForUpdate(ctx context.Context, arg GetDeviceAuthorizationForUpdateParams) (GetDeviceAuthorizationForUpdateRow, error)
+	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (GetDeviceCodeByUserCodeRow, error)
 	GetRefreshFamilyIDByTokenHash(ctx context.Context, tokenHash string) (string, error)
 	GetRefreshTokenForUpdateByHash(ctx context.Context, tokenHash string) (GetRefreshTokenForUpdateByHashRow, error)
 	GetRefreshTokenInfoByHashAndClientID(ctx context.Context, arg GetRefreshTokenInfoByHashAndClientIDParams) (GetRefreshTokenInfoByHashAndClientIDRow, error)
@@ -20,6 +24,7 @@ type Querier interface {
 	GetUserForTxByID(ctx context.Context, id string) (GetUserForTxByIDRow, error)
 	GetUserInfoFieldsByID(ctx context.Context, id string) (GetUserInfoFieldsByIDRow, error)
 	InsertAuthRequest(ctx context.Context, arg InsertAuthRequestParams) error
+	InsertDeviceCode(ctx context.Context, arg InsertDeviceCodeParams) error
 	InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) error
 	InsertUser(ctx context.Context, arg InsertUserParams) error
 	InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error
@@ -28,6 +33,7 @@ type Querier interface {
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
 	RevokeRefreshTokenByIDText(ctx context.Context, arg RevokeRefreshTokenByIDTextParams) error
 	UpdateAuthRequestCode(ctx context.Context, arg UpdateAuthRequestCodeParams) error
+	UpdateDeviceCodeStateConsumedByID(ctx context.Context, id string) error
 }
 
 var _ Querier = (*Queries)(nil)
