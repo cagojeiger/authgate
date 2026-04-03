@@ -156,7 +156,7 @@ func TestE2E8_CleanupRollback(t *testing.T) {
 
 	simulatedErr := errors.New("simulated cleanup failure")
 	svc := NewCleanupService(db, clk, time.Hour)
-	svc.deleteUserHook = func(ctx context.Context, tx *sql.Tx, userID string) error {
+	svc.deleteUserHook = func(ctx context.Context, userID string) error {
 		return simulatedErr
 	}
 	svc.RunOnce(ctx)

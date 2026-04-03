@@ -10,17 +10,26 @@ import (
 	"github.com/kangheeyong/authgate/internal/storage"
 )
 
+type cleanupRunner interface {
+	DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteExpiredRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteExpiredOrRevokedSessions(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff time.Time) ([]string, error)
+	AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteUser(ctx context.Context, userID string, now time.Time, hook func(ctx context.Context, userID string) error) error
+}
+
 type CleanupService struct {
-	db             *sql.DB
-	runner         *storage.CleanupRunner
+	runner         cleanupRunner
 	clock          clock.Clock
 	interval       time.Duration
-	deleteUserHook func(ctx context.Context, tx *sql.Tx, userID string) error
+	deleteUserHook func(ctx context.Context, userID string) error
 }
 
 func NewCleanupService(db *sql.DB, clk clock.Clock, interval time.Duration) *CleanupService {
 	return &CleanupService{
-		db:       db,
 		runner:   storage.NewCleanupRunner(db),
 		clock:    clk,
 		interval: interval,
@@ -50,7 +59,7 @@ func (c *CleanupService) runAll(ctx context.Context) {
 	now := c.clock.Now()
 
 	// 1. Token cleanup: revoked/expired refresh_tokens after 30 days
-	if n, err := c.runner.DeleteRevokedRefreshTokensBefore(ctx, sql.NullTime{Time: now.Add(-30 * 24 * time.Hour), Valid: true}); err != nil {
+	if n, err := c.runner.DeleteRevokedRefreshTokensBefore(ctx, now.Add(-30*24*time.Hour)); err != nil {
 		slog.Error("token cleanup (revoked)", "error", err)
 	} else if n > 0 {
 		slog.Info("token cleanup (revoked)", "deleted", n)
@@ -84,7 +93,7 @@ func (c *CleanupService) runAll(ctx context.Context) {
 	}
 
 	// 5. Deletion cleanup: pending_deletion users past scheduled date → PII scrub
-	userIDs, err := c.runner.ListPendingDeletionUserIDsBefore(ctx, sql.NullTime{Time: now, Valid: true})
+	userIDs, err := c.runner.ListPendingDeletionUserIDsBefore(ctx, now)
 	if err != nil {
 		slog.Error("deletion cleanup query", "error", err)
 	} else {
