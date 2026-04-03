@@ -1,4 +1,4 @@
-.PHONY: infra infra-down dev dev-authgate dev-sample-app stop
+.PHONY: infra infra-down dev dev-authgate dev-sample-app stop sqlc-generate
 
 # Start infrastructure (DB + mock IdP)
 infra:
@@ -56,3 +56,7 @@ stop:
 	-@pkill -f "go run ." 2>/dev/null
 	docker compose down -v
 	@echo "Stopped"
+
+# Generate sqlc query code (Docker-based, no local sqlc install needed)
+sqlc-generate:
+	docker run --rm -v $(CURDIR):/src -w /src sqlc/sqlc:1.28.0 generate
