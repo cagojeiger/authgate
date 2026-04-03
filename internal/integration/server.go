@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -150,6 +151,18 @@ func SetupTestServer(t *testing.T) *TestServer {
 	mux.Handle("/oauth/token", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
+	}))
+	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err == nil {
+			clientID := strings.TrimSpace(r.Form.Get("client_id"))
+			if storage.IsCIMDClientID(clientID) {
+				if _, err := store.GetClientByClientID(r.Context(), clientID); err != nil {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+			}
+		}
+		provider.ServeHTTP(w, r)
 	}))
 	mux.Handle("/", provider)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)

@@ -273,6 +273,11 @@ func isCIMDClientID(clientID string) bool {
 	return true
 }
 
+// IsCIMDClientID reports whether a client_id is a CIMD URL.
+func IsCIMDClientID(clientID string) bool {
+	return isCIMDClientID(clientID)
+}
+
 // isPrivateIP checks if an IP is private/loopback/link-local.
 func isPrivateIP(ip net.IP) bool {
 	if ip == nil {
