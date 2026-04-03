@@ -9,6 +9,8 @@ on:
       - "go.mod"
       - "go.sum"
       - "migrations/**"
+      - "internal/storage/queries/**"
+      - "sqlc.yaml"
       - ".github/workflows/ci.yml"
   push:
     branches: [main]
@@ -17,6 +19,8 @@ on:
       - "go.mod"
       - "go.sum"
       - "migrations/**"
+      - "internal/storage/queries/**"
+      - "sqlc.yaml"
       - ".github/workflows/ci.yml"
 
 concurrency:
@@ -32,6 +36,33 @@ permissions:
   pull-requests: write
 
 jobs:
+  sqlc:
+    name: SQLC
+    runs-on: arc-runner-set-authgate
+    container: catthehacker/ubuntu:act-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-go@v5.2.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install sqlc
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0
+
+      - name: sqlc generate
+        run: $(go env GOPATH)/bin/sqlc generate
+
+      - name: Verify generated files are up to date
+        run: |
+          if ! git diff --exit-code -- internal/storage/storeq; then
+            echo "sqlc generated files are out of date. Run sqlc generate and commit results."
+            exit 1
+          fi
+
+      - name: sqlc vet
+        run: $(go env GOPATH)/bin/sqlc vet
+
   test:
     name: Test
     runs-on: arc-runner-set-authgate
