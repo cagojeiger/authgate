@@ -2,12 +2,10 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
-	"github.com/kangheeyong/authgate/internal/storage"
 )
 
 type cleanupRunner interface {
@@ -28,9 +26,9 @@ type CleanupService struct {
 	deleteUserHook func(ctx context.Context, userID string) error
 }
 
-func NewCleanupService(db *sql.DB, clk clock.Clock, interval time.Duration) *CleanupService {
+func NewCleanupService(runner cleanupRunner, clk clock.Clock, interval time.Duration) *CleanupService {
 	return &CleanupService{
-		runner:   storage.NewCleanupRunner(db),
+		runner:   runner,
 		clock:    clk,
 		interval: interval,
 	}

@@ -161,7 +161,7 @@ func TestE2E_DeleteThenReregister(t *testing.T) {
 	db.ExecContext(ctx, `UPDATE users SET deletion_scheduled_at = $1 WHERE id = $2`,
 		clk.Now().Add(-1*time.Hour), userID)
 
-	cleanupSvc := NewCleanupService(db, clk, time.Hour)
+	cleanupSvc := NewCleanupService(storage.NewCleanupRunner(db), clk, time.Hour)
 	cleanupSvc.RunOnce(ctx)
 
 	var dbStatus, email string

@@ -44,7 +44,7 @@ func TestCleanup_ExpiredSessions(t *testing.T) {
 	}
 
 	// Run cleanup
-	svc := NewCleanupService(db, clk, time.Hour)
+	svc := NewCleanupService(storage.NewCleanupRunner(db), clk, time.Hour)
 	svc.RunOnce(ctx)
 
 	// Session should be deleted
@@ -71,7 +71,7 @@ func TestCleanup_ExpiredAuthRequests(t *testing.T) {
 		t.Fatal("expected at least 1 auth request")
 	}
 
-	svc := NewCleanupService(db, clk, time.Hour)
+	svc := NewCleanupService(storage.NewCleanupRunner(db), clk, time.Hour)
 	svc.RunOnce(ctx)
 
 	db.QueryRowContext(ctx, `SELECT count(*) FROM auth_requests WHERE expires_at < $1`, clk.Now().Add(-1*time.Hour)).Scan(&count)
@@ -94,7 +94,7 @@ func TestCleanup_DeletionPIIScrub(t *testing.T) {
 	// Create session and identity that should be cleaned up
 	store.CreateSession(ctx, user.ID, 24*time.Hour)
 
-	svc := NewCleanupService(db, clk, time.Hour)
+	svc := NewCleanupService(storage.NewCleanupRunner(db), clk, time.Hour)
 	svc.RunOnce(ctx)
 
 	// User should be scrubbed
@@ -155,7 +155,7 @@ func TestE2E8_CleanupRollback(t *testing.T) {
 	}
 
 	simulatedErr := errors.New("simulated cleanup failure")
-	svc := NewCleanupService(db, clk, time.Hour)
+	svc := NewCleanupService(storage.NewCleanupRunner(db), clk, time.Hour)
 	svc.deleteUserHook = func(ctx context.Context, userID string) error {
 		return simulatedErr
 	}
@@ -200,7 +200,7 @@ func TestCleanup_DeletionPIIScrub_Idempotent(t *testing.T) {
 	)
 	store.CreateSession(ctx, user.ID, 24*time.Hour)
 
-	svc := NewCleanupService(db, clk, time.Hour)
+	svc := NewCleanupService(storage.NewCleanupRunner(db), clk, time.Hour)
 	svc.RunOnce(ctx)
 	svc.RunOnce(ctx)
 

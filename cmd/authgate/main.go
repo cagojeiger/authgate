@@ -253,7 +253,8 @@ func main() {
 	}
 
 	// Cleanup service
-	cleanupSvc := service.NewCleanupService(db, clk, 10*time.Minute)
+	cleanupRunner := storage.NewCleanupRunner(db)
+	cleanupSvc := service.NewCleanupService(cleanupRunner, clk, 10*time.Minute)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	defer cleanupCancel()
 	go cleanupSvc.Start(cleanupCtx)
