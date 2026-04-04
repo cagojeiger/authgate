@@ -107,12 +107,11 @@ Prerequisites:
 
 - PostgreSQL
 - an upstream OIDC provider (or mock-idp via Docker)
-- schema applied: `001_init.sql`, `002_mcp_resource_binding.sql`
+- schema applied: `001_init.sql`
 
 ```bash
 # Apply migrations in order
 psql -f migrations/001_init.sql
-psql -f migrations/002_mcp_resource_binding.sql
 
 
 # Start server
@@ -143,6 +142,7 @@ go run ./cmd/authgate
 | `SESSION_TTL` | `86400` | session TTL in seconds |
 | `ACCESS_TOKEN_TTL` | `900` | access token TTL in seconds |
 | `REFRESH_TOKEN_TTL` | `2592000` | refresh token TTL in seconds |
+| `CLIENT_CONFIG` | `/etc/authgate/clients.yaml` | YAML path for client metadata preload |
 
 Production guards when `DEV_MODE=false`:
 

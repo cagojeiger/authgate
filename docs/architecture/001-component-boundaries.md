@@ -270,8 +270,7 @@ authgate/
 │   └── idgen/
 │       └── idgen.go             # IDGenerator 인터페이스 + CryptoGenerator
 └── migrations/
-    ├── 001_init.sql             # Spec 007 스키마
-    └── 002_mcp_resource_binding.sql
+    └── 001_init.sql             # Spec 007 스키마
 ```
 
 ## 데이터 흐름 예시: 브라우저 로그인
