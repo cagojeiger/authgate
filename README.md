@@ -22,9 +22,9 @@ Authgate is a pure authentication service. Business logic such as terms of servi
 ┌─────────────────────────────────────────────┐
 │                  authgate                   │
 │                                             │
-│  handler  ->  service  ->  storage          │
-│    │             │            │             │
-│    │             │            └─ PostgreSQL │
+│  handler  ->  service  ->  storage -> sqlc  │
+│    │             │            │         │    │
+│    │             │            │         └─ PostgreSQL │
 │    │             └─ upstream                 │
 │    └─ pages                                  │
 │                                             │
@@ -62,7 +62,10 @@ Authgate is a pure authentication service. Business logic such as terms of servi
 cmd/authgate/         main entrypoint
 internal/
   config/             environment loading and validation
-  storage/            PostgreSQL-backed zitadel storage implementation
+  db/
+    queries/          handwritten SQL source (*.sql)
+    storeq/           sqlc generated query layer (runtime DB contract)
+  storage/            zitadel storage implementation + sqlc adapter orchestration
   service/            login, device, account, cleanup orchestration + access rules
   handler/            HTTP binding layer
   upstream/           upstream OIDC provider integration (rp-based)
