@@ -142,6 +142,10 @@ go run ./cmd/authgate
 | `SESSION_TTL` | `86400` | session TTL in seconds |
 | `ACCESS_TOKEN_TTL` | `900` | access token TTL in seconds |
 | `REFRESH_TOKEN_TTL` | `2592000` | refresh token TTL in seconds |
+| `HTTP_READ_HEADER_TIMEOUT_SEC` | `5` | HTTP server `ReadHeaderTimeout` in seconds |
+| `HTTP_READ_TIMEOUT_SEC` | `15` | HTTP server `ReadTimeout` in seconds |
+| `HTTP_WRITE_TIMEOUT_SEC` | `30` | HTTP server `WriteTimeout` in seconds |
+| `HTTP_IDLE_TIMEOUT_SEC` | `60` | HTTP server `IdleTimeout` in seconds |
 | `ENABLE_MCP` | `true` | enable MCP optional adapter routes/policies (`/mcp/*`, CIMD/resource binding) |
 | `CLIENT_CONFIG` | `/etc/authgate/clients.yaml` | YAML path for client metadata preload |
 

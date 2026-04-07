@@ -11,6 +11,8 @@ func clearEnv() {
 		"OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL",
 		"DEV_MODE", "ENABLE_MCP",
+		"HTTP_READ_HEADER_TIMEOUT_SEC", "HTTP_READ_TIMEOUT_SEC",
+		"HTTP_WRITE_TIMEOUT_SEC", "HTTP_IDLE_TIMEOUT_SEC",
 	} {
 		os.Unsetenv(key)
 	}
@@ -120,6 +122,18 @@ func TestLoad_Defaults(t *testing.T) {
 	if !cfg.EnableMCP {
 		t.Error("EnableMCP = false, want true by default")
 	}
+	if cfg.HTTPReadHeaderTimeout.Seconds() != 5 {
+		t.Errorf("HTTPReadHeaderTimeout = %v, want 5s", cfg.HTTPReadHeaderTimeout)
+	}
+	if cfg.HTTPReadTimeout.Seconds() != 15 {
+		t.Errorf("HTTPReadTimeout = %v, want 15s", cfg.HTTPReadTimeout)
+	}
+	if cfg.HTTPWriteTimeout.Seconds() != 30 {
+		t.Errorf("HTTPWriteTimeout = %v, want 30s", cfg.HTTPWriteTimeout)
+	}
+	if cfg.HTTPIdleTimeout.Seconds() != 60 {
+		t.Errorf("HTTPIdleTimeout = %v, want 60s", cfg.HTTPIdleTimeout)
+	}
 }
 
 func TestLoad_DevModeFalseShortSessionSecret(t *testing.T) {
@@ -175,5 +189,32 @@ func TestLoad_EnableMCPFalse(t *testing.T) {
 	}
 	if cfg.EnableMCP {
 		t.Fatal("EnableMCP should be false")
+	}
+}
+
+func TestLoad_HTTPTimeoutsFromEnv(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("HTTP_READ_HEADER_TIMEOUT_SEC", "7")
+	os.Setenv("HTTP_READ_TIMEOUT_SEC", "20")
+	os.Setenv("HTTP_WRITE_TIMEOUT_SEC", "40")
+	os.Setenv("HTTP_IDLE_TIMEOUT_SEC", "120")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.HTTPReadHeaderTimeout.Seconds() != 7 {
+		t.Errorf("HTTPReadHeaderTimeout = %v, want 7s", cfg.HTTPReadHeaderTimeout)
+	}
+	if cfg.HTTPReadTimeout.Seconds() != 20 {
+		t.Errorf("HTTPReadTimeout = %v, want 20s", cfg.HTTPReadTimeout)
+	}
+	if cfg.HTTPWriteTimeout.Seconds() != 40 {
+		t.Errorf("HTTPWriteTimeout = %v, want 40s", cfg.HTTPWriteTimeout)
+	}
+	if cfg.HTTPIdleTimeout.Seconds() != 120 {
+		t.Errorf("HTTPIdleTimeout = %v, want 120s", cfg.HTTPIdleTimeout)
 	}
 }
