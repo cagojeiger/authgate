@@ -63,35 +63,38 @@ func (s *LoginService) handleLogin(ctx context.Context, authRequestID, sessionID
 		return &LoginResult{Action: ActionError, Error: "missing authRequestID", ErrorCode: http.StatusBadRequest}
 	}
 
-	// Check session
-	if sessionID != "" {
-		user, err := s.store.GetValidSession(ctx, sessionID)
-		if err == nil {
-			// Session exists — check login state
-			return s.handleExistingSession(ctx, user, authRequestID, ipAddress, userAgent)
-		}
-		// Session invalid/expired — fall through to IdP redirect
+	if result := s.handleSessionLogin(ctx, authRequestID, sessionID, ipAddress, userAgent); result != nil {
+		return result
 	}
 
-	// No valid session — redirect to upstream IdP
-	authURL := s.browserProvider.AuthURL(authRequestID)
-	return &LoginResult{Action: ActionRedirectToIdP, RedirectURL: authURL}
+	return s.redirectToProvider(authRequestID)
+}
+
+func (s *LoginService) handleSessionLogin(ctx context.Context, authRequestID, sessionID, ipAddress, userAgent string) *LoginResult {
+	if sessionID == "" {
+		return nil
+	}
+
+	user, err := s.store.GetValidSession(ctx, sessionID)
+	if err != nil {
+		return nil
+	}
+
+	return s.handleExistingSession(ctx, user, authRequestID, ipAddress, userAgent)
 }
 
 func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authRequestID, ipAddress, userAgent string) *LoginResult {
 	switch CheckAccess(user.Status, "browser") {
 	case AccessDeny:
-		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status})
+		s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
 		return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 
 	case AccessRecover:
-		if err := s.store.RecoverUser(ctx, user.ID); err != nil {
+		if err := s.recoverUser(ctx, user.ID, ipAddress, userAgent); err != nil {
 			return &LoginResult{Action: ActionError, Error: "failed to recover account", ErrorCode: http.StatusInternalServerError}
 		}
-		s.store.AuditLog(ctx, &user.ID, "auth.deletion_cancelled", ipAddress, userAgent, nil)
 	}
 
-	// Active or recovered — complete auth request
 	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
 		return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
@@ -124,60 +127,95 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 		return &CallbackResult{Action: ActionError, Error: fmt.Sprintf("upstream_error: %v", err), ErrorCode: http.StatusInternalServerError}
 	}
 
-	// Look up user by provider identity
-	providerName := s.browserProvider.Name()
-	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
-	if errors.Is(err, storage.ErrNotFound) {
-		// New user — signup
-		user, err = s.store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
-			Email:          userInfo.Email,
-			EmailVerified:  userInfo.EmailVerified,
-			Name:           userInfo.Name,
-			AvatarURL:      userInfo.Picture,
-			Provider:       providerName,
-			ProviderUserID: userInfo.Sub,
-			ProviderEmail:  userInfo.Email,
-		})
-		if errors.Is(err, storage.ErrEmailConflict) {
-			return &CallbackResult{Action: ActionError, Error: "email_conflict", ErrorCode: http.StatusConflict}
-		}
-		if err != nil {
-			return &CallbackResult{Action: ActionError, Error: fmt.Sprintf("signup failed: %v", err), ErrorCode: http.StatusInternalServerError}
-		}
-		s.store.AuditLog(ctx, &user.ID, "auth.signup", ipAddress, userAgent, nil)
-	} else if err != nil {
-		return &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
-	} else {
-		s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": "browser"})
+	user, result := s.findOrCreateBrowserUser(ctx, userInfo, ipAddress, userAgent)
+	if result != nil {
+		return result
 	}
 
-	// Access check
-	switch CheckAccess(user.Status, "browser") {
-	case AccessDeny:
-		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "browser"})
-		return &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
-
-	case AccessRecover:
-		if err := s.store.RecoverUser(ctx, user.ID); err != nil {
-			return &CallbackResult{Action: ActionError, Error: "recovery failed", ErrorCode: http.StatusInternalServerError}
-		}
-		s.store.AuditLog(ctx, &user.ID, "auth.deletion_cancelled", ipAddress, userAgent, nil)
-		user, err = s.store.GetUserByID(ctx, user.ID)
-		if err != nil {
-			return &CallbackResult{Action: ActionError, Error: "failed to read user after recovery", ErrorCode: http.StatusInternalServerError}
-		}
+	user, result = s.ensureBrowserAccess(ctx, user, ipAddress, userAgent)
+	if result != nil {
+		return result
 	}
 
-	// Create session
 	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)
 	if err != nil {
 		return &CallbackResult{Action: ActionError, Error: "session creation failed", ErrorCode: http.StatusInternalServerError}
 	}
 
-	// Complete auth request
 	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
 		return &CallbackResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
 
 	return &CallbackResult{Action: ActionAutoApprove, AuthRequestID: authRequestID, SessionID: sessionID}
+}
+
+func (s *LoginService) redirectToProvider(authRequestID string) *LoginResult {
+	return &LoginResult{Action: ActionRedirectToIdP, RedirectURL: s.browserProvider.AuthURL(authRequestID)}
+}
+
+func (s *LoginService) recoverUser(ctx context.Context, userID, ipAddress, userAgent string) error {
+	if err := s.store.RecoverUser(ctx, userID); err != nil {
+		return err
+	}
+	s.store.AuditLog(ctx, &userID, "auth.deletion_cancelled", ipAddress, userAgent, nil)
+	return nil
+}
+
+func (s *LoginService) findOrCreateBrowserUser(ctx context.Context, userInfo *upstream.UserInfo, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
+	providerName := s.browserProvider.Name()
+	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
+	if errors.Is(err, storage.ErrNotFound) {
+		return s.signupBrowserUser(ctx, providerName, userInfo, ipAddress, userAgent)
+	}
+	if err != nil {
+		return nil, &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+	}
+
+	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": "browser"})
+	return user, nil
+}
+
+func (s *LoginService) signupBrowserUser(ctx context.Context, providerName string, userInfo *upstream.UserInfo, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
+	user, err := s.store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
+		Email:          userInfo.Email,
+		EmailVerified:  userInfo.EmailVerified,
+		Name:           userInfo.Name,
+		AvatarURL:      userInfo.Picture,
+		Provider:       providerName,
+		ProviderUserID: userInfo.Sub,
+		ProviderEmail:  userInfo.Email,
+	})
+	if errors.Is(err, storage.ErrEmailConflict) {
+		return nil, &CallbackResult{Action: ActionError, Error: "email_conflict", ErrorCode: http.StatusConflict}
+	}
+	if err != nil {
+		return nil, &CallbackResult{Action: ActionError, Error: fmt.Sprintf("signup failed: %v", err), ErrorCode: http.StatusInternalServerError}
+	}
+
+	s.store.AuditLog(ctx, &user.ID, "auth.signup", ipAddress, userAgent, nil)
+	return user, nil
+}
+
+func (s *LoginService) ensureBrowserAccess(ctx context.Context, user *storage.User, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
+	switch CheckAccess(user.Status, "browser") {
+	case AccessDeny:
+		s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
+		return nil, &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
+	case AccessRecover:
+		if err := s.recoverUser(ctx, user.ID, ipAddress, userAgent); err != nil {
+			return nil, &CallbackResult{Action: ActionError, Error: "recovery failed", ErrorCode: http.StatusInternalServerError}
+		}
+
+		recoveredUser, err := s.store.GetUserByID(ctx, user.ID)
+		if err != nil {
+			return nil, &CallbackResult{Action: ActionError, Error: "failed to read user after recovery", ErrorCode: http.StatusInternalServerError}
+		}
+		return recoveredUser, nil
+	default:
+		return user, nil
+	}
+}
+
+func (s *LoginService) auditInactiveUser(ctx context.Context, userID, status, ipAddress, userAgent string) {
+	s.store.AuditLog(ctx, &userID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": status, "channel": "browser"})
 }
