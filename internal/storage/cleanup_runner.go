@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/db/storeq"
@@ -13,8 +14,42 @@ type CleanupRunner struct {
 	db *sql.DB
 }
 
+const cleanupAdvisoryLockKey int64 = 0x6175746867617465 // "authgate" hex (stable process-wide lock key)
+
 func NewCleanupRunner(db *sql.DB) *CleanupRunner {
 	return &CleanupRunner{db: db}
+}
+
+func (r *CleanupRunner) WithExclusiveLock(ctx context.Context, fn func(context.Context) error) (bool, error) {
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer conn.Close()
+
+	var acquired bool
+	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, cleanupAdvisoryLockKey).Scan(&acquired); err != nil {
+		return false, err
+	}
+	if !acquired {
+		return false, nil
+	}
+
+	runErr := fn(ctx)
+
+	var released bool
+	unlockErr := conn.QueryRowContext(ctx, `SELECT pg_advisory_unlock($1)`, cleanupAdvisoryLockKey).Scan(&released)
+
+	if runErr != nil {
+		return true, runErr
+	}
+	if unlockErr != nil {
+		return true, unlockErr
+	}
+	if !released {
+		return true, fmt.Errorf("cleanup advisory unlock failed")
+	}
+	return true, nil
 }
 
 func (r *CleanupRunner) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
