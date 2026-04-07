@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/kangheeyong/authgate/internal/storage"
 )
 
 func TestIntegration_DeviceCallback_NewUser_Rejected(t *testing.T) {
@@ -34,7 +36,7 @@ func TestIntegration_DeviceCallback_PendingDeletion_Rejected(t *testing.T) {
 	ts := SetupTestServer(t)
 	ctx := context.Background()
 
-	user, err := ts.Store.CreateUserWithIdentity(ctx, "device-pending@test.com", true, "Device Pending", "", "google", "test-google-sub", "device-pending@test.com")
+	user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-pending@test.com", EmailVerified: true, Name: "Device Pending", AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "device-pending@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -63,7 +65,7 @@ func TestIntegration_DeviceConsumed_RePolling(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user and approve device code
-	user, _ := ts.Store.CreateUserWithIdentity(ctx, "device-consumed@test.com", true, "Test", "", "google", "device-consumed-sub", "dc@test.com")
+	user, _ := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-consumed@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "device-consumed-sub", ProviderEmail: "dc@test.com"})
 	_ = user
 
 	// Store a device code and approve it
@@ -95,7 +97,7 @@ func TestIntegration_DeviceFullFlow_TokenIssued(t *testing.T) {
 	ts := SetupTestServer(t)
 	ctx := context.Background()
 
-	user, err := ts.Store.CreateUserWithIdentity(ctx, "device-ok@test.com", true, "Device OK", "", "google", "test-google-sub", "device-ok@test.com")
+	user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-ok@test.com", EmailVerified: true, Name: "Device OK", AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "device-ok@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -122,7 +124,7 @@ func TestIntegration_DeviceConcurrentPolling_ExactlyOneSuccess(t *testing.T) {
 	ts := SetupTestServer(t)
 	ctx := context.Background()
 
-	user, err := ts.Store.CreateUserWithIdentity(ctx, "device-race@test.com", true, "Device Race", "", "google", "test-google-sub", "device-race@test.com")
+	user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-race@test.com", EmailVerified: true, Name: "Device Race", AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "device-race@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

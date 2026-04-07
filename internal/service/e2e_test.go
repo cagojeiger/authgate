@@ -155,7 +155,7 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 	fx := setupE2ETest(t)
 	ctx := context.Background()
 
-	user, _ := fx.Store.CreateUserWithIdentity(ctx, "e2e4-full@test.com", true, "Test", "", "google", "e2e-sub", "e2e4-full@test.com")
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "e2e4-full@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "e2e-sub", ProviderEmail: "e2e4-full@test.com"})
 	sessionID, _ := fx.Store.CreateSession(ctx, user.ID, 24*time.Hour)
 	refreshToken := createRefreshTokenForUser(t, ctx, fx.Store, user.ID)
 
@@ -217,7 +217,7 @@ func TestE2E5_RecoveryThenAuthRequestRetry(t *testing.T) {
 	fx := setupE2ETest(t)
 	ctx := context.Background()
 
-	user, _ := fx.Store.CreateUserWithIdentity(ctx, "e2e5-retry@test.com", true, "Retry User", "", "google", "e2e-sub", "e2e5-retry@test.com")
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "e2e5-retry@test.com", EmailVerified: true, Name: "Retry User", AvatarURL: "", Provider: "google", ProviderUserID: "e2e-sub", ProviderEmail: "e2e5-retry@test.com"})
 	sessionID, _ := fx.Store.CreateSession(ctx, user.ID, 24*time.Hour)
 
 	// 1) pending_deletion 전환

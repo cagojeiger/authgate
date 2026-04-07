@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/kangheeyong/authgate/internal/storage"
 )
 
 func TestIntegration_MCPTokenExchange_NoPKCE_Rejected(t *testing.T) {
@@ -16,7 +18,7 @@ func TestIntegration_MCPTokenExchange_NoPKCE_Rejected(t *testing.T) {
 	client := NewOAuthClientFor(t, ts.BaseURL, "mcp-client", "/mcp/callback")
 	ctx := context.Background()
 
-	user, err := ts.Store.CreateUserWithIdentity(ctx, "mcp-pkce@test.com", true, "MCP PKCE", "", "google", "test-google-sub", "mcp-pkce@test.com")
+	user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-pkce@test.com", EmailVerified: true, Name: "MCP PKCE", AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "mcp-pkce@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -49,7 +51,7 @@ func TestIntegration_MCPTokenExchange_MissingResource_Rejected(t *testing.T) {
 	client := NewOAuthClientFor(t, ts.BaseURL, "mcp-client", "/mcp/callback")
 	ctx := context.Background()
 
-	if _, err := ts.Store.CreateUserWithIdentity(ctx, "mcp-missing-resource@test.com", true, "MCP Missing Resource", "", "google", "test-google-sub", "mcp-missing-resource@test.com"); err != nil {
+	if _, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-missing-resource@test.com", EmailVerified: true, Name: "MCP Missing Resource", AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "mcp-missing-resource@test.com"}); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
@@ -71,7 +73,7 @@ func TestIntegration_MCPRefresh_MismatchedResource_Rejected(t *testing.T) {
 	client := NewOAuthClientFor(t, ts.BaseURL, "mcp-client", "/mcp/callback")
 	ctx := context.Background()
 
-	if _, err := ts.Store.CreateUserWithIdentity(ctx, "mcp-refresh-resource@test.com", true, "MCP Refresh Resource", "", "google", "test-google-sub", "mcp-refresh-resource@test.com"); err != nil {
+	if _, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-refresh-resource@test.com", EmailVerified: true, Name: "MCP Refresh Resource", AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "mcp-refresh-resource@test.com"}); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
@@ -96,7 +98,7 @@ func TestIntegration_MCPAccessToken_AudienceBoundToResource(t *testing.T) {
 	client := NewOAuthClientFor(t, ts.BaseURL, "mcp-client", "/mcp/callback")
 	ctx := context.Background()
 
-	if _, err := ts.Store.CreateUserWithIdentity(ctx, "mcp-audience@test.com", true, "MCP Audience", "", "google", "test-google-sub", "mcp-audience@test.com"); err != nil {
+	if _, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-audience@test.com", EmailVerified: true, Name: "MCP Audience", AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "mcp-audience@test.com"}); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
@@ -136,7 +138,7 @@ func TestIntegration_MCPCodeExchange_StateChange_InvalidGrant(t *testing.T) {
 			client := NewOAuthClientFor(t, ts.BaseURL, "mcp-client", "/mcp/callback")
 
 			ctx := context.Background()
-			user, err := ts.Store.CreateUserWithIdentity(ctx, "mcp-token-state@test.com", true, "MCP Token", "", "google", "test-google-sub", "mcp-token-state@test.com")
+			user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-token-state@test.com", EmailVerified: true, Name: "MCP Token", AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "mcp-token-state@test.com"})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
 			}
@@ -182,7 +184,7 @@ func TestIntegration_MCPCallback_PendingDeletion_Rejected(t *testing.T) {
 	client := NewOAuthClientFor(t, ts.BaseURL, "mcp-client", "/mcp/callback")
 	ctx := context.Background()
 
-	user, err := ts.Store.CreateUserWithIdentity(ctx, "mcp-callback-pending@test.com", true, "MCP Callback Pending", "", "google", "test-google-sub", "mcp-callback-pending@test.com")
+	user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-callback-pending@test.com", EmailVerified: true, Name: "MCP Callback Pending", AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "mcp-callback-pending@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

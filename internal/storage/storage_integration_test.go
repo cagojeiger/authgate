@@ -26,7 +26,7 @@ func TestCreateUserWithIdentity_Atomic(t *testing.T) {
 	s := testStorage(t)
 	ctx := context.Background()
 
-	user, err := s.CreateUserWithIdentity(ctx, "atomic@test.com", true, "Test", "", "google", "atomic-sub-1", "atomic@test.com")
+	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "atomic@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "atomic-sub-1", ProviderEmail: "atomic@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestCreateUserWithIdentity_Atomic(t *testing.T) {
 	}
 
 	// Duplicate email should fail
-	_, err = s.CreateUserWithIdentity(ctx, "atomic@test.com", true, "Test2", "", "google", "atomic-sub-2", "dup@test.com")
+	_, err = s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "atomic@test.com", EmailVerified: true, Name: "Test2", AvatarURL: "", Provider: "google", ProviderUserID: "atomic-sub-2", ProviderEmail: "dup@test.com"})
 	if err == nil {
 		t.Fatal("expected error for duplicate email")
 	}
@@ -65,7 +65,7 @@ func TestRefreshTokenRotation_Atomicity(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup: create user
-	user, err := s.CreateUserWithIdentity(ctx, "refresh@test.com", true, "Test", "", "google", "refresh-sub", "r@test.com")
+	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "refresh@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "refresh-sub", ProviderEmail: "r@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestSession_CreateAndValidate(t *testing.T) {
 	s := testStorage(t)
 	ctx := context.Background()
 
-	user, err := s.CreateUserWithIdentity(ctx, "session@test.com", true, "Test", "", "google", "session-sub", "s@test.com")
+	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "session@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "session-sub", ProviderEmail: "s@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

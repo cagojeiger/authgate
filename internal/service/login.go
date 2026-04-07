@@ -23,7 +23,7 @@ type LoginStore interface {
 	RecoverUser(ctx context.Context, userID string) error
 	CompleteAuthRequest(ctx context.Context, authRequestID, userID string) error
 	GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*storage.User, error)
-	CreateUserWithIdentity(ctx context.Context, email string, emailVerified bool, name, avatarURL, provider, providerUserID, providerEmail string) (*storage.User, error)
+	CreateUserWithIdentity(ctx context.Context, input storage.CreateUserWithIdentityInput) (*storage.User, error)
 	GetUserByID(ctx context.Context, userID string) (*storage.User, error)
 	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
 }
@@ -129,10 +129,15 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
 		// New user — signup
-		user, err = s.store.CreateUserWithIdentity(ctx,
-			userInfo.Email, userInfo.EmailVerified, userInfo.Name, userInfo.Picture,
-			providerName, userInfo.Sub, userInfo.Email,
-		)
+		user, err = s.store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
+			Email:          userInfo.Email,
+			EmailVerified:  userInfo.EmailVerified,
+			Name:           userInfo.Name,
+			AvatarURL:      userInfo.Picture,
+			Provider:       providerName,
+			ProviderUserID: userInfo.Sub,
+			ProviderEmail:  userInfo.Email,
+		})
 		if errors.Is(err, storage.ErrEmailConflict) {
 			return &CallbackResult{Action: ActionError, Error: "email_conflict", ErrorCode: http.StatusConflict}
 		}

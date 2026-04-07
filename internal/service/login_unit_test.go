@@ -16,7 +16,7 @@ type fakeLoginStore struct {
 	recoverUserFn             func(ctx context.Context, userID string) error
 	completeAuthRequestFn     func(ctx context.Context, authRequestID, userID string) error
 	getUserByProviderIdentity func(ctx context.Context, provider, providerUserID string) (*storage.User, error)
-	createUserWithIdentityFn  func(ctx context.Context, email string, emailVerified bool, name, avatarURL, provider, providerUserID, providerEmail string) (*storage.User, error)
+	createUserWithIdentityFn  func(ctx context.Context, input storage.CreateUserWithIdentityInput) (*storage.User, error)
 	getUserByIDFn             func(ctx context.Context, userID string) (*storage.User, error)
 	createSessionFn           func(ctx context.Context, userID string, ttl time.Duration) (string, error)
 }
@@ -44,8 +44,8 @@ func (f *fakeLoginStore) GetUserByProviderIdentity(ctx context.Context, provider
 	return f.getUserByProviderIdentity(ctx, provider, providerUserID)
 }
 
-func (f *fakeLoginStore) CreateUserWithIdentity(ctx context.Context, email string, emailVerified bool, name, avatarURL, provider, providerUserID, providerEmail string) (*storage.User, error) {
-	return f.createUserWithIdentityFn(ctx, email, emailVerified, name, avatarURL, provider, providerUserID, providerEmail)
+func (f *fakeLoginStore) CreateUserWithIdentity(ctx context.Context, input storage.CreateUserWithIdentityInput) (*storage.User, error) {
+	return f.createUserWithIdentityFn(ctx, input)
 }
 
 func (f *fakeLoginStore) GetUserByID(ctx context.Context, userID string) (*storage.User, error) {
@@ -94,7 +94,7 @@ func TestLogin_HandleCallback_EmailConflict(t *testing.T) {
 		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
 			return nil, storage.ErrNotFound
 		},
-		createUserWithIdentityFn: func(context.Context, string, bool, string, string, string, string, string) (*storage.User, error) {
+		createUserWithIdentityFn: func(context.Context, storage.CreateUserWithIdentityInput) (*storage.User, error) {
 			return nil, storage.ErrEmailConflict
 		},
 	}
@@ -134,4 +134,3 @@ func TestLogin_HandleLogin_NoSession_Redirect(t *testing.T) {
 		t.Fatalf("action = %v, want %v", result.Action, ActionRedirectToIdP)
 	}
 }
-

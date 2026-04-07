@@ -79,7 +79,7 @@ func TestDevicePage_ValidCode_WithSession_ShowApprove(t *testing.T) {
 	ctx := context.Background()
 
 	// Create active user and session
-	user, _ := store.CreateUserWithIdentity(ctx, "device-approve@test.com", true, "Test", "", "google", "device-approve-sub", "d@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-approve@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "device-approve-sub", ProviderEmail: "d@test.com"})
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 
 	insertDeviceCode(t, store, "APPR-CODE", clk)
@@ -95,7 +95,7 @@ func TestDevicePage_InactiveUser_Rejected(t *testing.T) {
 	ctx := context.Background()
 
 	// Create disabled user
-	user, _ := store.CreateUserWithIdentity(ctx, "device-inactive@test.com", true, "Test", "", "google", "device-inactive-sub", "di@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-inactive@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "device-inactive-sub", ProviderEmail: "di@test.com"})
 	store.DisableUser(ctx, user.ID)
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 
@@ -114,7 +114,7 @@ func TestDeviceApprove_Allow(t *testing.T) {
 	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "device-allow@test.com", true, "Test", "", "google", "device-allow-sub", "da@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-allow@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "device-allow-sub", ProviderEmail: "da@test.com"})
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 
 	insertDeviceCode(t, store, "ALLW-CODE", clk)
@@ -129,7 +129,7 @@ func TestDeviceApprove_Deny(t *testing.T) {
 	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "device-deny@test.com", true, "Test", "", "google", "device-deny-sub", "dd@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-deny@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "device-deny-sub", ProviderEmail: "dd@test.com"})
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 
 	insertDeviceCode(t, store, "DENY-CODE", clk)
@@ -169,7 +169,7 @@ func TestDeviceCallback_ExistingUser_RedirectBack(t *testing.T) {
 	svc, store, _ := setupDeviceService(t)
 	ctx := context.Background()
 
-	store.CreateUserWithIdentity(ctx, "device-cb@test.com", true, "Test", "", "google", "device-sub-123", "dc@test.com")
+	store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-cb@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "device-sub-123", ProviderEmail: "dc@test.com"})
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "RDIR-CODE", "127.0.0.1", "test")
 	if result.Action != DeviceRedirectBack {
@@ -188,7 +188,7 @@ func TestDevice005_RecoverableCallback_Rejected(t *testing.T) {
 	svc, store, _ := setupDeviceExtTest(t, "dev-recover-sub")
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "dev-recover@test.com", true, "Test", "", "google", "dev-recover-sub", "drc@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-recover@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "dev-recover-sub", ProviderEmail: "drc@test.com"})
 	store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "RECV-CODE", "127.0.0.1", "test")
@@ -205,7 +205,7 @@ func TestDevice006_InactiveCallback_Rejected(t *testing.T) {
 	svc, store, _ := setupDeviceExtTest(t, "dev-inactive-sub")
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "dev-inactive@test.com", true, "Test", "", "google", "dev-inactive-sub", "di@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-inactive@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "dev-inactive-sub", ProviderEmail: "di@test.com"})
 	store.DisableUser(ctx, user.ID)
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "INAC-CODE", "127.0.0.1", "test")
@@ -222,7 +222,7 @@ func TestDeviceCallback_DeletedUser_Rejected(t *testing.T) {
 	svc, store, _ := setupDeviceExtTest(t, "dev-deleted-sub")
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "dev-deleted@test.com", true, "Deleted", "", "google", "dev-deleted-sub", "dev-deleted@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-deleted@test.com", EmailVerified: true, Name: "Deleted", AvatarURL: "", Provider: "google", ProviderUserID: "dev-deleted-sub", ProviderEmail: "dev-deleted@test.com"})
 	_ = store.SetUserStatus(ctx, user.ID, "deleted")
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "DELD-CODE", "127.0.0.1", "test")
@@ -239,7 +239,7 @@ func TestDevice011_ApproveAfterDisable(t *testing.T) {
 	svc, store, clk := setupDeviceExtTest(t, "dev-approve-dis-sub")
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "dev-approve-dis@test.com", true, "Test", "", "google", "dev-approve-dis-sub", "dad@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-approve-dis@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "dev-approve-dis-sub", ProviderEmail: "dad@test.com"})
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 	insertDeviceCode(t, store, "ADIS-CODE", clk)
 
@@ -270,7 +270,7 @@ func TestDeviceApprove_AfterStatusTransition_Rejected(t *testing.T) {
 			svc, store, clk := setupDeviceExtTest(t, "dev-approve-"+tt.status)
 			ctx := context.Background()
 
-			user, _ := store.CreateUserWithIdentity(ctx, "dev-approve-"+tt.status+"@test.com", true, "Test", "", "google", "dev-approve-"+tt.status, "dev-approve-"+tt.status+"@test.com")
+			user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-approve-"+tt.status+"@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "dev-approve-"+tt.status, ProviderEmail: "dev-approve-"+tt.status+"@test.com"})
 			sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 			insertDeviceCode(t, store, "ASTA-"+tt.status, clk)
 
