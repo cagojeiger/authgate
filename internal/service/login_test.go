@@ -154,28 +154,28 @@ func TestHandleCallback_InactiveUser_Error(t *testing.T) {
 
 // browser-007 / E2E 6: 복구 후 auth_request 완료 실패 → 재시도 멱등성
 func TestBrowser007_RecoveryRetryIdempotent(t *testing.T) {
-	loginSvc, _, _, _, store, _, _ := setupGapTest(t)
+	fx := setupGapTest(t)
 	ctx := context.Background()
 
 	// Create user, then set to pending_deletion
-	user, _ := store.CreateUserWithIdentity(ctx, "retry@test.com", true, "Test", "", "google", "gap-sub", "r@test.com")
-	store.SetUserStatus(ctx, user.ID, "pending_deletion")
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, "retry@test.com", true, "Test", "", "google", "gap-sub", "r@test.com")
+	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	// First attempt: recovery succeeds, but use an invalid authRequestID so CompleteAuthRequest fails
-	result1 := loginSvc.HandleCallback(ctx, "fake-code", "invalid-ar-id", "127.0.0.1", "browser")
+	result1 := fx.LoginSvc.HandleCallback(ctx, "fake-code", "invalid-ar-id", "127.0.0.1", "browser")
 	// Recovery happened (user is now active), but auth_request completion may fail
 	// The important thing: user is recovered
 
 	// Verify user is active (recovery persisted even if auth_request failed)
 	var status string
-	store.DB().QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	fx.Store.DB().QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
 	if status != "active" {
 		t.Fatalf("user should be active after recovery, got %q", status)
 	}
 
 	// Second attempt: retry login → should succeed normally (idempotent)
-	arID, _ := store.CreateTestAuthRequest(ctx, "retry")
-	result2 := loginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "browser")
+	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "retry")
+	result2 := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "browser")
 	if result2.Action != ActionAutoApprove {
 		t.Errorf("retry action = %v, want AutoApprove (recovery already done)", result2.Action)
 	}

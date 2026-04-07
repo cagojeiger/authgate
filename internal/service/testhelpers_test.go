@@ -14,6 +14,16 @@ import (
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
+type gapFixture struct {
+	LoginSvc    *LoginService
+	MCPLoginSvc *MCPLoginService
+	DeviceSvc   *DeviceService
+	AccountSvc  *AccountService
+	Store       *storage.Storage
+	DB          *sql.DB
+	Clock       *clock.FixedClock
+}
+
 // setupBrowserExtTest creates a LoginService with a fixed sub for browser extended tests.
 func setupBrowserExtTest(t *testing.T) (*LoginService, *storage.Storage) {
 	t.Helper()
@@ -54,7 +64,7 @@ func setupAccountExtTest(t *testing.T) (*AccountService, *storage.Storage) {
 }
 
 // setupGapTest creates all services for cross-service gap tests.
-func setupGapTest(t *testing.T) (*LoginService, *MCPLoginService, *DeviceService, *AccountService, *storage.Storage, *sql.DB, *clock.FixedClock) {
+func setupGapTest(t *testing.T) *gapFixture {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
@@ -68,7 +78,15 @@ func setupGapTest(t *testing.T) (*LoginService, *MCPLoginService, *DeviceService
 	mcpLoginSvc := NewMCPLoginService(store, fakeProvider, 24*time.Hour)
 	deviceSvc := NewDeviceService(store, fakeProvider, "http://localhost:8080", 24*time.Hour, clk)
 	accountSvc := NewAccountService(store)
-	return loginSvc, mcpLoginSvc, deviceSvc, accountSvc, store, db, clk
+	return &gapFixture{
+		LoginSvc:    loginSvc,
+		MCPLoginSvc: mcpLoginSvc,
+		DeviceSvc:   deviceSvc,
+		AccountSvc:  accountSvc,
+		Store:       store,
+		DB:          db,
+		Clock:       clk,
+	}
 }
 
 // setupLoginServiceWithSub creates a LoginService with a specific upstream sub/email.
