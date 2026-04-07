@@ -55,6 +55,7 @@ Authgate is a pure authentication service. Business logic such as terms of servi
 | `/account` | Account deletion (DELETE) |
 | `/health` | Liveness check |
 | `/ready` | Readiness check (DB ping) |
+| `/metrics` | Prometheus metrics endpoint |
 
 ## Project Structure
 
@@ -68,6 +69,7 @@ internal/
   storage/            zitadel storage implementation + sqlc adapter orchestration
   service/            login, device, account, cleanup orchestration + access rules
   handler/            HTTP binding layer
+  observability/      request logging middleware + Prometheus HTTP metrics
   upstream/           upstream OIDC provider integration (rp-based)
   pages/              embedded HTML templates (device, error, result)
   clock/              time abstraction
