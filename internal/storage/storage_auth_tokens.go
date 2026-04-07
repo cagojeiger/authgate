@@ -135,56 +135,23 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	defer tx.Rollback()
 	qtx := storeq.New(tx)
 
-	// Determine family_id, user_id, client_id, scopes from request
-	familyID := s.idgen.NewUUID()
-	userID := request.GetSubject()
-	clientID := ""
-	resource := ""
-	var scopes []string
-
-	if ar, ok := request.(*AuthRequestModel); ok {
-		clientID = ar.GetClientID()
-		resource = ar.Resource
-		scopes = ar.GetScopes()
-	} else if rtr, ok := request.(op.RefreshTokenRequest); ok {
-		clientID = rtr.GetClientID()
-		scopes = rtr.GetScopes()
-		if existing, ok := request.(*RefreshTokenModel); ok {
-			resource = existing.Resource
-		}
-		// Read family_id BEFORE revoking old token to preserve the chain
-		if currentRefreshToken != "" {
-			oldHash := hashToken(currentRefreshToken)
-			fid, err := qtx.GetRefreshFamilyIDByTokenHash(ctx, oldHash)
-			if err == nil {
-				familyID = fid
-			}
-		}
-	} else if das, ok := request.(*op.DeviceAuthorizationState); ok {
-		clientID = das.ClientID
-		scopes = das.Scopes
+	derived, err := s.deriveRefreshTokenAttributes(ctx, qtx, request, currentRefreshToken)
+	if err != nil {
+		return "", "", time.Time{}, err
 	}
 
-	// Revoke old refresh token AFTER reading family_id
-	if currentRefreshToken != "" {
-		oldHash := hashToken(currentRefreshToken)
-		_, err = qtx.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
-			RevokedAt: sql.NullTime{Time: now, Valid: true},
-			TokenHash: oldHash,
-		})
-		if err != nil {
-			return "", "", time.Time{}, err
-		}
+	if err := revokeRefreshTokenIfPresent(ctx, qtx, currentRefreshToken, now); err != nil {
+		return "", "", time.Time{}, err
 	}
 
 	err = qtx.InsertRefreshToken(ctx, storeq.InsertRefreshTokenParams{
 		ID:        s.idgen.NewUUID(),
 		TokenHash: newHash,
-		FamilyID:  familyID,
-		UserID:    userID,
-		ClientID:  clientID,
-		Resource:  sql.NullString{String: resource, Valid: true},
-		Scopes:    scopes,
+		FamilyID:  derived.familyID,
+		UserID:    derived.userID,
+		ClientID:  derived.clientID,
+		Resource:  sql.NullString{String: derived.resource, Valid: true},
+		Scopes:    derived.scopes,
 		ExpiresAt: now.Add(s.refreshTokenTTL),
 		CreatedAt: now,
 	})
@@ -210,66 +177,26 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	defer tx.Rollback()
 	qtx := storeq.New(tx)
 
-	row, err := qtx.GetRefreshTokenForUpdateByHash(ctx, h)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, op.ErrInvalidRefreshToken
-	}
+	rt, err := loadRefreshTokenForUpdate(ctx, qtx, h)
 	if err != nil {
 		return nil, err
 	}
-	rt := RefreshTokenModel{
-		ID:        row.ID,
-		TokenHash: row.TokenHash,
-		FamilyID:  row.FamilyID,
-		UserID:    row.UserID,
-		ClientID:  row.ClientID,
-		Resource:  row.Resource,
-		Scopes:    StringArray(row.Scopes),
-		ExpiresAt: row.ExpiresAt,
-		RevokedAt: nullTimePtr(row.RevokedAt),
-		UsedAt:    nullTimePtr(row.UsedAt),
-	}
 
 	// Already used/revoked → reuse detection → family revoke
-	if rt.RevokedAt != nil || rt.UsedAt != nil {
-		revokeErr := qtx.RevokeRefreshFamily(ctx, storeq.RevokeRefreshFamilyParams{
-			RevokedAt: sql.NullTime{Time: now, Valid: true},
-			FamilyID:  rt.FamilyID,
-		})
-		if revokeErr != nil {
+	if isRefreshTokenUsedOrRevoked(rt) {
+		if err := revokeRefreshFamilyOnReuse(ctx, qtx, rt.FamilyID, now); err != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
-		if commitErr := tx.Commit(); commitErr != nil {
+		if err := tx.Commit(); err != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
 		// Audit only after successful commit
-		s.AuditLog(ctx, &rt.UserID, "auth.refresh_reuse_detected", "", "", map[string]any{"family_id": rt.FamilyID})
-		s.AuditLog(ctx, &rt.UserID, "auth.refresh_family_revoked", "", "", map[string]any{"family_id": rt.FamilyID})
+		s.auditRefreshReuseDetection(ctx, rt.UserID, rt.FamilyID)
 		return nil, op.ErrInvalidRefreshToken
 	}
 
-	// Expired
-	if now.After(rt.ExpiresAt) {
-		tx.Commit()
-		return nil, op.ErrInvalidRefreshToken
-	}
-	requestResource := ResourceFromContext(ctx)
-	if err := s.resourcePolicy.ValidateTokenRequest(ctx, rt.ClientID, rt.Resource, requestResource); err != nil {
-		tx.Commit()
+	if err := s.validateRefreshTokenRequest(ctx, tx, rt, now); err != nil {
 		return nil, err
-	}
-
-	// State check (DeriveLoginState via injected function)
-	if s.stateChecker != nil {
-		user, err := s.getUserByID(ctx, tx, rt.UserID)
-		if err != nil {
-			tx.Commit()
-			return nil, op.ErrInvalidRefreshToken
-		}
-		if err := s.stateChecker(user); err != nil {
-			tx.Commit()
-			return nil, &oidc.Error{ErrorType: "invalid_grant", Description: err.Error()}
-		}
 	}
 
 	// Atomically claim the token within the FOR UPDATE transaction.
@@ -286,7 +213,7 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &rt, nil
+	return rt, nil
 }
 
 func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID string) error {
@@ -300,23 +227,11 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 	now := s.clock.Now()
 	q := storeq.New(s.db)
 
-	// Try as raw token (hash it) first
-	h := hashToken(tokenOrTokenID)
-	rows, _ := q.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
-		RevokedAt: sql.NullTime{Time: now, Valid: true},
-		TokenHash: h,
-	})
-	if rows > 0 {
+	if tryRevokeRefreshByHash(ctx, q, tokenOrTokenID, now) {
 		return nil
 	}
 
-	// Try as token ID (UUID) directly
-	if _, err := uuid.Parse(tokenOrTokenID); err == nil {
-		_ = q.RevokeRefreshTokenByID(ctx, storeq.RevokeRefreshTokenByIDParams{
-			RevokedAt: sql.NullTime{Time: now, Valid: true},
-			ID:        tokenOrTokenID,
-		})
-	}
+	tryRevokeRefreshByID(ctx, q, tokenOrTokenID, now)
 
 	// RFC 7009: always return 200 regardless of whether anything was revoked
 	return nil
@@ -374,5 +289,145 @@ func authRequestModelFromRowByCode(row storeq.GetAuthRequestByCodeRow) *AuthRequ
 		Code:                nullStringToPtr(row.Code),
 		ExpiresAt:           row.ExpiresAt,
 		CreatedAt:           row.CreatedAt,
+	}
+}
+
+type refreshTokenAttributes struct {
+	familyID string
+	userID   string
+	clientID string
+	resource string
+	scopes   []string
+}
+
+func (s *Storage) deriveRefreshTokenAttributes(ctx context.Context, qtx *storeq.Queries, request op.TokenRequest, currentRefreshToken string) (refreshTokenAttributes, error) {
+	derived := refreshTokenAttributes{
+		familyID: s.idgen.NewUUID(),
+		userID:   request.GetSubject(),
+	}
+
+	if ar, ok := request.(*AuthRequestModel); ok {
+		derived.clientID = ar.GetClientID()
+		derived.resource = ar.Resource
+		derived.scopes = ar.GetScopes()
+		return derived, nil
+	}
+
+	if rtr, ok := request.(op.RefreshTokenRequest); ok {
+		derived.clientID = rtr.GetClientID()
+		derived.scopes = rtr.GetScopes()
+		if existing, ok := request.(*RefreshTokenModel); ok {
+			derived.resource = existing.Resource
+		}
+		if currentRefreshToken != "" {
+			oldHash := hashToken(currentRefreshToken)
+			fid, err := qtx.GetRefreshFamilyIDByTokenHash(ctx, oldHash)
+			if err == nil {
+				derived.familyID = fid
+			}
+		}
+		return derived, nil
+	}
+
+	if das, ok := request.(*op.DeviceAuthorizationState); ok {
+		derived.clientID = das.ClientID
+		derived.scopes = das.Scopes
+	}
+	return derived, nil
+}
+
+func revokeRefreshTokenIfPresent(ctx context.Context, qtx *storeq.Queries, currentRefreshToken string, now time.Time) error {
+	if currentRefreshToken == "" {
+		return nil
+	}
+
+	oldHash := hashToken(currentRefreshToken)
+	_, err := qtx.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		TokenHash: oldHash,
+	})
+	return err
+}
+
+func loadRefreshTokenForUpdate(ctx context.Context, qtx *storeq.Queries, tokenHash string) (*RefreshTokenModel, error) {
+	row, err := qtx.GetRefreshTokenForUpdateByHash(ctx, tokenHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, op.ErrInvalidRefreshToken
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &RefreshTokenModel{
+		ID:        row.ID,
+		TokenHash: row.TokenHash,
+		FamilyID:  row.FamilyID,
+		UserID:    row.UserID,
+		ClientID:  row.ClientID,
+		Resource:  row.Resource,
+		Scopes:    StringArray(row.Scopes),
+		ExpiresAt: row.ExpiresAt,
+		RevokedAt: nullTimePtr(row.RevokedAt),
+		UsedAt:    nullTimePtr(row.UsedAt),
+	}, nil
+}
+
+func isRefreshTokenUsedOrRevoked(rt *RefreshTokenModel) bool {
+	return rt.RevokedAt != nil || rt.UsedAt != nil
+}
+
+func revokeRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, familyID string, now time.Time) error {
+	return qtx.RevokeRefreshFamily(ctx, storeq.RevokeRefreshFamilyParams{
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		FamilyID:  familyID,
+	})
+}
+
+func (s *Storage) auditRefreshReuseDetection(ctx context.Context, userID, familyID string) {
+	s.AuditLog(ctx, &userID, "auth.refresh_reuse_detected", "", "", map[string]any{"family_id": familyID})
+	s.AuditLog(ctx, &userID, "auth.refresh_family_revoked", "", "", map[string]any{"family_id": familyID})
+}
+
+func (s *Storage) validateRefreshTokenRequest(ctx context.Context, tx *sql.Tx, rt *RefreshTokenModel, now time.Time) error {
+	if now.After(rt.ExpiresAt) {
+		_ = tx.Commit()
+		return op.ErrInvalidRefreshToken
+	}
+
+	requestResource := ResourceFromContext(ctx)
+	if err := s.resourcePolicy.ValidateTokenRequest(ctx, rt.ClientID, rt.Resource, requestResource); err != nil {
+		_ = tx.Commit()
+		return err
+	}
+
+	if s.stateChecker != nil {
+		user, err := s.getUserByID(ctx, tx, rt.UserID)
+		if err != nil {
+			_ = tx.Commit()
+			return op.ErrInvalidRefreshToken
+		}
+		if err := s.stateChecker(user); err != nil {
+			_ = tx.Commit()
+			return &oidc.Error{ErrorType: "invalid_grant", Description: err.Error()}
+		}
+	}
+	return nil
+}
+
+func tryRevokeRefreshByHash(ctx context.Context, q *storeq.Queries, tokenOrTokenID string, now time.Time) bool {
+	h := hashToken(tokenOrTokenID)
+	rows, _ := q.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		TokenHash: h,
+	})
+	return rows > 0
+}
+
+func tryRevokeRefreshByID(ctx context.Context, q *storeq.Queries, tokenOrTokenID string, now time.Time) {
+	if _, err := uuid.Parse(tokenOrTokenID); err == nil {
+		_ = q.RevokeRefreshTokenByID(ctx, storeq.RevokeRefreshTokenByIDParams{
+			RevokedAt: sql.NullTime{Time: now, Valid: true},
+			ID:        tokenOrTokenID,
+		})
 	}
 }
