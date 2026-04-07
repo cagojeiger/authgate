@@ -18,6 +18,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
+	mcpadapter "github.com/kangheeyong/authgate/internal/adapter/mcp"
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/config"
 	"github.com/kangheeyong/authgate/internal/handler"
@@ -80,8 +81,10 @@ func main() {
 		}
 	}
 
-	// CIMD fetcher for MCP clients (URL-based client_id)
-	store.SetCIMDFetcher(storage.NewHTTPCIMDFetcher())
+	// MCP adapter policies: enable CIMD-based client resolution and MCP-specific resource checks.
+	cimdFetcher := storage.NewHTTPCIMDFetcher()
+	store.SetClientResolutionPolicy(mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher))
+	store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy()))
 
 	// zitadel OP config
 	cryptoKey := sha256.Sum256([]byte(cfg.SessionSecret))
