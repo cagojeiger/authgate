@@ -115,12 +115,13 @@ func SetupTestServer(t *testing.T) *TestServer {
 
 	// Services
 	loginSvc := service.NewLoginService(store, fakeProvider, fakeProvider, 24*time.Hour)
+	mcpLoginSvc := service.NewMCPLoginService(store, fakeProvider, 24*time.Hour)
 	deviceSvc := service.NewDeviceService(store, fakeProvider, srv.URL, 24*time.Hour, clk)
 	accountSvc := service.NewAccountService(store)
 
 	// Handlers
 	loginHandler := handler.NewLoginHandler(loginSvc, true)
-	mcpLoginHandler := handler.NewMCPLoginHandler(loginSvc, true)
+	mcpLoginHandler := handler.NewMCPLoginHandler(mcpLoginSvc, true)
 	deviceHandler := handler.NewDeviceHandler(deviceSvc, true)
 	accountHandler := handler.NewAccountHandler(accountSvc, srv.URL)
 

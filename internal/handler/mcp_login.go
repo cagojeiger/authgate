@@ -8,11 +8,11 @@ import (
 )
 
 type MCPLoginHandler struct {
-	loginService *service.LoginService
+	loginService *service.MCPLoginService
 	devMode      bool
 }
 
-func NewMCPLoginHandler(loginService *service.LoginService, devMode bool) *MCPLoginHandler {
+func NewMCPLoginHandler(loginService *service.MCPLoginService, devMode bool) *MCPLoginHandler {
 	return &MCPLoginHandler{
 		loginService: loginService,
 		devMode:      devMode,
@@ -24,7 +24,7 @@ func (h *MCPLoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	authRequestID := r.URL.Query().Get("authRequestID")
 	sessionID := getSessionCookie(r)
 
-	result := h.loginService.HandleMCPLogin(r.Context(), authRequestID, sessionID, r.RemoteAddr, r.UserAgent())
+	result := h.loginService.HandleLogin(r.Context(), authRequestID, sessionID, r.RemoteAddr, r.UserAgent())
 
 	switch result.Action {
 	case service.ActionRedirectToIdP:
@@ -43,7 +43,7 @@ func (h *MCPLoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request)
 	code := r.URL.Query().Get("code")
 	authRequestID := r.URL.Query().Get("state")
 
-	result := h.loginService.HandleMCPCallback(r.Context(), code, authRequestID, r.RemoteAddr, r.UserAgent())
+	result := h.loginService.HandleCallback(r.Context(), code, authRequestID, r.RemoteAddr, r.UserAgent())
 
 	if result.SessionID != "" {
 		setSessionCookie(w, result.SessionID, h.devMode)
@@ -64,4 +64,3 @@ func (h *MCPLoginHandler) renderError(w http.ResponseWriter, code int, message s
 	w.WriteHeader(code)
 	pages.RenderError(w, pages.ErrorData{Code: code, Message: message})
 }
-
