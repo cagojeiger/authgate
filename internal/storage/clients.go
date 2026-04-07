@@ -154,6 +154,7 @@ func (s *Storage) SetResourceBindingPolicy(policy ResourceBindingPolicy) {
 }
 
 func (s *Storage) resolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
+	// Safety net for tests constructing Storage without New().
 	if s.clientPolicy == nil {
 		s.clientPolicy = defaultClientResolutionPolicy{s: s}
 	}
