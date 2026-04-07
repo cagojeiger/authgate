@@ -120,6 +120,7 @@ func SetupTestServer(t *testing.T) *TestServer {
 
 	// Handlers
 	loginHandler := handler.NewLoginHandler(loginSvc, true)
+	mcpLoginHandler := handler.NewMCPLoginHandler(loginSvc, true)
 	deviceHandler := handler.NewDeviceHandler(deviceSvc, true)
 	accountHandler := handler.NewAccountHandler(accountSvc, srv.URL)
 
@@ -167,8 +168,8 @@ func SetupTestServer(t *testing.T) *TestServer {
 	mux.Handle("/", provider)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
-	mux.HandleFunc("/mcp/login", loginHandler.HandleMCPLogin)
-	mux.HandleFunc("/mcp/callback", loginHandler.HandleMCPCallback)
+	mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
+	mux.HandleFunc("/mcp/callback", mcpLoginHandler.HandleCallback)
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
 	mux.HandleFunc("/device/approve", deviceHandler.HandleDeviceApprove)
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)

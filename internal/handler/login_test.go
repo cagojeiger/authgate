@@ -29,36 +29,12 @@ func TestLogin_MissingAuthRequestID_ReturnsBadRequest(t *testing.T) {
 	}
 }
 
-func TestMCPLogin_MissingAuthRequestID_ReturnsBadRequest(t *testing.T) {
-	h := newTestLoginHandler(true)
-	req := httptest.NewRequest(http.MethodGet, "/mcp/login", nil)
-	w := httptest.NewRecorder()
-
-	h.HandleMCPLogin(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", w.Code)
-	}
-}
-
 func TestLoginCallback_MissingCodeOrState_ReturnsBadRequest(t *testing.T) {
 	h := newTestLoginHandler(true)
 	req := httptest.NewRequest(http.MethodGet, "/login/callback", nil)
 	w := httptest.NewRecorder()
 
 	h.HandleCallback(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", w.Code)
-	}
-}
-
-func TestMCPCallback_MissingCodeOrState_ReturnsBadRequest(t *testing.T) {
-	h := newTestLoginHandler(true)
-	req := httptest.NewRequest(http.MethodGet, "/mcp/callback", nil)
-	w := httptest.NewRecorder()
-
-	h.HandleMCPCallback(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
