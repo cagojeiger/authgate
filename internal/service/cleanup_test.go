@@ -132,7 +132,7 @@ func TestCleanup_DeletionPIIScrub(t *testing.T) {
 
 // E2E 8: cleanup 롤백 — 중간 실패 시 데이터 일관성
 func TestE2E8_CleanupRollback(t *testing.T) {
-	_, _, _, store, db, clk := setupGapTest(t)
+	_, _, _, _, store, db, clk := setupGapTest(t)
 	ctx := context.Background()
 
 	// Create user set for deletion

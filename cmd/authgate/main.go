@@ -150,7 +150,7 @@ func main() {
 	}
 
 	// Service layer
-	loginService := service.NewLoginService(store, browserProvider, mcpProvider, cfg.SessionTTL)
+	loginService := service.NewLoginService(store, browserProvider, cfg.SessionTTL)
 	mcpLoginService := service.NewMCPLoginService(store, mcpProvider, cfg.SessionTTL)
 
 	// Device service
