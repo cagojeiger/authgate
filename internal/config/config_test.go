@@ -10,7 +10,7 @@ func clearEnv() {
 		"PORT", "DATABASE_URL", "SESSION_SECRET", "PUBLIC_URL",
 		"OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL",
-		"DEV_MODE",
+		"DEV_MODE", "ENABLE_MCP",
 	} {
 		os.Unsetenv(key)
 	}
@@ -117,6 +117,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.RefreshTokenTTL.Seconds() != 2592000 {
 		t.Errorf("RefreshTokenTTL = %v, want 2592000s", cfg.RefreshTokenTTL)
 	}
+	if !cfg.EnableMCP {
+		t.Error("EnableMCP = false, want true by default")
+	}
 }
 
 func TestLoad_DevModeFalseShortSessionSecret(t *testing.T) {
@@ -158,5 +161,19 @@ func TestLoad_Success(t *testing.T) {
 	}
 	if !cfg.DevMode {
 		t.Error("DevMode should be true")
+	}
+}
+
+func TestLoad_EnableMCPFalse(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("ENABLE_MCP", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.EnableMCP {
+		t.Fatal("EnableMCP should be false")
 	}
 }

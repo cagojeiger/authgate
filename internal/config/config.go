@@ -21,6 +21,7 @@ type Config struct {
 	AccessTokenTTL   time.Duration
 	RefreshTokenTTL  time.Duration
 	DevMode          bool
+	EnableMCP        bool
 	ClientConfigPath string
 }
 
@@ -38,6 +39,7 @@ func Load() (*Config, error) {
 		AccessTokenTTL:   time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
 		RefreshTokenTTL:  time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
 		DevMode:          envBool("DEV_MODE", false),
+		EnableMCP:        envBool("ENABLE_MCP", true),
 		ClientConfigPath: envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
 	}
 
