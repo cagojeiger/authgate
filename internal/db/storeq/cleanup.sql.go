@@ -11,66 +11,126 @@ import (
 	"time"
 )
 
-const anonymizeAuditLogBefore = `-- name: AnonymizeAuditLogBefore :execrows
-UPDATE audit_log
+const anonymizeAuditLogBatch = `-- name: AnonymizeAuditLogBatch :execrows
+WITH target AS (
+    SELECT id
+    FROM audit_log
+    WHERE audit_log.created_at < $1 AND audit_log.user_id IS NOT NULL
+    LIMIT $2
+)
+UPDATE audit_log a
 SET user_id = NULL
-WHERE created_at < $1 AND user_id IS NOT NULL
+FROM target t
+WHERE a.id = t.id
 `
 
-func (q *Queries) AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, anonymizeAuditLogBefore, cutoff)
+type AnonymizeAuditLogBatchParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+func (q *Queries) AnonymizeAuditLogBatch(ctx context.Context, arg AnonymizeAuditLogBatchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, anonymizeAuditLogBatch, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-const deleteExpiredAuthRequestsBefore = `-- name: DeleteExpiredAuthRequestsBefore :execrows
-DELETE FROM auth_requests
-WHERE expires_at < $1
+const deleteExpiredAuthRequestsBatch = `-- name: DeleteExpiredAuthRequestsBatch :execrows
+WITH doomed AS (
+    SELECT id
+    FROM auth_requests
+    WHERE auth_requests.expires_at < $1
+    LIMIT $2
+)
+DELETE FROM auth_requests t
+USING doomed d
+WHERE t.id = d.id
 `
 
-func (q *Queries) DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredAuthRequestsBefore, cutoff)
+type DeleteExpiredAuthRequestsBatchParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+func (q *Queries) DeleteExpiredAuthRequestsBatch(ctx context.Context, arg DeleteExpiredAuthRequestsBatchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredAuthRequestsBatch, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-const deleteExpiredDeviceCodesBefore = `-- name: DeleteExpiredDeviceCodesBefore :execrows
-DELETE FROM device_codes
-WHERE expires_at < $1
+const deleteExpiredDeviceCodesBatch = `-- name: DeleteExpiredDeviceCodesBatch :execrows
+WITH doomed AS (
+    SELECT id
+    FROM device_codes
+    WHERE device_codes.expires_at < $1
+    LIMIT $2
+)
+DELETE FROM device_codes t
+USING doomed d
+WHERE t.id = d.id
 `
 
-func (q *Queries) DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredDeviceCodesBefore, cutoff)
+type DeleteExpiredDeviceCodesBatchParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+func (q *Queries) DeleteExpiredDeviceCodesBatch(ctx context.Context, arg DeleteExpiredDeviceCodesBatchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredDeviceCodesBatch, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-const deleteExpiredOrRevokedSessions = `-- name: DeleteExpiredOrRevokedSessions :execrows
-DELETE FROM sessions
-WHERE expires_at < $1 OR revoked_at IS NOT NULL
+const deleteExpiredOrRevokedSessionsBatch = `-- name: DeleteExpiredOrRevokedSessionsBatch :execrows
+WITH doomed AS (
+    SELECT id
+    FROM sessions
+    WHERE sessions.expires_at < $1 OR sessions.revoked_at IS NOT NULL
+    LIMIT $2
+)
+DELETE FROM sessions t
+USING doomed d
+WHERE t.id = d.id
 `
 
-func (q *Queries) DeleteExpiredOrRevokedSessions(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredOrRevokedSessions, cutoff)
+type DeleteExpiredOrRevokedSessionsBatchParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+func (q *Queries) DeleteExpiredOrRevokedSessionsBatch(ctx context.Context, arg DeleteExpiredOrRevokedSessionsBatchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredOrRevokedSessionsBatch, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-const deleteExpiredRefreshTokensBefore = `-- name: DeleteExpiredRefreshTokensBefore :execrows
-DELETE FROM refresh_tokens
-WHERE expires_at < $1
+const deleteExpiredRefreshTokensBatch = `-- name: DeleteExpiredRefreshTokensBatch :execrows
+WITH doomed AS (
+    SELECT id
+    FROM refresh_tokens
+    WHERE refresh_tokens.expires_at < $1
+    LIMIT $2
+)
+DELETE FROM refresh_tokens t
+USING doomed d
+WHERE t.id = d.id
 `
 
-func (q *Queries) DeleteExpiredRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredRefreshTokensBefore, cutoff)
+type DeleteExpiredRefreshTokensBatchParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+func (q *Queries) DeleteExpiredRefreshTokensBatch(ctx context.Context, arg DeleteExpiredRefreshTokensBatchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredRefreshTokensBatch, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -87,13 +147,25 @@ func (q *Queries) DeleteRefreshTokensByUserID(ctx context.Context, userID string
 	return err
 }
 
-const deleteRevokedRefreshTokensBefore = `-- name: DeleteRevokedRefreshTokensBefore :execrows
-DELETE FROM refresh_tokens
-WHERE revoked_at IS NOT NULL AND revoked_at < $1
+const deleteRevokedRefreshTokensBatch = `-- name: DeleteRevokedRefreshTokensBatch :execrows
+WITH doomed AS (
+    SELECT id
+    FROM refresh_tokens
+    WHERE refresh_tokens.revoked_at IS NOT NULL AND refresh_tokens.revoked_at < $1
+    LIMIT $2
+)
+DELETE FROM refresh_tokens t
+USING doomed d
+WHERE t.id = d.id
 `
 
-func (q *Queries) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff sql.NullTime) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteRevokedRefreshTokensBefore, cutoff)
+type DeleteRevokedRefreshTokensBatchParams struct {
+	Cutoff    sql.NullTime
+	BatchSize int32
+}
+
+func (q *Queries) DeleteRevokedRefreshTokensBatch(ctx context.Context, arg DeleteRevokedRefreshTokensBatchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteRevokedRefreshTokensBatch, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}

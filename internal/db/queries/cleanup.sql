@@ -1,22 +1,57 @@
--- name: DeleteRevokedRefreshTokensBefore :execrows
-DELETE FROM refresh_tokens
-WHERE revoked_at IS NOT NULL AND revoked_at < sqlc.arg(cutoff);
+-- name: DeleteRevokedRefreshTokensBatch :execrows
+WITH doomed AS (
+    SELECT id
+    FROM refresh_tokens
+    WHERE refresh_tokens.revoked_at IS NOT NULL AND refresh_tokens.revoked_at < sqlc.arg(cutoff)
+    LIMIT sqlc.arg(batch_size)
+)
+DELETE FROM refresh_tokens t
+USING doomed d
+WHERE t.id = d.id;
 
--- name: DeleteExpiredRefreshTokensBefore :execrows
-DELETE FROM refresh_tokens
-WHERE expires_at < sqlc.arg(cutoff);
+-- name: DeleteExpiredRefreshTokensBatch :execrows
+WITH doomed AS (
+    SELECT id
+    FROM refresh_tokens
+    WHERE refresh_tokens.expires_at < sqlc.arg(cutoff)
+    LIMIT sqlc.arg(batch_size)
+)
+DELETE FROM refresh_tokens t
+USING doomed d
+WHERE t.id = d.id;
 
--- name: DeleteExpiredOrRevokedSessions :execrows
-DELETE FROM sessions
-WHERE expires_at < sqlc.arg(cutoff) OR revoked_at IS NOT NULL;
+-- name: DeleteExpiredOrRevokedSessionsBatch :execrows
+WITH doomed AS (
+    SELECT id
+    FROM sessions
+    WHERE sessions.expires_at < sqlc.arg(cutoff) OR sessions.revoked_at IS NOT NULL
+    LIMIT sqlc.arg(batch_size)
+)
+DELETE FROM sessions t
+USING doomed d
+WHERE t.id = d.id;
 
--- name: DeleteExpiredAuthRequestsBefore :execrows
-DELETE FROM auth_requests
-WHERE expires_at < sqlc.arg(cutoff);
+-- name: DeleteExpiredAuthRequestsBatch :execrows
+WITH doomed AS (
+    SELECT id
+    FROM auth_requests
+    WHERE auth_requests.expires_at < sqlc.arg(cutoff)
+    LIMIT sqlc.arg(batch_size)
+)
+DELETE FROM auth_requests t
+USING doomed d
+WHERE t.id = d.id;
 
--- name: DeleteExpiredDeviceCodesBefore :execrows
-DELETE FROM device_codes
-WHERE expires_at < sqlc.arg(cutoff);
+-- name: DeleteExpiredDeviceCodesBatch :execrows
+WITH doomed AS (
+    SELECT id
+    FROM device_codes
+    WHERE device_codes.expires_at < sqlc.arg(cutoff)
+    LIMIT sqlc.arg(batch_size)
+)
+DELETE FROM device_codes t
+USING doomed d
+WHERE t.id = d.id;
 
 -- name: ListPendingDeletionUserIDsBefore :many
 SELECT id
@@ -50,7 +85,14 @@ WHERE id = sqlc.arg(user_id) AND status = 'pending_deletion' AND deletion_schedu
 INSERT INTO audit_log (user_id, event_type, created_at)
 VALUES (NULLIF(sqlc.arg(user_id)::text, '')::uuid, 'auth.deletion_completed', sqlc.arg(created_at));
 
--- name: AnonymizeAuditLogBefore :execrows
-UPDATE audit_log
+-- name: AnonymizeAuditLogBatch :execrows
+WITH target AS (
+    SELECT id
+    FROM audit_log
+    WHERE audit_log.created_at < sqlc.arg(cutoff) AND audit_log.user_id IS NOT NULL
+    LIMIT sqlc.arg(batch_size)
+)
+UPDATE audit_log a
 SET user_id = NULL
-WHERE created_at < sqlc.arg(cutoff) AND user_id IS NOT NULL;
+FROM target t
+WHERE a.id = t.id;

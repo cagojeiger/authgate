@@ -7,20 +7,19 @@ package storeq
 import (
 	"context"
 	"database/sql"
-	"time"
 )
 
 type Querier interface {
-	AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	AnonymizeAuditLogBatch(ctx context.Context, arg AnonymizeAuditLogBatchParams) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
-	DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error)
-	DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error)
-	DeleteExpiredOrRevokedSessions(ctx context.Context, cutoff time.Time) (int64, error)
-	DeleteExpiredRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteExpiredAuthRequestsBatch(ctx context.Context, arg DeleteExpiredAuthRequestsBatchParams) (int64, error)
+	DeleteExpiredDeviceCodesBatch(ctx context.Context, arg DeleteExpiredDeviceCodesBatchParams) (int64, error)
+	DeleteExpiredOrRevokedSessionsBatch(ctx context.Context, arg DeleteExpiredOrRevokedSessionsBatchParams) (int64, error)
+	DeleteExpiredRefreshTokensBatch(ctx context.Context, arg DeleteExpiredRefreshTokensBatchParams) (int64, error)
 	DeleteRefreshTokensByUserID(ctx context.Context, userID string) error
-	DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff sql.NullTime) (int64, error)
+	DeleteRevokedRefreshTokensBatch(ctx context.Context, arg DeleteRevokedRefreshTokensBatchParams) (int64, error)
 	DeleteSessionsByUserID(ctx context.Context, userID string) error
 	DeleteUserIdentitiesByUserID(ctx context.Context, userID string) error
 	DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error

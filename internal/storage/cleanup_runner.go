@@ -54,48 +54,93 @@ func (r *CleanupRunner) WithExclusiveLock(ctx context.Context, fn func(context.C
 }
 
 func (r *CleanupRunner) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	return r.deleteInBatches(
-		ctx,
-		"refresh_tokens",
-		"revoked_at IS NOT NULL AND revoked_at < $1",
-		cutoff,
-	)
+	q := storeq.New(r.db)
+	var total int64
+	for {
+		rows, err := q.DeleteRevokedRefreshTokensBatch(ctx, storeq.DeleteRevokedRefreshTokensBatchParams{
+			Cutoff:    sql.NullTime{Time: cutoff, Valid: true},
+			BatchSize: cleanupBatchSize,
+		})
+		if err != nil {
+			return total, err
+		}
+		total += rows
+		if rows < cleanupBatchSize {
+			return total, nil
+		}
+	}
 }
 
 func (r *CleanupRunner) DeleteExpiredRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	return r.deleteInBatches(
-		ctx,
-		"refresh_tokens",
-		"expires_at < $1",
-		cutoff,
-	)
+	q := storeq.New(r.db)
+	var total int64
+	for {
+		rows, err := q.DeleteExpiredRefreshTokensBatch(ctx, storeq.DeleteExpiredRefreshTokensBatchParams{
+			Cutoff:    cutoff,
+			BatchSize: cleanupBatchSize,
+		})
+		if err != nil {
+			return total, err
+		}
+		total += rows
+		if rows < cleanupBatchSize {
+			return total, nil
+		}
+	}
 }
 
 func (r *CleanupRunner) DeleteExpiredOrRevokedSessions(ctx context.Context, cutoff time.Time) (int64, error) {
-	return r.deleteInBatches(
-		ctx,
-		"sessions",
-		"(expires_at < $1 OR revoked_at IS NOT NULL)",
-		cutoff,
-	)
+	q := storeq.New(r.db)
+	var total int64
+	for {
+		rows, err := q.DeleteExpiredOrRevokedSessionsBatch(ctx, storeq.DeleteExpiredOrRevokedSessionsBatchParams{
+			Cutoff:    cutoff,
+			BatchSize: cleanupBatchSize,
+		})
+		if err != nil {
+			return total, err
+		}
+		total += rows
+		if rows < cleanupBatchSize {
+			return total, nil
+		}
+	}
 }
 
 func (r *CleanupRunner) DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	return r.deleteInBatches(
-		ctx,
-		"auth_requests",
-		"expires_at < $1",
-		cutoff,
-	)
+	q := storeq.New(r.db)
+	var total int64
+	for {
+		rows, err := q.DeleteExpiredAuthRequestsBatch(ctx, storeq.DeleteExpiredAuthRequestsBatchParams{
+			Cutoff:    cutoff,
+			BatchSize: cleanupBatchSize,
+		})
+		if err != nil {
+			return total, err
+		}
+		total += rows
+		if rows < cleanupBatchSize {
+			return total, nil
+		}
+	}
 }
 
 func (r *CleanupRunner) DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	return r.deleteInBatches(
-		ctx,
-		"device_codes",
-		"expires_at < $1",
-		cutoff,
-	)
+	q := storeq.New(r.db)
+	var total int64
+	for {
+		rows, err := q.DeleteExpiredDeviceCodesBatch(ctx, storeq.DeleteExpiredDeviceCodesBatchParams{
+			Cutoff:    cutoff,
+			BatchSize: cleanupBatchSize,
+		})
+		if err != nil {
+			return total, err
+		}
+		total += rows
+		if rows < cleanupBatchSize {
+			return total, nil
+		}
+	}
 }
 
 func (r *CleanupRunner) ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff time.Time) ([]string, error) {
@@ -103,22 +148,13 @@ func (r *CleanupRunner) ListPendingDeletionUserIDsBefore(ctx context.Context, cu
 }
 
 func (r *CleanupRunner) AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	q := storeq.New(r.db)
 	var total int64
 	for {
-		rows, err := r.updateInBatches(
-			ctx,
-			`WITH target AS (
-				SELECT ctid
-				FROM audit_log
-				WHERE created_at < $1 AND user_id IS NOT NULL
-				LIMIT $2
-			)
-			UPDATE audit_log a
-			SET user_id = NULL
-			FROM target t
-			WHERE a.ctid = t.ctid`,
-			cutoff,
-		)
+		rows, err := q.AnonymizeAuditLogBatch(ctx, storeq.AnonymizeAuditLogBatchParams{
+			Cutoff:    cutoff,
+			BatchSize: cleanupBatchSize,
+		})
 		if err != nil {
 			return total, err
 		}
@@ -173,44 +209,4 @@ func (r *CleanupRunner) DeleteUser(
 		CreatedAt: now,
 	})
 	return nil
-}
-
-func (r *CleanupRunner) deleteInBatches(ctx context.Context, table, where string, args ...any) (int64, error) {
-	query := fmt.Sprintf(`
-		WITH doomed AS (
-			SELECT ctid
-			FROM %s
-			WHERE %s
-			LIMIT $%d
-		)
-		DELETE FROM %s t
-		USING doomed d
-		WHERE t.ctid = d.ctid
-	`, table, where, len(args)+1, table)
-
-	var total int64
-	for {
-		rows, err := r.updateInBatches(ctx, query, args...)
-		if err != nil {
-			return total, err
-		}
-		total += rows
-		if rows < cleanupBatchSize {
-			return total, nil
-		}
-	}
-}
-
-func (r *CleanupRunner) updateInBatches(ctx context.Context, query string, args ...any) (int64, error) {
-	execArgs := append(make([]any, 0, len(args)+1), args...)
-	execArgs = append(execArgs, cleanupBatchSize)
-	result, err := r.db.ExecContext(ctx, query, execArgs...)
-	if err != nil {
-		return 0, err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	return rows, nil
 }
