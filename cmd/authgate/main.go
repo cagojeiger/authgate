@@ -31,131 +31,21 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("config: %v", err)
-	}
-
-	// Database
-	db, err := sql.Open("pgx", cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("db open: %v", err)
-	}
+	cfg := mustLoadConfig()
+	db := mustOpenDB(cfg)
 	defer db.Close()
-	db.SetMaxOpenConns(cfg.DBMaxOpenConns)
-	db.SetMaxIdleConns(cfg.DBMaxIdleConns)
-	db.SetConnMaxLifetime(cfg.DBConnMaxLifetime)
-	db.SetConnMaxIdleTime(cfg.DBConnMaxIdleTime)
-
-	if err := db.Ping(); err != nil {
-		log.Fatalf("db ping: %v", err)
-	}
 
 	// Components
 	clk := clock.RealClock{}
 	gen := idgen.CryptoGenerator{}
-
-	// StateChecker: shared final gate for token issuance on code/refresh lookups.
-	stateChecker := func(user *storage.User) error {
-		if user.Status != "active" {
-			return fmt.Errorf("account not active: %s", user.Status)
-		}
-		return nil
-	}
-
-	store := storage.New(db, clk, gen, stateChecker, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
-
-	// Signing key
-	key, err := storage.LoadOrGenerateKey("signing_key.pem")
-	if err != nil {
-		log.Fatalf("signing key: %v", err)
-	}
-	store.SetSigningKey(key, "authgate-key-1")
-
-	// Client config (YAML → memory)
-	if cfg.ClientConfigPath != "" {
-		clientCfg, err := storage.LoadClientConfig(cfg.ClientConfigPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				slog.Warn("client config not found, skipping", "path", cfg.ClientConfigPath)
-			} else {
-				log.Fatalf("client config: %v", err)
-			}
-		} else {
-			if err := storage.ValidateClientChannels(clientCfg.Clients, cfg.EnableMCP); err != nil {
-				log.Fatalf("client config: %v", err)
-			}
-			store.LoadClients(clientCfg.Clients)
-			slog.Info("client config loaded", "path", cfg.ClientConfigPath, "count", len(clientCfg.Clients))
-		}
-	}
-
-	// MCP adapter policies: enable CIMD-based client resolution and MCP-specific resource checks.
-	if cfg.EnableMCP {
-		cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
-		store.SetClientResolutionPolicy(mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher))
-		store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy()))
-	}
-
-	// zitadel OP config
-	cryptoKey := sha256.Sum256([]byte(cfg.SessionSecret))
-	opConfig := &op.Config{
-		CryptoKey:             cryptoKey,
-		CodeMethodS256:        true,
-		AuthMethodPost:        true,
-		GrantTypeRefreshToken: true,
-		SupportedScopes:       []string{"openid", "profile", "email", "offline_access"},
-		DeviceAuthorization: op.DeviceAuthorizationConfig{
-			Lifetime:     5 * time.Minute,
-			PollInterval: 5 * time.Second,
-			UserFormPath: "/device",
-			UserCode: op.UserCodeConfig{
-				CharSet:      "BCDFGHJKLMNPQRSTVWXZ",
-				CharAmount:   8,
-				DashInterval: 4,
-			},
-		},
-	}
-
-	// OP options
-	opts := []op.Option{}
-	if cfg.DevMode {
-		opts = append(opts, op.WithAllowInsecure())
-	}
-
-	// Custom endpoints to match our spec
-	opts = append(opts,
-		op.WithCustomTokenEndpoint(op.NewEndpoint("oauth/token")),
-		op.WithCustomRevocationEndpoint(op.NewEndpoint("oauth/revoke")),
-		op.WithCustomDeviceAuthorizationEndpoint(op.NewEndpoint("oauth/device/authorize")),
-	)
-
-	// Create zitadel OP
-	provider, err := op.NewProvider(
-		opConfig,
-		store,
-		op.StaticIssuer(cfg.PublicURL),
-		opts...,
-	)
-	if err != nil {
-		log.Fatalf("oidc provider: %v", err)
-	}
+	store := mustBuildStore(cfg, db, clk, gen)
+	provider := mustBuildOIDCProvider(cfg, store)
 
 	// Upstream IdP (OIDC Discovery)
 	ctx := context.Background()
-	var upstreamOpts []upstream.Option
-	if cfg.OIDCInternalURL != "" {
-		upstreamOpts = append(upstreamOpts, upstream.WithInternalURL(cfg.OIDCInternalURL))
-	}
-	upstreamOpts = append(upstreamOpts, upstream.WithHTTPTimeout(cfg.OIDCHTTPTimeout))
-	browserProvider, err := upstream.NewOIDCProvider(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.PublicURL+"/login/callback", upstreamOpts...)
-	if err != nil {
-		log.Fatalf("browser provider: %v", err)
-	}
-	deviceProvider, err := upstream.NewOIDCProvider(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.PublicURL+"/device/auth/callback", upstreamOpts...)
-	if err != nil {
-		log.Fatalf("device provider: %v", err)
-	}
+	upstreamOpts := buildUpstreamOptions(cfg)
+	browserProvider := mustBuildUpstreamProvider(ctx, cfg, "/login/callback", upstreamOpts)
+	deviceProvider := mustBuildUpstreamProvider(ctx, cfg, "/device/auth/callback", upstreamOpts)
 
 	// Service layer
 	loginService := service.NewLoginService(store, browserProvider, cfg.SessionTTL)
@@ -173,21 +63,197 @@ func main() {
 
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if cfg.EnableMCP {
-		mcpProvider, err := upstream.NewOIDCProvider(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.PublicURL+"/mcp/callback", upstreamOpts...)
-		if err != nil {
-			log.Fatalf("mcp provider: %v", err)
-		}
+		mcpProvider := mustBuildUpstreamProvider(ctx, cfg, "/mcp/callback", upstreamOpts)
 		mcpLoginService := service.NewMCPLoginService(store, mcpProvider, cfg.SessionTTL)
 		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, cfg.DevMode)
 	}
 
-	// Mux: zitadel owns /.well-known/*, /authorize, /oauth/*, etc.
-	// authgate adds /login, /device, /account, /health, /ready
 	mux := http.NewServeMux()
 	httpMetrics := observability.NewHTTPMetrics()
+	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, httpMetrics)
 
-	// RFC 8414: OAuth Authorization Server Metadata
-	// This must be registered before the provider catch-all
+	var inflightRequests int64
+	srv, addr := buildHTTPServer(cfg, mux, httpMetrics, &inflightRequests)
+
+	cleanupCancel := startCleanupService(db, clk)
+	defer cleanupCancel()
+	installGracefulShutdown(srv, cfg, &inflightRequests, cleanupCancel)
+
+	slog.Info("authgate starting", "addr", addr, "dev", cfg.DevMode, "mcp", cfg.EnableMCP, "issuer", cfg.OIDCIssuerURL, "provider", browserProvider.Name())
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("server: %v", err)
+	}
+}
+
+func mustLoadConfig() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	return cfg
+}
+
+func mustOpenDB(cfg *config.Config) *sql.DB {
+	db, err := sql.Open("pgx", cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("db open: %v", err)
+	}
+
+	db.SetMaxOpenConns(cfg.DBMaxOpenConns)
+	db.SetMaxIdleConns(cfg.DBMaxIdleConns)
+	db.SetConnMaxLifetime(cfg.DBConnMaxLifetime)
+	db.SetConnMaxIdleTime(cfg.DBConnMaxIdleTime)
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("db ping: %v", err)
+	}
+	return db
+}
+
+func newStateChecker() func(*storage.User) error {
+	return func(user *storage.User) error {
+		if user.Status != "active" {
+			return fmt.Errorf("account not active: %s", user.Status)
+		}
+		return nil
+	}
+}
+
+func mustBuildStore(cfg *config.Config, db *sql.DB, clk clock.Clock, gen idgen.CryptoGenerator) *storage.Storage {
+	store := storage.New(db, clk, gen, newStateChecker(), cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
+	mustConfigureSigningKey(store)
+	loadClientConfigIfPresent(cfg, store)
+	configureMCPPoliciesIfEnabled(cfg, store)
+	return store
+}
+
+func mustConfigureSigningKey(store *storage.Storage) {
+	key, err := storage.LoadOrGenerateKey("signing_key.pem")
+	if err != nil {
+		log.Fatalf("signing key: %v", err)
+	}
+	store.SetSigningKey(key, "authgate-key-1")
+}
+
+func loadClientConfigIfPresent(cfg *config.Config, store *storage.Storage) {
+	if cfg.ClientConfigPath == "" {
+		return
+	}
+
+	clientCfg, err := storage.LoadClientConfig(cfg.ClientConfigPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			slog.Warn("client config not found, skipping", "path", cfg.ClientConfigPath)
+			return
+		}
+		log.Fatalf("client config: %v", err)
+	}
+	if err := storage.ValidateClientChannels(clientCfg.Clients, cfg.EnableMCP); err != nil {
+		log.Fatalf("client config: %v", err)
+	}
+	store.LoadClients(clientCfg.Clients)
+	slog.Info("client config loaded", "path", cfg.ClientConfigPath, "count", len(clientCfg.Clients))
+}
+
+func configureMCPPoliciesIfEnabled(cfg *config.Config, store *storage.Storage) {
+	if !cfg.EnableMCP {
+		return
+	}
+	cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
+	store.SetClientResolutionPolicy(mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher))
+	store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy()))
+}
+
+func mustBuildOIDCProvider(cfg *config.Config, store *storage.Storage) http.Handler {
+	provider, err := op.NewProvider(
+		buildOPConfig(cfg),
+		store,
+		op.StaticIssuer(cfg.PublicURL),
+		buildOPOptions(cfg)...,
+	)
+	if err != nil {
+		log.Fatalf("oidc provider: %v", err)
+	}
+	return provider
+}
+
+func buildOPConfig(cfg *config.Config) *op.Config {
+	cryptoKey := sha256.Sum256([]byte(cfg.SessionSecret))
+	return &op.Config{
+		CryptoKey:             cryptoKey,
+		CodeMethodS256:        true,
+		AuthMethodPost:        true,
+		GrantTypeRefreshToken: true,
+		SupportedScopes:       []string{"openid", "profile", "email", "offline_access"},
+		DeviceAuthorization: op.DeviceAuthorizationConfig{
+			Lifetime:     5 * time.Minute,
+			PollInterval: 5 * time.Second,
+			UserFormPath: "/device",
+			UserCode: op.UserCodeConfig{
+				CharSet:      "BCDFGHJKLMNPQRSTVWXZ",
+				CharAmount:   8,
+				DashInterval: 4,
+			},
+		},
+	}
+}
+
+func buildOPOptions(cfg *config.Config) []op.Option {
+	opts := []op.Option{}
+	if cfg.DevMode {
+		opts = append(opts, op.WithAllowInsecure())
+	}
+	opts = append(opts,
+		op.WithCustomTokenEndpoint(op.NewEndpoint("oauth/token")),
+		op.WithCustomRevocationEndpoint(op.NewEndpoint("oauth/revoke")),
+		op.WithCustomDeviceAuthorizationEndpoint(op.NewEndpoint("oauth/device/authorize")),
+	)
+	return opts
+}
+
+func buildUpstreamOptions(cfg *config.Config) []upstream.Option {
+	opts := []upstream.Option{}
+	if cfg.OIDCInternalURL != "" {
+		opts = append(opts, upstream.WithInternalURL(cfg.OIDCInternalURL))
+	}
+	opts = append(opts, upstream.WithHTTPTimeout(cfg.OIDCHTTPTimeout))
+	return opts
+}
+
+func mustBuildUpstreamProvider(ctx context.Context, cfg *config.Config, callbackPath string, upstreamOpts []upstream.Option) upstream.Provider {
+	p, err := upstream.NewOIDCProvider(
+		ctx,
+		cfg.OIDCIssuerURL,
+		cfg.OIDCClientID,
+		cfg.OIDCClientSecret,
+		cfg.PublicURL+callbackPath,
+		upstreamOpts...,
+	)
+	if err != nil {
+		log.Fatalf("upstream provider (%s): %v", callbackPath, err)
+	}
+	return p
+}
+
+func registerRoutes(
+	mux *http.ServeMux,
+	cfg *config.Config,
+	db *sql.DB,
+	store *storage.Storage,
+	provider http.Handler,
+	loginHandler *handler.LoginHandler,
+	deviceHandler *handler.DeviceHandler,
+	accountHandler *handler.AccountHandler,
+	mcpLoginHandler *handler.MCPLoginHandler,
+	httpMetrics *observability.HTTPMetrics,
+) {
+	registerOAuthMetadataRoute(mux, cfg)
+	registerProviderRoutes(mux, cfg, store, provider)
+	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler)
+	registerHealthRoutes(mux, db, httpMetrics)
+}
+
+func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 		metadata := map[string]any{
 			"issuer":                                cfg.PublicURL,
@@ -206,10 +272,11 @@ func main() {
 			"client_id_metadata_document_supported": cfg.EnableMCP,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(metadata)
+		_ = json.NewEncoder(w).Encode(metadata)
 	})
+}
 
-	// Capture resource hints before handing off to zitadel.
+func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *storage.Storage, provider http.Handler) {
 	mux.Handle("/authorize", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
@@ -223,8 +290,6 @@ func main() {
 			provider.ServeHTTP(w, r)
 			return
 		}
-		// RFC 7009: revocation endpoint should still return 200 even if a CIMD
-		// client metadata document is temporarily unavailable.
 		if err := r.ParseForm(); err == nil {
 			clientID := strings.TrimSpace(r.Form.Get("client_id"))
 			if storage.IsCIMDClientID(clientID) {
@@ -236,77 +301,82 @@ func main() {
 		}
 		provider.ServeHTTP(w, r)
 	}))
-
-	// zitadel provider handles all OIDC routes (including /.well-known/openid-configuration)
 	mux.Handle("/", provider)
+}
 
-	// authgate login routes
+func registerAuthgateRoutes(
+	mux *http.ServeMux,
+	cfg *config.Config,
+	loginHandler *handler.LoginHandler,
+	deviceHandler *handler.DeviceHandler,
+	accountHandler *handler.AccountHandler,
+	mcpLoginHandler *handler.MCPLoginHandler,
+) {
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
 	if cfg.EnableMCP {
 		mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
 		mux.HandleFunc("/mcp/callback", mcpLoginHandler.HandleCallback)
 	}
-
-	// authgate account routes
 	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
-
-	// authgate device routes
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
 	mux.HandleFunc("/device/approve", deviceHandler.HandleDeviceApprove)
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
+}
 
-	// Health endpoints
+func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, httpMetrics *observability.HTTPMetrics) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"healthy"}`))
+		_, _ = w.Write([]byte(`{"status":"healthy"}`))
 	})
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := db.PingContext(r.Context()); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"status":"not ready"}`))
+			_, _ = w.Write([]byte(`{"status":"not ready"}`))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ready"}`))
+		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})
 	mux.Handle("/metrics", httpMetrics.MetricsHandler())
+}
 
-	// Server
+func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *observability.HTTPMetrics, inflightRequests *int64) (*http.Server, string) {
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	var inflightRequests int64
 	observedHandler := httpMetrics.Middleware(mux)
 	trackedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&inflightRequests, 1)
-		defer atomic.AddInt64(&inflightRequests, -1)
+		atomic.AddInt64(inflightRequests, 1)
+		defer atomic.AddInt64(inflightRequests, -1)
 		observedHandler.ServeHTTP(w, r)
 	})
-	srv := &http.Server{
+
+	return &http.Server{
 		Addr:              addr,
 		Handler:           trackedHandler,
 		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
 		ReadTimeout:       cfg.HTTPReadTimeout,
 		WriteTimeout:      cfg.HTTPWriteTimeout,
 		IdleTimeout:       cfg.HTTPIdleTimeout,
-	}
+	}, addr
+}
 
-	// Cleanup service
+func startCleanupService(db *sql.DB, clk clock.Clock) context.CancelFunc {
 	cleanupRunner := storage.NewCleanupRunner(db)
 	cleanupSvc := service.NewCleanupService(cleanupRunner, clk, 10*time.Minute)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
-	defer cleanupCancel()
 	go cleanupSvc.Start(cleanupCtx)
+	return cleanupCancel
+}
 
-	// Graceful shutdown
+func installGracefulShutdown(srv *http.Server, cfg *config.Config, inflightRequests *int64, cleanupCancel context.CancelFunc) {
 	go func() {
 		sigCh := make(chan os.Signal, 2)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
-		slog.Info("shutdown signal received", "inflight_requests", atomic.LoadInt64(&inflightRequests))
+		slog.Info("shutdown signal received", "inflight_requests", atomic.LoadInt64(inflightRequests))
 
-		// If another signal arrives while draining, force immediate close.
 		go func() {
 			<-sigCh
 			slog.Warn("second shutdown signal received; forcing close")
@@ -320,11 +390,6 @@ func main() {
 			slog.Error("graceful shutdown failed", "error", err)
 		}
 		signal.Stop(sigCh)
-		slog.Info("shutdown completed", "inflight_requests", atomic.LoadInt64(&inflightRequests))
+		slog.Info("shutdown completed", "inflight_requests", atomic.LoadInt64(inflightRequests))
 	}()
-
-	slog.Info("authgate starting", "addr", addr, "dev", cfg.DevMode, "mcp", cfg.EnableMCP, "issuer", cfg.OIDCIssuerURL, "provider", browserProvider.Name())
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("server: %v", err)
-	}
 }
