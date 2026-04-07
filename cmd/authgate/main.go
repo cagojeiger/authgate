@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -272,9 +273,15 @@ func main() {
 
 	// Server
 	addr := fmt.Sprintf(":%d", cfg.Port)
+	var inflightRequests int64
+	trackedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&inflightRequests, 1)
+		defer atomic.AddInt64(&inflightRequests, -1)
+		mux.ServeHTTP(w, r)
+	})
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           trackedHandler,
 		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
 		ReadTimeout:       cfg.HTTPReadTimeout,
 		WriteTimeout:      cfg.HTTPWriteTimeout,
@@ -290,13 +297,26 @@ func main() {
 
 	// Graceful shutdown
 	go func() {
-		sigCh := make(chan os.Signal, 1)
+		sigCh := make(chan os.Signal, 2)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
-		slog.Info("shutting down")
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		slog.Info("shutdown signal received", "inflight_requests", atomic.LoadInt64(&inflightRequests))
+
+		// If another signal arrives while draining, force immediate close.
+		go func() {
+			<-sigCh
+			slog.Warn("second shutdown signal received; forcing close")
+			_ = srv.Close()
+		}()
+
+		cleanupCancel()
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
-		srv.Shutdown(ctx)
+		if err := srv.Shutdown(ctx); err != nil {
+			slog.Error("graceful shutdown failed", "error", err)
+		}
+		signal.Stop(sigCh)
+		slog.Info("shutdown completed", "inflight_requests", atomic.LoadInt64(&inflightRequests))
 	}()
 
 	slog.Info("authgate starting", "addr", addr, "dev", cfg.DevMode, "mcp", cfg.EnableMCP, "issuer", cfg.OIDCIssuerURL, "provider", browserProvider.Name())

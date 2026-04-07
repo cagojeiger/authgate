@@ -32,6 +32,7 @@ type Config struct {
 	HTTPReadTimeout       time.Duration
 	HTTPWriteTimeout      time.Duration
 	HTTPIdleTimeout       time.Duration
+	ShutdownTimeout       time.Duration
 }
 
 func Load() (*Config, error) {
@@ -59,6 +60,7 @@ func Load() (*Config, error) {
 		HTTPReadTimeout:       time.Duration(envInt("HTTP_READ_TIMEOUT_SEC", 15)) * time.Second,
 		HTTPWriteTimeout:      time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,
 		HTTPIdleTimeout:       time.Duration(envInt("HTTP_IDLE_TIMEOUT_SEC", 60)) * time.Second,
+		ShutdownTimeout:       time.Duration(envInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second,
 	}
 
 	if c.DatabaseURL == "" {
@@ -72,6 +74,9 @@ func Load() (*Config, error) {
 	}
 	if c.OIDCHTTPTimeout <= 0 {
 		return nil, fmt.Errorf("OIDC_HTTP_TIMEOUT_SEC must be > 0")
+	}
+	if c.ShutdownTimeout <= 0 {
+		return nil, fmt.Errorf("SHUTDOWN_TIMEOUT_SEC must be > 0")
 	}
 	if c.DBMaxOpenConns < 0 {
 		return nil, fmt.Errorf("DB_MAX_OPEN_CONNS must be >= 0")
