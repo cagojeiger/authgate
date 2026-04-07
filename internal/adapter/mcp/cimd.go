@@ -1,4 +1,4 @@
-package storage
+package mcp
 
 import (
 	"context"
@@ -8,25 +8,19 @@ import (
 	"mime"
 	"net"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
+	"github.com/kangheeyong/authgate/internal/storage"
 	"golang.org/x/sync/singleflight"
 )
 
 // cimdCacheEntry holds a cached CIMD client with expiration.
 type cimdCacheEntry struct {
-	client    *ClientModel
+	client    *storage.ClientModel
 	err       error
 	expiresAt time.Time
-}
-
-// CIMDFetcher fetches and validates CIMD (Client ID Metadata Document) clients.
-type CIMDFetcher interface {
-	FetchClient(ctx context.Context, clientID string) (*ClientModel, error)
 }
 
 // CIMDMetadata represents a Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document).
@@ -97,8 +91,8 @@ func NewHTTPCIMDFetcher() *HTTPCIMDFetcher {
 	}
 }
 
-func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*ClientModel, error) {
-	if !isCIMDClientID(clientID) {
+func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*storage.ClientModel, error) {
+	if !storage.IsCIMDClientID(clientID) {
 		return nil, fmt.Errorf("cimd: invalid client_id URL")
 	}
 
@@ -134,12 +128,12 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*Cl
 	if err != nil {
 		return nil, err
 	}
-	client := v.(*ClientModel)
+	client := v.(*storage.ClientModel)
 
 	return client, nil
 }
 
-func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string) (*ClientModel, error) {
+func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string) (*storage.ClientModel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("cimd: invalid URL: %w", err)
@@ -234,48 +228,15 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		}
 	}
 
-	return &ClientModel{
+	return &storage.ClientModel{
 		ID:                   meta.ClientID,
 		Type:                 "public",
 		LoginChannel:         "mcp",
 		Name:                 meta.ClientName,
-		RedirectURIList:      StringArray(meta.RedirectURIs),
-		AllowedScopeList:     StringArray([]string{"openid", "profile", "email", "offline_access"}),
-		AllowedGrantTypeList: StringArray(meta.GrantTypes),
+		RedirectURIList:      storage.StringArray(meta.RedirectURIs),
+		AllowedScopeList:     storage.StringArray([]string{"openid", "profile", "email", "offline_access"}),
+		AllowedGrantTypeList: storage.StringArray(meta.GrantTypes),
 	}, nil
-}
-
-// isCIMDClientID checks if a client_id is a CIMD URL (HTTPS with path component).
-func isCIMDClientID(clientID string) bool {
-	// ParseRequestURI doesn't parse fragments, check raw string
-	if strings.Contains(clientID, "#") {
-		return false
-	}
-	u, err := url.ParseRequestURI(clientID)
-	if err != nil {
-		return false
-	}
-	if u.Scheme != "https" {
-		return false
-	}
-	if u.Host == "" || u.Hostname() == "" {
-		return false
-	}
-	if u.User != nil {
-		return false
-	}
-	if u.Path == "" || u.Path == "/" {
-		return false
-	}
-	if u.RawQuery != "" {
-		return false
-	}
-	return true
-}
-
-// IsCIMDClientID reports whether a client_id is a CIMD URL.
-func IsCIMDClientID(clientID string) bool {
-	return isCIMDClientID(clientID)
 }
 
 // isPrivateIP checks if an IP is private/loopback/link-local.

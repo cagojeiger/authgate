@@ -58,7 +58,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 
 	store := storage.New(db, clk, gen, stateChecker, 15*time.Minute, 30*24*time.Hour)
 	if opts.EnableMCP {
-		cimdFetcher := storage.NewHTTPCIMDFetcher()
+		cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
 		store.SetClientResolutionPolicy(mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher))
 		store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy()))
 	}
