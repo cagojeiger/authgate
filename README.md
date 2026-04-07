@@ -131,6 +131,10 @@ go run ./cmd/authgate
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | required | PostgreSQL connection string |
+| `DB_MAX_OPEN_CONNS` | `25` | DB pool `MaxOpenConns` (`0` means unlimited) |
+| `DB_MAX_IDLE_CONNS` | `25` | DB pool `MaxIdleConns` (clamped to `DB_MAX_OPEN_CONNS` when needed) |
+| `DB_CONN_MAX_LIFETIME_SEC` | `300` | DB pool `ConnMaxLifetime` in seconds |
+| `DB_CONN_MAX_IDLE_TIME_SEC` | `120` | DB pool `ConnMaxIdleTime` in seconds |
 | `SESSION_SECRET` | required | provider crypto key source (>=32 chars in prod) |
 | `PUBLIC_URL` | required | external authgate URL |
 | `OIDC_ISSUER_URL` | `http://localhost:8082` | upstream OIDC issuer |
