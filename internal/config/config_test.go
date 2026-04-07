@@ -11,6 +11,8 @@ func clearEnv() {
 		"OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL",
 		"DEV_MODE", "ENABLE_MCP",
+		"DB_MAX_OPEN_CONNS", "DB_MAX_IDLE_CONNS",
+		"DB_CONN_MAX_LIFETIME_SEC", "DB_CONN_MAX_IDLE_TIME_SEC",
 		"HTTP_READ_HEADER_TIMEOUT_SEC", "HTTP_READ_TIMEOUT_SEC",
 		"HTTP_WRITE_TIMEOUT_SEC", "HTTP_IDLE_TIMEOUT_SEC",
 	} {
@@ -134,6 +136,18 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.HTTPIdleTimeout.Seconds() != 60 {
 		t.Errorf("HTTPIdleTimeout = %v, want 60s", cfg.HTTPIdleTimeout)
 	}
+	if cfg.DBMaxOpenConns != 25 {
+		t.Errorf("DBMaxOpenConns = %d, want 25", cfg.DBMaxOpenConns)
+	}
+	if cfg.DBMaxIdleConns != 25 {
+		t.Errorf("DBMaxIdleConns = %d, want 25", cfg.DBMaxIdleConns)
+	}
+	if cfg.DBConnMaxLifetime.Seconds() != 300 {
+		t.Errorf("DBConnMaxLifetime = %v, want 300s", cfg.DBConnMaxLifetime)
+	}
+	if cfg.DBConnMaxIdleTime.Seconds() != 120 {
+		t.Errorf("DBConnMaxIdleTime = %v, want 120s", cfg.DBConnMaxIdleTime)
+	}
 }
 
 func TestLoad_DevModeFalseShortSessionSecret(t *testing.T) {
@@ -216,5 +230,46 @@ func TestLoad_HTTPTimeoutsFromEnv(t *testing.T) {
 	}
 	if cfg.HTTPIdleTimeout.Seconds() != 120 {
 		t.Errorf("HTTPIdleTimeout = %v, want 120s", cfg.HTTPIdleTimeout)
+	}
+}
+
+func TestLoad_DBPoolFromEnv(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("DB_MAX_OPEN_CONNS", "40")
+	os.Setenv("DB_MAX_IDLE_CONNS", "12")
+	os.Setenv("DB_CONN_MAX_LIFETIME_SEC", "600")
+	os.Setenv("DB_CONN_MAX_IDLE_TIME_SEC", "90")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.DBMaxOpenConns != 40 {
+		t.Errorf("DBMaxOpenConns = %d, want 40", cfg.DBMaxOpenConns)
+	}
+	if cfg.DBMaxIdleConns != 12 {
+		t.Errorf("DBMaxIdleConns = %d, want 12", cfg.DBMaxIdleConns)
+	}
+	if cfg.DBConnMaxLifetime.Seconds() != 600 {
+		t.Errorf("DBConnMaxLifetime = %v, want 600s", cfg.DBConnMaxLifetime)
+	}
+	if cfg.DBConnMaxIdleTime.Seconds() != 90 {
+		t.Errorf("DBConnMaxIdleTime = %v, want 90s", cfg.DBConnMaxIdleTime)
+	}
+}
+
+func TestLoad_DBPoolClampIdleToOpen(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("DB_MAX_OPEN_CONNS", "10")
+	os.Setenv("DB_MAX_IDLE_CONNS", "30")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.DBMaxIdleConns != 10 {
+		t.Errorf("DBMaxIdleConns = %d, want clamped 10", cfg.DBMaxIdleConns)
 	}
 }

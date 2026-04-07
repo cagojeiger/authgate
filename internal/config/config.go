@@ -11,6 +11,10 @@ import (
 type Config struct {
 	Port                  int
 	DatabaseURL           string
+	DBMaxOpenConns        int
+	DBMaxIdleConns        int
+	DBConnMaxLifetime     time.Duration
+	DBConnMaxIdleTime     time.Duration
 	SessionSecret         string
 	PublicURL             string
 	OIDCIssuerURL         string
@@ -33,6 +37,10 @@ func Load() (*Config, error) {
 	c := &Config{
 		Port:                  envInt("PORT", 8080),
 		DatabaseURL:           os.Getenv("DATABASE_URL"),
+		DBMaxOpenConns:        envInt("DB_MAX_OPEN_CONNS", 25),
+		DBMaxIdleConns:        envInt("DB_MAX_IDLE_CONNS", 25),
+		DBConnMaxLifetime:     time.Duration(envInt("DB_CONN_MAX_LIFETIME_SEC", 300)) * time.Second,
+		DBConnMaxIdleTime:     time.Duration(envInt("DB_CONN_MAX_IDLE_TIME_SEC", 120)) * time.Second,
 		SessionSecret:         os.Getenv("SESSION_SECRET"),
 		PublicURL:             os.Getenv("PUBLIC_URL"),
 		OIDCIssuerURL:         envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
@@ -59,6 +67,21 @@ func Load() (*Config, error) {
 	}
 	if c.PublicURL == "" {
 		return nil, fmt.Errorf("PUBLIC_URL is required")
+	}
+	if c.DBMaxOpenConns < 0 {
+		return nil, fmt.Errorf("DB_MAX_OPEN_CONNS must be >= 0")
+	}
+	if c.DBMaxIdleConns < 0 {
+		return nil, fmt.Errorf("DB_MAX_IDLE_CONNS must be >= 0")
+	}
+	if c.DBConnMaxLifetime < 0 {
+		return nil, fmt.Errorf("DB_CONN_MAX_LIFETIME_SEC must be >= 0")
+	}
+	if c.DBConnMaxIdleTime < 0 {
+		return nil, fmt.Errorf("DB_CONN_MAX_IDLE_TIME_SEC must be >= 0")
+	}
+	if c.DBMaxOpenConns > 0 && c.DBMaxIdleConns > c.DBMaxOpenConns {
+		c.DBMaxIdleConns = c.DBMaxOpenConns
 	}
 
 	// Production guards

@@ -40,6 +40,10 @@ func main() {
 		log.Fatalf("db open: %v", err)
 	}
 	defer db.Close()
+	db.SetMaxOpenConns(cfg.DBMaxOpenConns)
+	db.SetMaxIdleConns(cfg.DBMaxIdleConns)
+	db.SetConnMaxLifetime(cfg.DBConnMaxLifetime)
+	db.SetConnMaxIdleTime(cfg.DBConnMaxIdleTime)
 
 	if err := db.Ping(); err != nil {
 		log.Fatalf("db ping: %v", err)
