@@ -40,7 +40,7 @@ SELECT id,
        expires_at,
        created_at
 FROM auth_requests
-WHERE code = $1::text
+WHERE code = $1
 `
 
 type GetAuthRequestByCodeRow struct {
@@ -61,8 +61,8 @@ type GetAuthRequestByCodeRow struct {
 	CreatedAt           time.Time
 }
 
-func (q *Queries) GetAuthRequestByCode(ctx context.Context, dollar_1 string) (GetAuthRequestByCodeRow, error) {
-	row := q.db.QueryRowContext(ctx, getAuthRequestByCode, dollar_1)
+func (q *Queries) GetAuthRequestByCode(ctx context.Context, code sql.NullString) (GetAuthRequestByCodeRow, error) {
+	row := q.db.QueryRowContext(ctx, getAuthRequestByCode, code)
 	var i GetAuthRequestByCodeRow
 	err := row.Scan(
 		&i.ID,

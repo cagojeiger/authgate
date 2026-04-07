@@ -41,7 +41,7 @@ SELECT id,
        expires_at,
        created_at
 FROM auth_requests
-WHERE code = $1::text;
+WHERE code = $1;
 
 -- name: UpdateAuthRequestCode :exec
 UPDATE auth_requests
