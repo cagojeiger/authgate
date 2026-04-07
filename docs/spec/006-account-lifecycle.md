@@ -47,7 +47,7 @@ stateDiagram-v2
 | **active** | 허용 | 허용 | 허용 | 정상 |
 | **disabled** | 차단 (403) | 차단 (403) | 차단 | 운영자 정지 |
 | **pending_deletion** | 허용 → active 복구 | 차단 (403) | 차단 | 30일 유예 |
-| **deleted** | 차단 (403) | 차단 (403) | 차단 | PII 스크러빙 완료 |
+| **deleted** | `ErrNotFound` → 신규 가입 경로 | 차단 (403) | 차단 | PII 스크러빙 완료 + identity 제거 |
 
 **pending_deletion 복구는 브라우저 로그인에서만 가능.**
 CLI/MCP로는 복구할 수 없다 — 브라우저에서 먼저 로그인해야 한다.
@@ -87,16 +87,13 @@ sequenceDiagram
     U->>AG: 브라우저 로그인 시도 (Spec 002)
     AG->>AG: GetUserByProviderIdentity → 기존 유저
     AG->>AG: user.status = 'pending_deletion'
-    AG->>DB: BEGIN
-    AG->>DB: SELECT users ... FOR UPDATE (row 잠금)
-    AG->>DB: UPDATE users SET status='active', deletion_requested_at=NULL, deletion_scheduled_at=NULL
+    AG->>DB: UPDATE users SET status='active', deletion_requested_at=NULL, deletion_scheduled_at=NULL WHERE status='pending_deletion'
     AG->>DB: INSERT sessions (새 세션)
-    AG->>DB: COMMIT
     AG->>AG: audit: auth.deletion_cancelled
     AG-->>U: 로그인 성공 (새 access_token + 새 refresh_token 발급)
 ```
 
-**원자성 규칙**: RecoverUser 자체는 원자적이다 (SELECT FOR UPDATE + UPDATE in TX). 세션 생성과 auth_request 완료는 별도 호출이지만, 각 단계가 실패해도 복구는 유지되고 다음 로그인에서 즉시 정상 완료된다 (재시도 멱등).
+**원자성 규칙**: RecoverUser 자체는 단일 UPDATE로 원자적이다. 세션 생성과 auth_request 완료는 별도 호출이지만, 각 단계가 실패해도 복구는 유지되고 다음 로그인에서 즉시 정상 완료된다 (재시도 멱등).
 
 복구 후 **새 토큰이 발급된다** (기존 토큰은 삭제 요청 시 revoke됨).
 

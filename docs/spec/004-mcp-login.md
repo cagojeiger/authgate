@@ -97,7 +97,7 @@ MCP Authorization
 
 ```text
 책임
-  - /.well-known/oauth-authorization-server 제공 (client_id_metadata_document_supported: true)
+  - /.well-known/oauth-authorization-server 제공 (`client_id_metadata_document_supported`는 `ENABLE_MCP` 설정값을 반영)
   - /authorize, /oauth/token, /oauth/revoke 제공
   - CIMD: URL 형식 client_id 감지 → metadata fetch → 검증
   - MCP 전용 로그인 경로(/mcp/login, /mcp/callback) 처리
@@ -168,7 +168,7 @@ sequenceDiagram
 
     Note over C,G: 2. Authorization Server Discovery
     C->>AG: GET /.well-known/oauth-authorization-server
-    AG-->>C: {authorization_endpoint, token_endpoint, client_id_metadata_document_supported: true, ...}
+    AG-->>C: {authorization_endpoint, token_endpoint, client_id_metadata_document_supported: (true|false), ...}
 
     Note over C,G: 3. Authorization Request (CIMD)
     C->>U: 브라우저 열기
@@ -246,6 +246,8 @@ authgate는 `/.well-known/oauth-authorization-server`에서 최소한 아래를 
   "client_id_metadata_document_supported": true
 }
 ```
+
+`client_id_metadata_document_supported` 값은 런타임 설정 `ENABLE_MCP`에 따라 결정된다.
 
 ## Client ID Metadata Document (CIMD)
 

@@ -175,12 +175,12 @@ sequenceDiagram
 pending_deletion 복구는 로그인 완료 절차의 일부로, 다음 순서로 수행한다:
 
 ```
-1. RecoverUser: SELECT ... FOR UPDATE → status = active, deletion fields = NULL (단일 TX)
+1. RecoverUser: `UPDATE ... WHERE status='pending_deletion'`로 active 복구 + deletion 필드 NULL 처리
 2. CreateSession: 새 세션 생성
 3. CompleteAuthRequest: auth_request에 subject 연결
 ```
 
-RecoverUser 자체는 원자적이다 (SELECT FOR UPDATE + UPDATE in TX).
+RecoverUser 자체는 원자적이다 (단일 UPDATE).
 세션 생성과 auth_request 완료는 별도 호출이지만, 각 단계가 실패해도 안전하다:
 - RecoverUser 성공 후 CreateSession 실패 → 복구는 유지됨, 다음 로그인에서 세션 생성
 - CreateSession 성공 후 CompleteAuthRequest 실패 → 복구와 세션은 유지됨, 다음 로그인에서 즉시 완료 (재시도 멱등)
