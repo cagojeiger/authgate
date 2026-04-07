@@ -132,30 +132,30 @@ func TestCleanup_DeletionPIIScrub(t *testing.T) {
 
 // E2E 8: cleanup 롤백 — 중간 실패 시 데이터 일관성
 func TestE2E8_CleanupRollback(t *testing.T) {
-	_, _, _, _, store, db, clk := setupGapTest(t)
+	fx := setupGapTest(t)
 	ctx := context.Background()
 
 	// Create user set for deletion
-	user, _ := store.CreateUserWithIdentity(ctx, "rollback@test.com", true, "Test", "", "google", "rollback-sub", "rb@test.com")
-	db.ExecContext(ctx, `UPDATE users SET status='pending_deletion', deletion_scheduled_at=$1 WHERE id=$2`,
-		clk.Now().Add(-1*time.Hour), user.ID)
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, "rollback@test.com", true, "Test", "", "google", "rollback-sub", "rb@test.com")
+	fx.DB.ExecContext(ctx, `UPDATE users SET status='pending_deletion', deletion_scheduled_at=$1 WHERE id=$2`,
+		fx.Clock.Now().Add(-1*time.Hour), user.ID)
 
 	// Create child records that would be removed during cleanup.
-	sessionID, err := store.CreateSession(ctx, user.ID, 24*time.Hour)
+	sessionID, err := fx.Store.CreateSession(ctx, user.ID, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	_, err = db.ExecContext(ctx,
+	_, err = fx.DB.ExecContext(ctx,
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
 		 VALUES (uuid_generate_v4(), $1, uuid_generate_v4(), $2, 'test-client', '{openid}', $3, $4)`,
-		"rollback-token-hash", user.ID, clk.Now().Add(30*24*time.Hour), clk.Now(),
+		"rollback-token-hash", user.ID, fx.Clock.Now().Add(30*24*time.Hour), fx.Clock.Now(),
 	)
 	if err != nil {
 		t.Fatalf("insert refresh token: %v", err)
 	}
 
 	simulatedErr := errors.New("simulated cleanup failure")
-	svc := NewCleanupService(storage.NewCleanupRunner(db), clk, time.Hour)
+	svc := NewCleanupService(storage.NewCleanupRunner(fx.DB), fx.Clock, time.Hour)
 	svc.deleteUserHook = func(ctx context.Context, userID string) error {
 		return simulatedErr
 	}
@@ -163,16 +163,16 @@ func TestE2E8_CleanupRollback(t *testing.T) {
 
 	// Verify everything rolled back: user is still pending_deletion, child records still exist.
 	var status string
-	db.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
 	if status != "pending_deletion" {
 		t.Fatalf("status = %q, want pending_deletion after rollback", status)
 	}
 
 	var identityCount, sessionCount, refreshCount, auditCount int
-	db.QueryRowContext(ctx, `SELECT count(*) FROM user_identities WHERE user_id = $1`, user.ID).Scan(&identityCount)
-	db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE id = $1 AND user_id = $2`, sessionID, user.ID).Scan(&sessionCount)
-	db.QueryRowContext(ctx, `SELECT count(*) FROM refresh_tokens WHERE user_id = $1`, user.ID).Scan(&refreshCount)
-	db.QueryRowContext(ctx, `SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = 'auth.deletion_completed'`, user.ID).Scan(&auditCount)
+	fx.DB.QueryRowContext(ctx, `SELECT count(*) FROM user_identities WHERE user_id = $1`, user.ID).Scan(&identityCount)
+	fx.DB.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE id = $1 AND user_id = $2`, sessionID, user.ID).Scan(&sessionCount)
+	fx.DB.QueryRowContext(ctx, `SELECT count(*) FROM refresh_tokens WHERE user_id = $1`, user.ID).Scan(&refreshCount)
+	fx.DB.QueryRowContext(ctx, `SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = 'auth.deletion_completed'`, user.ID).Scan(&auditCount)
 
 	if identityCount != 1 {
 		t.Errorf("identity count = %d, want 1 after rollback", identityCount)

@@ -15,7 +15,15 @@ import (
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
-func setupAccountTest(t *testing.T) (*AccountService, *LoginService, *storage.Storage, *sql.DB, *clock.FixedClock) {
+type accountFixture struct {
+	AccountSvc *AccountService
+	LoginSvc   *LoginService
+	Store      *storage.Storage
+	DB         *sql.DB
+	Clock      *clock.FixedClock
+}
+
+func setupAccountTest(t *testing.T) *accountFixture {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
@@ -29,7 +37,13 @@ func setupAccountTest(t *testing.T) (*AccountService, *LoginService, *storage.St
 
 	accountSvc := NewAccountService(store)
 	loginSvc := NewLoginService(store, fakeProvider, 24*time.Hour)
-	return accountSvc, loginSvc, store, db, clk
+	return &accountFixture{
+		AccountSvc: accountSvc,
+		LoginSvc:   loginSvc,
+		Store:      store,
+		DB:         db,
+		Clock:      clk,
+	}
 }
 
 // Helper: create user + session, return sessionID for deletion tests
@@ -48,31 +62,31 @@ func createUserWithSession(t *testing.T, store *storage.Storage, email, sub stri
 }
 
 func TestDeleteAccount_Success(t *testing.T) {
-	accountSvc, _, store, db, _ := setupAccountTest(t)
+	fx := setupAccountTest(t)
 	ctx := context.Background()
 
-	userID, sessionID := createUserWithSession(t, store, "delete@test.com", "del-sub")
+	userID, sessionID := createUserWithSession(t, fx.Store, "delete@test.com", "del-sub")
 
-	result := accountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
+	result := fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
 	if !result.Success {
 		t.Fatalf("expected success, got: %s", result.Message)
 	}
 
 	var status string
-	db.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, userID).Scan(&status)
+	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, userID).Scan(&status)
 	if status != "pending_deletion" {
 		t.Errorf("status = %q, want pending_deletion", status)
 	}
 }
 
 func TestDeleteAccount_Idempotent(t *testing.T) {
-	accountSvc, _, store, _, _ := setupAccountTest(t)
+	fx := setupAccountTest(t)
 	ctx := context.Background()
 
-	_, sessionID := createUserWithSession(t, store, "idempotent@test.com", "idem-sub")
+	_, sessionID := createUserWithSession(t, fx.Store, "idempotent@test.com", "idem-sub")
 
-	accountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
-	result := accountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
+	fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
+	result := fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
 	if !result.Success {
 		t.Errorf("expected idempotent success, got: %s", result.Message)
 	}
@@ -89,14 +103,14 @@ func TestDeleteAccount_InactiveUser_Rejected(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			accountSvc, _, store, _, _ := setupAccountTest(t)
+			fx := setupAccountTest(t)
 			ctx := context.Background()
 
-			_, sessionID := createUserWithSession(t, store, tt.name+"-del@test.com", tt.name+"-del-sub")
-			user, _ := store.GetValidSession(ctx, sessionID)
-			_ = store.SetUserStatus(ctx, user.ID, tt.status)
+			_, sessionID := createUserWithSession(t, fx.Store, tt.name+"-del@test.com", tt.name+"-del-sub")
+			user, _ := fx.Store.GetValidSession(ctx, sessionID)
+			_ = fx.Store.SetUserStatus(ctx, user.ID, tt.status)
 
-			result := accountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
+			result := fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
 			if result.Success {
 				t.Fatalf("expected failure for %s user", tt.status)
 			}
@@ -108,10 +122,10 @@ func TestDeleteAccount_InactiveUser_Rejected(t *testing.T) {
 }
 
 func TestDeleteAccount_NoSession(t *testing.T) {
-	accountSvc, _, _, _, _ := setupAccountTest(t)
+	fx := setupAccountTest(t)
 	ctx := context.Background()
 
-	result := accountSvc.RequestDeletion(ctx, "", "127.0.0.1", "test")
+	result := fx.AccountSvc.RequestDeletion(ctx, "", "127.0.0.1", "test")
 	if result.Success {
 		t.Error("expected failure without session")
 	}
@@ -122,28 +136,28 @@ func TestDeleteAccount_NoSession(t *testing.T) {
 
 // E2E 4: 탈퇴 후 복구
 func TestE2E_DeleteThenRecover(t *testing.T) {
-	accountSvc, loginSvc, store, db, _ := setupAccountTest(t)
+	fx := setupAccountTest(t)
 	ctx := context.Background()
 
-	_, sessionID := createUserWithSession(t, store, "e2e4@test.com", "acct-sub-123")
-	user, _ := store.GetValidSession(ctx, sessionID)
+	_, sessionID := createUserWithSession(t, fx.Store, "e2e4@test.com", "acct-sub-123")
+	user, _ := fx.Store.GetValidSession(ctx, sessionID)
 
-	accountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
+	fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
 
 	var status string
-	db.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
 	if status != "pending_deletion" {
 		t.Fatalf("status = %q, want pending_deletion", status)
 	}
 
-	arID, _ := store.CreateTestAuthRequest(ctx, "e2e4-recovery")
-	result := loginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test")
+	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e4-recovery")
+	result := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test")
 
 	if result.Action != ActionAutoApprove {
 		t.Errorf("action = %v, want AutoApprove (recovered)", result.Action)
 	}
 
-	db.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
 	if status != "active" {
 		t.Errorf("status after recovery = %q, want active", status)
 	}
@@ -151,21 +165,21 @@ func TestE2E_DeleteThenRecover(t *testing.T) {
 
 // E2E 5: 탈퇴 후 삭제 → 재가입
 func TestE2E_DeleteThenReregister(t *testing.T) {
-	accountSvc, loginSvc, store, db, clk := setupAccountTest(t)
+	fx := setupAccountTest(t)
 	ctx := context.Background()
 
-	userID, sessionID := createUserWithSession(t, store, "e2e5@test.com", "acct-sub-123")
+	userID, sessionID := createUserWithSession(t, fx.Store, "e2e5@test.com", "acct-sub-123")
 
-	accountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
+	fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
 
-	db.ExecContext(ctx, `UPDATE users SET deletion_scheduled_at = $1 WHERE id = $2`,
-		clk.Now().Add(-1*time.Hour), userID)
+	fx.DB.ExecContext(ctx, `UPDATE users SET deletion_scheduled_at = $1 WHERE id = $2`,
+		fx.Clock.Now().Add(-1*time.Hour), userID)
 
-	cleanupSvc := NewCleanupService(storage.NewCleanupRunner(db), clk, time.Hour)
+	cleanupSvc := NewCleanupService(storage.NewCleanupRunner(fx.DB), fx.Clock, time.Hour)
 	cleanupSvc.RunOnce(ctx)
 
 	var dbStatus, email string
-	db.QueryRowContext(ctx, `SELECT status, email FROM users WHERE id = $1`, userID).Scan(&dbStatus, &email)
+	fx.DB.QueryRowContext(ctx, `SELECT status, email FROM users WHERE id = $1`, userID).Scan(&dbStatus, &email)
 	if dbStatus != "deleted" {
 		t.Fatalf("status = %q, want deleted", dbStatus)
 	}
@@ -173,8 +187,8 @@ func TestE2E_DeleteThenReregister(t *testing.T) {
 		t.Error("email should be scrubbed")
 	}
 
-	arID, _ := store.CreateTestAuthRequest(ctx, "e2e5-reregister")
-	result := loginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test")
+	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e5-reregister")
+	result := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test")
 
 	if result.Action != ActionAutoApprove {
 		t.Errorf("action = %v, want AutoApprove (new signup after deletion)", result.Action)
@@ -186,13 +200,13 @@ func TestE2E_DeleteThenReregister(t *testing.T) {
 
 // account-004: pending_deletion + Device/MCP → account_inactive
 func TestAccount004_PendingDeletion_DeviceRejected(t *testing.T) {
-	_, _, deviceSvc, _, store, _, _ := setupGapTest(t)
+	fx := setupGapTest(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "pd-device@test.com", true, "Test", "", "google", "gap-sub", "pd@test.com")
-	store.SetUserStatus(ctx, user.ID, "pending_deletion")
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, "pd-device@test.com", true, "Test", "", "google", "gap-sub", "pd@test.com")
+	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
-	result := deviceSvc.HandleDeviceCallback(ctx, "fake-code", "PD-CODE", "127.0.0.1", "test")
+	result := fx.DeviceSvc.HandleDeviceCallback(ctx, "fake-code", "PD-CODE", "127.0.0.1", "test")
 	if result.Action != DeviceError {
 		t.Errorf("action = %v, want DeviceError (pending_deletion on device)", result.Action)
 	}
@@ -203,14 +217,14 @@ func TestAccount004_PendingDeletion_DeviceRejected(t *testing.T) {
 
 // account-004b: pending_deletion + MCP login → account_inactive
 func TestAccount004b_PendingDeletion_MCPRejected(t *testing.T) {
-	_, mcpLoginSvc, _, _, store, _, _ := setupGapTest(t)
+	fx := setupGapTest(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "pd-mcp@test.com", true, "Test", "", "google", "gap-sub", "pdm@test.com")
-	store.SetUserStatus(ctx, user.ID, "pending_deletion")
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, "pd-mcp@test.com", true, "Test", "", "google", "gap-sub", "pdm@test.com")
+	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
-	arID, _ := store.CreateTestAuthRequest(ctx, "pd-mcp")
-	result := mcpLoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "pd-mcp")
+	result := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
 
 	if result.Action != ActionError {
 		t.Errorf("action = %v, want Error (pending_deletion via MCP)", result.Action)
