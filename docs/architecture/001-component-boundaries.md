@@ -308,21 +308,24 @@ internal/
 
   service/                  # 채널별 비즈니스 로직 (built-in adapter 포함)
     access.go
-    login.go
+    login.go                # browser 전용
+    mcp_login.go            # MCP 전용
     device.go
     account.go
     cleanup.go
 
   handler/                  # HTTP 변환 (built-in adapter 포함)
-    browser_login.go
+    login.go                # browser login/callback
+    mcp_login.go            # MCP login/callback
     device.go
     account.go
 
   storage/                  # op.Storage 구현 (코어)
     storage.go
-    auth_requests.go
-    refresh_tokens.go
-    device_codes.go
+    policy.go               # ClientResolutionPolicy, ResourceBindingPolicy 코어 구현
+    cimd_contract.go        # CIMDFetcher interface + IsCIMDClientID 유틸
+    storage_auth_tokens.go
+    storage_oidc_device.go
     users.go
     clients.go
     keys.go
@@ -334,12 +337,8 @@ internal/
 
   adapter/                  # optional adapter
     mcp/
-      module.go
-      handler.go
-      service.go
-      cimd.go
-      policy.go
-      metadata.go
+      cimd.go               # HTTPCIMDFetcher 구현 (SSRF 보호, 캐시)
+      policy.go             # MCP용 ClientResolutionPolicy, ResourceBindingPolicy
 
   upstream/                 # 외부 IdP 연동
   pages/                    # HTML 템플릿 렌더링
