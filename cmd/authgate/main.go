@@ -82,9 +82,11 @@ func main() {
 	}
 
 	// MCP adapter policies: enable CIMD-based client resolution and MCP-specific resource checks.
-	cimdFetcher := storage.NewHTTPCIMDFetcher()
-	store.SetClientResolutionPolicy(mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher))
-	store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy()))
+	if cfg.EnableMCP {
+		cimdFetcher := storage.NewHTTPCIMDFetcher()
+		store.SetClientResolutionPolicy(mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher))
+		store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy()))
+	}
 
 	// zitadel OP config
 	cryptoKey := sha256.Sum256([]byte(cfg.SessionSecret))
@@ -140,10 +142,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("browser provider: %v", err)
 	}
-	mcpProvider, err := upstream.NewOIDCProvider(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.PublicURL+"/mcp/callback", upstreamOpts...)
-	if err != nil {
-		log.Fatalf("mcp provider: %v", err)
-	}
 	deviceProvider, err := upstream.NewOIDCProvider(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.PublicURL+"/device/auth/callback", upstreamOpts...)
 	if err != nil {
 		log.Fatalf("device provider: %v", err)
@@ -151,7 +149,6 @@ func main() {
 
 	// Service layer
 	loginService := service.NewLoginService(store, browserProvider, cfg.SessionTTL)
-	mcpLoginService := service.NewMCPLoginService(store, mcpProvider, cfg.SessionTTL)
 
 	// Device service
 	deviceService := service.NewDeviceService(store, deviceProvider, cfg.PublicURL, cfg.SessionTTL, clk)
@@ -161,9 +158,18 @@ func main() {
 
 	// Handler layer
 	loginHandler := handler.NewLoginHandler(loginService, cfg.DevMode)
-	mcpLoginHandler := handler.NewMCPLoginHandler(mcpLoginService, cfg.DevMode)
 	deviceHandler := handler.NewDeviceHandler(deviceService, cfg.DevMode)
 	accountHandler := handler.NewAccountHandler(accountService, cfg.PublicURL)
+
+	var mcpLoginHandler *handler.MCPLoginHandler
+	if cfg.EnableMCP {
+		mcpProvider, err := upstream.NewOIDCProvider(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.PublicURL+"/mcp/callback", upstreamOpts...)
+		if err != nil {
+			log.Fatalf("mcp provider: %v", err)
+		}
+		mcpLoginService := service.NewMCPLoginService(store, mcpProvider, cfg.SessionTTL)
+		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, cfg.DevMode)
+	}
 
 	// Mux: zitadel owns /.well-known/*, /authorize, /oauth/*, etc.
 	// authgate adds /login, /device, /account, /health, /ready
@@ -186,13 +192,13 @@ func main() {
 			"code_challenge_methods_supported":      []string{"S256"},
 			"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post"},
 			"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
-			"client_id_metadata_document_supported": true,
+			"client_id_metadata_document_supported": cfg.EnableMCP,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)
 	})
 
-	// Capture MCP resource hints before handing off to zitadel.
+	// Capture resource hints before handing off to zitadel.
 	mux.Handle("/authorize", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
@@ -202,6 +208,10 @@ func main() {
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	}))
 	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !cfg.EnableMCP {
+			provider.ServeHTTP(w, r)
+			return
+		}
 		// RFC 7009: revocation endpoint should still return 200 even if a CIMD
 		// client metadata document is temporarily unavailable.
 		if err := r.ParseForm(); err == nil {
@@ -222,8 +232,10 @@ func main() {
 	// authgate login routes
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
-	mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
-	mux.HandleFunc("/mcp/callback", mcpLoginHandler.HandleCallback)
+	if cfg.EnableMCP {
+		mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
+		mux.HandleFunc("/mcp/callback", mcpLoginHandler.HandleCallback)
+	}
 
 	// authgate account routes
 	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
@@ -275,7 +287,7 @@ func main() {
 		srv.Shutdown(ctx)
 	}()
 
-	slog.Info("authgate starting", "addr", addr, "dev", cfg.DevMode, "issuer", cfg.OIDCIssuerURL, "provider", browserProvider.Name())
+	slog.Info("authgate starting", "addr", addr, "dev", cfg.DevMode, "mcp", cfg.EnableMCP, "issuer", cfg.OIDCIssuerURL, "provider", browserProvider.Name())
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server: %v", err)
 	}

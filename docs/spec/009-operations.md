@@ -54,6 +54,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `ACCESS_TOKEN_TTL` | X | `900` | access_token 수명 (초, 15분) |
 | `REFRESH_TOKEN_TTL` | X | `2592000` | refresh_token 수명 (초, 30일) |
 | `DEV_MODE` | X | `false` | true 시: insecure 허용, cookie Secure=false |
+| `ENABLE_MCP` | X | `true` | MCP optional adapter 활성화 여부 (`/mcp/*`, CIMD/resource binding) |
 | `CLIENT_CONFIG` | X | `/etc/authgate/clients.yaml` | 클라이언트 설정 YAML 파일 경로 (없으면 무시) |
 
 ### 프로덕션 필수 조건

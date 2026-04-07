@@ -142,6 +142,7 @@ go run ./cmd/authgate
 | `SESSION_TTL` | `86400` | session TTL in seconds |
 | `ACCESS_TOKEN_TTL` | `900` | access token TTL in seconds |
 | `REFRESH_TOKEN_TTL` | `2592000` | refresh token TTL in seconds |
+| `ENABLE_MCP` | `true` | enable MCP optional adapter routes/policies (`/mcp/*`, CIMD/resource binding) |
 | `CLIENT_CONFIG` | `/etc/authgate/clients.yaml` | YAML path for client metadata preload |
 
 Production guards when `DEV_MODE=false`:
