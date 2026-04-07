@@ -60,3 +60,45 @@ func TestProtectedResourceMetadataURL(t *testing.T) {
 		})
 	}
 }
+
+func TestHasScope(t *testing.T) {
+	tests := []struct {
+		name     string
+		claims   *Claims
+		required string
+		want     bool
+	}{
+		{
+			name:     "scope claim contains required",
+			claims:   &Claims{Scope: "openid profile email"},
+			required: "profile",
+			want:     true,
+		},
+		{
+			name:     "scp claim contains required",
+			claims:   &Claims{Scp: []string{"openid", "email"}},
+			required: "email",
+			want:     true,
+		},
+		{
+			name:     "missing required scope",
+			claims:   &Claims{Scope: "openid profile"},
+			required: "admin",
+			want:     false,
+		},
+		{
+			name:     "empty required scope bypasses check",
+			claims:   &Claims{},
+			required: "",
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasScope(tt.claims, tt.required); got != tt.want {
+				t.Fatalf("hasScope(%+v, %q) = %v, want %v", tt.claims, tt.required, got, tt.want)
+			}
+		})
+	}
+}

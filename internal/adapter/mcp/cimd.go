@@ -8,6 +8,8 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,12 +47,11 @@ const (
 
 // HTTPCIMDFetcher fetches CIMD metadata via HTTP with SSRF protection and caching.
 type HTTPCIMDFetcher struct {
-	client           *http.Client
-	clock            clock.Clock
-	cache            sync.Map // map[string]*cimdCacheEntry
-	cacheTTL         time.Duration
-	negativeCacheTTL time.Duration
-	sf               singleflight.Group
+	client   *http.Client
+	clock    clock.Clock
+	cache    sync.Map // map[string]*cimdCacheEntry
+	cacheTTL time.Duration
+	sf       singleflight.Group
 }
 
 // NewHTTPCIMDFetcher creates a CIMD fetcher with SSRF-safe HTTP client.
@@ -85,9 +86,8 @@ func NewHTTPCIMDFetcher() *HTTPCIMDFetcher {
 				return fmt.Errorf("cimd: redirects not allowed")
 			},
 		},
-		clock:            clock.RealClock{},
-		cacheTTL:         5 * time.Minute,
-		negativeCacheTTL: 30 * time.Second,
+		clock:    clock.RealClock{},
+		cacheTTL: 5 * time.Minute,
 	}
 }
 
@@ -110,19 +110,17 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 
 	// Collapse concurrent cache-miss fetches for the same client_id.
 	v, err, _ := f.sf.Do(clientID, func() (any, error) {
-		client, err := f.fetchAndValidate(ctx, clientID)
+		client, ttl, err := f.fetchAndValidate(ctx, clientID)
 		if err != nil {
-			f.cache.Store(clientID, &cimdCacheEntry{
-				err:       err,
-				expiresAt: f.clock.Now().Add(f.negativeCacheTTL),
-			})
 			return nil, err
 		}
 
-		f.cache.Store(clientID, &cimdCacheEntry{
-			client:    client,
-			expiresAt: f.clock.Now().Add(f.cacheTTL),
-		})
+		if ttl > 0 {
+			f.cache.Store(clientID, &cimdCacheEntry{
+				client:    client,
+				expiresAt: f.clock.Now().Add(ttl),
+			})
+		}
 		return client, nil
 	})
 	if err != nil {
@@ -133,68 +131,68 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 	return client, nil
 }
 
-func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string) (*storage.ClientModel, error) {
+func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string) (*storage.ClientModel, time.Duration, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientID, nil)
 	if err != nil {
-		return nil, fmt.Errorf("cimd: invalid URL: %w", err)
+		return nil, 0, fmt.Errorf("cimd: invalid URL: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("cimd: fetch failed: %w", err)
+		return nil, 0, fmt.Errorf("cimd: fetch failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("cimd: HTTP %d from %s", resp.StatusCode, clientID)
+		return nil, 0, fmt.Errorf("cimd: HTTP %d from %s", resp.StatusCode, clientID)
 	}
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
-		return nil, fmt.Errorf("cimd: invalid Content-Type header: %w", err)
+		return nil, 0, fmt.Errorf("cimd: invalid Content-Type header: %w", err)
 	}
 	if mediaType != "application/json" {
-		return nil, fmt.Errorf("cimd: unsupported Content-Type: %q", mediaType)
+		return nil, 0, fmt.Errorf("cimd: unsupported Content-Type: %q", mediaType)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxCIMDDocSize+1))
 	if err != nil {
-		return nil, fmt.Errorf("cimd: read failed: %w", err)
+		return nil, 0, fmt.Errorf("cimd: read failed: %w", err)
 	}
 	if len(body) > maxCIMDDocSize {
-		return nil, fmt.Errorf("cimd: document exceeds 10KB limit")
+		return nil, 0, fmt.Errorf("cimd: document exceeds 10KB limit")
 	}
 
 	var meta CIMDMetadata
 	if err := json.Unmarshal(body, &meta); err != nil {
-		return nil, fmt.Errorf("cimd: invalid JSON: %w", err)
+		return nil, 0, fmt.Errorf("cimd: invalid JSON: %w", err)
 	}
 
 	// Validate: client_id in document must match the fetched URL
 	if meta.ClientID != clientID {
-		return nil, fmt.Errorf("cimd: client_id mismatch: document=%q, url=%q", meta.ClientID, clientID)
+		return nil, 0, fmt.Errorf("cimd: client_id mismatch: document=%q, url=%q", meta.ClientID, clientID)
 	}
 	if len(meta.ClientID) > maxCIMDClientIDLength {
-		return nil, fmt.Errorf("cimd: client_id exceeds %d chars", maxCIMDClientIDLength)
+		return nil, 0, fmt.Errorf("cimd: client_id exceeds %d chars", maxCIMDClientIDLength)
 	}
 	if meta.ClientName == "" {
-		return nil, fmt.Errorf("cimd: client_name is required")
+		return nil, 0, fmt.Errorf("cimd: client_name is required")
 	}
 	if len(meta.ClientName) > maxCIMDClientNameLength {
-		return nil, fmt.Errorf("cimd: client_name exceeds %d chars", maxCIMDClientNameLength)
+		return nil, 0, fmt.Errorf("cimd: client_name exceeds %d chars", maxCIMDClientNameLength)
 	}
 	if len(meta.RedirectURIs) == 0 {
-		return nil, fmt.Errorf("cimd: redirect_uris is required")
+		return nil, 0, fmt.Errorf("cimd: redirect_uris is required")
 	}
 	if len(meta.RedirectURIs) > maxCIMDRedirectURICount {
-		return nil, fmt.Errorf("cimd: redirect_uris exceeds %d entries", maxCIMDRedirectURICount)
+		return nil, 0, fmt.Errorf("cimd: redirect_uris exceeds %d entries", maxCIMDRedirectURICount)
 	}
 	for _, uri := range meta.RedirectURIs {
 		if len(uri) == 0 {
-			return nil, fmt.Errorf("cimd: redirect_uri cannot be empty")
+			return nil, 0, fmt.Errorf("cimd: redirect_uri cannot be empty")
 		}
 		if len(uri) > maxCIMDRedirectURILength {
-			return nil, fmt.Errorf("cimd: redirect_uri exceeds %d chars", maxCIMDRedirectURILength)
+			return nil, 0, fmt.Errorf("cimd: redirect_uri exceeds %d chars", maxCIMDRedirectURILength)
 		}
 	}
 
@@ -208,23 +206,23 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 
 	// Validate supported values
 	if meta.TokenEndpointAuthMethod != "none" {
-		return nil, fmt.Errorf("cimd: unsupported token_endpoint_auth_method: %q (only 'none' supported)", meta.TokenEndpointAuthMethod)
+		return nil, 0, fmt.Errorf("cimd: unsupported token_endpoint_auth_method: %q (only 'none' supported)", meta.TokenEndpointAuthMethod)
 	}
 	for _, rt := range meta.ResponseTypes {
 		if rt != "code" {
-			return nil, fmt.Errorf("cimd: unsupported response_type: %q (only 'code' supported)", rt)
+			return nil, 0, fmt.Errorf("cimd: unsupported response_type: %q (only 'code' supported)", rt)
 		}
 	}
 	if len(meta.ResponseTypes) > maxCIMDResponseTypeCount {
-		return nil, fmt.Errorf("cimd: response_types exceeds %d entries", maxCIMDResponseTypeCount)
+		return nil, 0, fmt.Errorf("cimd: response_types exceeds %d entries", maxCIMDResponseTypeCount)
 	}
 	if len(meta.GrantTypes) > maxCIMDGrantTypeCount {
-		return nil, fmt.Errorf("cimd: grant_types exceeds %d entries", maxCIMDGrantTypeCount)
+		return nil, 0, fmt.Errorf("cimd: grant_types exceeds %d entries", maxCIMDGrantTypeCount)
 	}
 	allowedGrants := map[string]bool{"authorization_code": true, "refresh_token": true}
 	for _, gt := range meta.GrantTypes {
 		if !allowedGrants[gt] {
-			return nil, fmt.Errorf("cimd: unsupported grant_type: %q (only authorization_code, refresh_token supported)", gt)
+			return nil, 0, fmt.Errorf("cimd: unsupported grant_type: %q (only authorization_code, refresh_token supported)", gt)
 		}
 	}
 
@@ -236,7 +234,29 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		RedirectURIList:      storage.StringArray(meta.RedirectURIs),
 		AllowedScopeList:     storage.StringArray([]string{"openid", "profile", "email", "offline_access"}),
 		AllowedGrantTypeList: storage.StringArray(meta.GrantTypes),
-	}, nil
+	}, cacheTTLFromCacheControl(resp.Header.Get("Cache-Control"), f.cacheTTL), nil
+}
+
+func cacheTTLFromCacheControl(cacheControl string, fallback time.Duration) time.Duration {
+	if cacheControl == "" {
+		return fallback
+	}
+	directives := strings.Split(cacheControl, ",")
+	for _, d := range directives {
+		d = strings.TrimSpace(strings.ToLower(d))
+		if d == "no-store" || d == "no-cache" {
+			return 0
+		}
+		if strings.HasPrefix(d, "max-age=") {
+			v := strings.TrimSpace(strings.TrimPrefix(d, "max-age="))
+			seconds, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || seconds <= 0 {
+				return 0
+			}
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return fallback
 }
 
 // isPrivateIP checks if an IP is private/loopback/link-local.

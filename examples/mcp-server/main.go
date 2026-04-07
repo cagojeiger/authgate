@@ -52,12 +52,14 @@ func protectedResourceMetadataURL(resourceURL string) (string, string, error) {
 // --- JWT verification ---
 
 type Claims struct {
-	Sub   string `json:"sub"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Iss   string `json:"iss"`
-	Aud   any    `json:"aud"`
-	Exp   int64  `json:"exp"`
+	Sub   string   `json:"sub"`
+	Email string   `json:"email"`
+	Name  string   `json:"name"`
+	Iss   string   `json:"iss"`
+	Aud   any      `json:"aud"`
+	Scope string   `json:"scope"`
+	Scp   []string `json:"scp"`
+	Exp   int64    `json:"exp"`
 }
 
 type JWKSVerifier struct {
@@ -171,6 +173,23 @@ func containsAudience(aud any, expected string) bool {
 	return false
 }
 
+func hasScope(claims *Claims, requiredScope string) bool {
+	if requiredScope == "" {
+		return true
+	}
+	for _, s := range strings.Fields(claims.Scope) {
+		if s == requiredScope {
+			return true
+		}
+	}
+	for _, s := range claims.Scp {
+		if s == requiredScope {
+			return true
+		}
+	}
+	return false
+}
+
 // --- Auth middleware ---
 
 type contextKey string
@@ -217,7 +236,7 @@ func fetchUserinfo(authgateURL, accessToken string) (*Claims, error) {
 	return &c, nil
 }
 
-func authMiddleware(verifier *JWKSVerifier, authgateURL, resourceMetadataURL string, next http.Handler) http.Handler {
+func authMiddleware(verifier *JWKSVerifier, authgateURL, resourceMetadataURL, requiredScope string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Public endpoints — no auth required
 		if r.URL.Path == "/health" ||
@@ -238,6 +257,11 @@ func authMiddleware(verifier *JWKSVerifier, authgateURL, resourceMetadataURL str
 			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusUnauthorized)
 			return
 		}
+		if !hasScope(claims, requiredScope) {
+			w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="insufficient_scope", scope="%s"`, requiredScope))
+			http.Error(w, `{"error":"insufficient_scope"}`, http.StatusForbidden)
+			return
+		}
 		// Enrich with userinfo (email, name)
 		if ui, err := fetchUserinfo(authgateURL, token); err == nil {
 			if ui.Email != "" {
@@ -256,6 +280,7 @@ func main() {
 	listenAddr := envOr("LISTEN_ADDR", ":9091")
 	authgateURL := envOr("AUTHGATE_URL", "http://localhost:8080")
 	resourceURL := envOr("RESOURCE_URL", "http://localhost:9091")
+	requiredScope := envOr("REQUIRED_SCOPE", "openid")
 	jwksURL := authgateURL + "/keys"
 	resourceMetadataURL, resourceMetadataPath, err := protectedResourceMetadataURL(resourceURL)
 	if err != nil {
@@ -341,7 +366,7 @@ func main() {
 	mux.Handle("/mcp", mcpHandler)
 
 	// Wrap entire mux with auth middleware
-	handler := authMiddleware(verifier, authgateURL, resourceMetadataURL, mux)
+	handler := authMiddleware(verifier, authgateURL, resourceMetadataURL, requiredScope, mux)
 
 	slog.Info("mcp-server starting", "addr", listenAddr, "authgate", authgateURL)
 	if err := http.ListenAndServe(listenAddr, handler); err != nil {
