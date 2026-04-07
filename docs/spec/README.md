@@ -4,6 +4,7 @@
 
 authgate가 제공하는 전체 서비스 경험을 정의한다.
 설계 원칙은 [ADR-000](../adr/000-authgate-identity.md), 기술 선택은 [ADR-001](../adr/001-adopt-zitadel-oidc.md)을 따른다.
+구조와 경계 원칙은 [Architecture 001](../architecture/001-component-boundaries.md)을 참조한다.
 
 ## 목차
 
