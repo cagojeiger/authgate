@@ -29,10 +29,10 @@ UPDATE refresh_tokens
 SET used_at = $1, revoked_at = $1
 WHERE id = $2;
 
--- name: RevokeRefreshTokenByIDText :exec
+-- name: RevokeRefreshTokenByID :exec
 UPDATE refresh_tokens
 SET revoked_at = $1
-WHERE id::text = $2 AND revoked_at IS NULL;
+WHERE id = $2 AND revoked_at IS NULL;
 
 -- name: GetRefreshTokenInfoByHashAndClientID :one
 SELECT user_id, id

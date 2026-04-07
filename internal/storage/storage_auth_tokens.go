@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
@@ -71,7 +72,7 @@ func (s *Storage) AuthRequestByID(ctx context.Context, id string) (op.AuthReques
 }
 
 func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRequest, error) {
-	row, err := storeq.New(s.db).GetAuthRequestByCode(ctx, code)
+	row, err := storeq.New(s.db).GetAuthRequestByCode(ctx, sql.NullString{String: code, Valid: true})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -310,10 +311,12 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 	}
 
 	// Try as token ID (UUID) directly
-	_ = q.RevokeRefreshTokenByIDText(ctx, storeq.RevokeRefreshTokenByIDTextParams{
-		RevokedAt: sql.NullTime{Time: now, Valid: true},
-		ID:        tokenOrTokenID,
-	})
+	if _, err := uuid.Parse(tokenOrTokenID); err == nil {
+		_ = q.RevokeRefreshTokenByID(ctx, storeq.RevokeRefreshTokenByIDParams{
+			RevokedAt: sql.NullTime{Time: now, Valid: true},
+			ID:        tokenOrTokenID,
+		})
+	}
 
 	// RFC 7009: always return 200 regardless of whether anything was revoked
 	return nil
