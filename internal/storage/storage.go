@@ -63,8 +63,8 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 		accessTokenTTL:  accessTTL,
 		refreshTokenTTL: refreshTTL,
 	}
-	s.clientPolicy = defaultClientResolutionPolicy{s: s}
-	s.resourcePolicy = defaultResourceBindingPolicy{}
+	s.clientPolicy = NewCoreClientResolutionPolicy(s)
+	s.resourcePolicy = NewCoreResourceBindingPolicy()
 	return s
 }
 

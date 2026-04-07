@@ -6,30 +6,24 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-type defaultClientResolutionPolicy struct {
+type coreClientResolutionPolicy struct {
 	s *Storage
 }
 
-func (p defaultClientResolutionPolicy) ResolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
+func (p coreClientResolutionPolicy) ResolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
 	if v, ok := p.s.clients.Load(clientID); ok {
 		return v.(*ClientModel), nil
-	}
-	if p.s.cimdFetcher != nil && isCIMDClientID(clientID) {
-		return p.s.cimdFetcher.FetchClient(ctx, clientID)
 	}
 	return nil, ErrNotFound
 }
 
-type defaultResourceBindingPolicy struct{}
+type coreResourceBindingPolicy struct{}
 
-func (defaultResourceBindingPolicy) ValidateAuthorizeRequest(ctx context.Context, client *ClientModel, requestResource string) error {
-	if requestResource == "" && client != nil && client.LoginChannel == "mcp" {
-		return &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
-	}
+func (coreResourceBindingPolicy) ValidateAuthorizeRequest(ctx context.Context, client *ClientModel, requestResource string) error {
 	return nil
 }
 
-func (defaultResourceBindingPolicy) ValidateTokenRequest(ctx context.Context, clientID, storedResource, requestResource string) error {
+func (coreResourceBindingPolicy) ValidateTokenRequest(ctx context.Context, clientID, storedResource, requestResource string) error {
 	if storedResource != "" {
 		if requestResource == "" {
 			return &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
@@ -45,3 +39,10 @@ func (defaultResourceBindingPolicy) ValidateTokenRequest(ctx context.Context, cl
 	return nil
 }
 
+func NewCoreClientResolutionPolicy(s *Storage) ClientResolutionPolicy {
+	return coreClientResolutionPolicy{s: s}
+}
+
+func NewCoreResourceBindingPolicy() ResourceBindingPolicy {
+	return coreResourceBindingPolicy{}
+}

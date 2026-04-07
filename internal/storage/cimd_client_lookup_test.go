@@ -11,6 +11,20 @@ import (
 	"github.com/kangheeyong/authgate/internal/clock"
 )
 
+type testCIMDClientResolutionPolicy struct {
+	s *Storage
+}
+
+func (p testCIMDClientResolutionPolicy) ResolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
+	if v, ok := p.s.clients.Load(clientID); ok {
+		return v.(*ClientModel), nil
+	}
+	if p.s.cimdFetcher != nil && IsCIMDClientID(clientID) {
+		return p.s.cimdFetcher.FetchClient(ctx, clientID)
+	}
+	return nil, ErrNotFound
+}
+
 func TestGetClientByClientID_YAML(t *testing.T) {
 	store := &Storage{}
 	store.clients.Store("my-app", &ClientModel{
@@ -54,6 +68,7 @@ func TestGetClientByClientID_CIMD(t *testing.T) {
 
 	store := &Storage{}
 	store.SetCIMDFetcher(&HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute})
+	store.SetClientResolutionPolicy(testCIMDClientResolutionPolicy{s: store})
 
 	clientID := serverURL + "/oauth/client.json"
 	client, err := store.GetClientByClientID(context.Background(), clientID)

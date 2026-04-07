@@ -138,7 +138,7 @@ func (s *Storage) SetCIMDFetcher(f CIMDFetcher) {
 // SetClientResolutionPolicy overrides client resolution behavior for op.Storage lookups.
 func (s *Storage) SetClientResolutionPolicy(policy ClientResolutionPolicy) {
 	if policy == nil {
-		s.clientPolicy = defaultClientResolutionPolicy{s: s}
+		s.clientPolicy = NewCoreClientResolutionPolicy(s)
 		return
 	}
 	s.clientPolicy = policy
@@ -147,7 +147,7 @@ func (s *Storage) SetClientResolutionPolicy(policy ClientResolutionPolicy) {
 // SetResourceBindingPolicy overrides resource binding validation for authorize/token flows.
 func (s *Storage) SetResourceBindingPolicy(policy ResourceBindingPolicy) {
 	if policy == nil {
-		s.resourcePolicy = defaultResourceBindingPolicy{}
+		s.resourcePolicy = NewCoreResourceBindingPolicy()
 		return
 	}
 	s.resourcePolicy = policy
@@ -156,7 +156,7 @@ func (s *Storage) SetResourceBindingPolicy(policy ResourceBindingPolicy) {
 func (s *Storage) resolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
 	// Safety net for tests constructing Storage without New().
 	if s.clientPolicy == nil {
-		s.clientPolicy = defaultClientResolutionPolicy{s: s}
+		s.clientPolicy = NewCoreClientResolutionPolicy(s)
 	}
 	return s.clientPolicy.ResolveClient(ctx, clientID)
 }
