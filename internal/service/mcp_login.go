@@ -34,11 +34,8 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 	if sessionID != "" {
 		user, err := s.store.GetValidSession(ctx, sessionID)
 		if err == nil {
-			switch CheckAccess(user.Status, "mcp") {
-			case AccessDeny:
+			if CheckAccess(user.Status, "mcp") != AccessAllow {
 				s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status})
-				return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
-			case AccessRecover:
 				return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 			}
 			if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
@@ -71,8 +68,7 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 	}
 	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": "mcp"})
 
-	switch CheckAccess(user.Status, "mcp") {
-	case AccessDeny, AccessRecover:
+	if CheckAccess(user.Status, "mcp") != AccessAllow {
 		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
 		return &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
