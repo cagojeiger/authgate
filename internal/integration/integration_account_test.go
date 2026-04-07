@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/kangheeyong/authgate/internal/storage"
 )
 
 func TestIntegration_DeleteAccount_WrongOrigin_Rejected(t *testing.T) {

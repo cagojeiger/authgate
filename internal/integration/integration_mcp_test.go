@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/kangheeyong/authgate/internal/storage"
 )
 
 func TestIntegration_MCPTokenExchange_NoPKCE_Rejected(t *testing.T) {

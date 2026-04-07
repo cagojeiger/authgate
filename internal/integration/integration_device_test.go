@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/kangheeyong/authgate/internal/storage"
 )
 
 func TestIntegration_DeviceCallback_NewUser_Rejected(t *testing.T) {
