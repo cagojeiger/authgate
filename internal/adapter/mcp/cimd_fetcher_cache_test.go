@@ -47,7 +47,7 @@ func TestCIMDFetcher_CacheHit(t *testing.T) {
 	}
 }
 
-func TestCIMDFetcher_NegativeCache(t *testing.T) {
+func TestCIMDFetcher_ErrorResponsesAreNotCached(t *testing.T) {
 	fetchCount := 0
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetchCount++
@@ -57,10 +57,9 @@ func TestCIMDFetcher_NegativeCache(t *testing.T) {
 
 	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
 	fetcher := &HTTPCIMDFetcher{
-		client:           srv.Client(),
-		clock:            clk,
-		cacheTTL:         5 * time.Minute,
-		negativeCacheTTL: 30 * time.Second,
+		client:   srv.Client(),
+		clock:    clk,
+		cacheTTL: 5 * time.Minute,
 	}
 
 	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
@@ -69,19 +68,19 @@ func TestCIMDFetcher_NegativeCache(t *testing.T) {
 	}
 	_, err = fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
 	if err == nil {
-		t.Fatal("expected second fetch to fail from negative cache, got nil")
+		t.Fatal("expected second fetch to fail, got nil")
 	}
-	if fetchCount != 1 {
-		t.Errorf("fetchCount = %d, want 1 (second call should be negative cached)", fetchCount)
+	if fetchCount != 2 {
+		t.Errorf("fetchCount = %d, want 2 (error response must not be cached)", fetchCount)
 	}
 
 	clk.T = clk.T.Add(31 * time.Second)
 	_, err = fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
 	if err == nil {
-		t.Fatal("expected third fetch to fail after negative cache expiry, got nil")
+		t.Fatal("expected third fetch to fail, got nil")
 	}
-	if fetchCount != 2 {
-		t.Errorf("fetchCount = %d, want 2 (negative cache should have expired)", fetchCount)
+	if fetchCount != 3 {
+		t.Errorf("fetchCount = %d, want 3", fetchCount)
 	}
 }
 
@@ -135,5 +134,78 @@ func TestCIMDFetcher_CacheExpiry(t *testing.T) {
 	}
 	if fetchCount != 2 {
 		t.Errorf("fetchCount = %d, want 2 (cache should have expired)", fetchCount)
+	}
+}
+
+func TestCIMDFetcher_RespectsCacheControlMaxAge(t *testing.T) {
+	fetchCount := 0
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount++
+		meta := CIMDMetadata{
+			ClientID:     serverURL + "/client.json",
+			ClientName:   "Cache-Control Client",
+			RedirectURIs: []string{"http://localhost:3000/callback"},
+			GrantTypes:   []string{"authorization_code"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "max-age=1")
+		json.NewEncoder(w).Encode(meta)
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
+	clientID := serverURL + "/client.json"
+
+	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {
+		t.Fatalf("first fetch failed: %v", err)
+	}
+	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {
+		t.Fatalf("second fetch failed: %v", err)
+	}
+	if fetchCount != 1 {
+		t.Fatalf("fetchCount = %d, want 1 (within max-age)", fetchCount)
+	}
+
+	clk.T = clk.T.Add(2 * time.Second)
+	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {
+		t.Fatalf("third fetch failed: %v", err)
+	}
+	if fetchCount != 2 {
+		t.Fatalf("fetchCount = %d, want 2 (cache should expire by max-age)", fetchCount)
+	}
+}
+
+func TestCIMDFetcher_NoStoreDisablesCache(t *testing.T) {
+	fetchCount := 0
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount++
+		meta := CIMDMetadata{
+			ClientID:     serverURL + "/client.json",
+			ClientName:   "NoStore Client",
+			RedirectURIs: []string{"http://localhost:3000/callback"},
+			GrantTypes:   []string{"authorization_code"},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		json.NewEncoder(w).Encode(meta)
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	clientID := serverURL + "/client.json"
+
+	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {
+		t.Fatalf("first fetch failed: %v", err)
+	}
+	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {
+		t.Fatalf("second fetch failed: %v", err)
+	}
+	if fetchCount != 2 {
+		t.Fatalf("fetchCount = %d, want 2 (no-store must disable cache)", fetchCount)
 	}
 }
