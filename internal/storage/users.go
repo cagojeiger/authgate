@@ -11,13 +11,13 @@ import (
 )
 
 type CreateUserWithIdentityInput struct {
-	Email         string
-	EmailVerified bool
-	Name          string
-	AvatarURL     string
-	Provider      string
+	Email          string
+	EmailVerified  bool
+	Name           string
+	AvatarURL      string
+	Provider       string
 	ProviderUserID string
-	ProviderEmail string
+	ProviderEmail  string
 }
 
 func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWithIdentityInput) (*User, error) {
@@ -31,14 +31,7 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWi
 	userID := s.idgen.NewUUID()
 	qtx := storeq.New(tx)
 
-	err = qtx.InsertUser(ctx, storeq.InsertUserParams{
-		ID:            userID,
-		Email:         input.Email,
-		EmailVerified: input.EmailVerified,
-		Name:          sql.NullString{String: input.Name, Valid: true},
-		AvatarUrl:     sql.NullString{String: input.AvatarURL, Valid: true},
-		CreatedAt:     now,
-	})
+	err = s.insertUserForSignup(ctx, qtx, userID, input, now)
 	if err != nil {
 		if isUniqueViolation(err, "users_email_key") {
 			return nil, ErrEmailConflict
@@ -46,16 +39,7 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWi
 		return nil, err
 	}
 
-	identityID := s.idgen.NewUUID()
-	err = qtx.InsertUserIdentity(ctx, storeq.InsertUserIdentityParams{
-		ID:             identityID,
-		UserID:         userID,
-		Provider:       input.Provider,
-		ProviderUserID: input.ProviderUserID,
-		ProviderEmail:  sql.NullString{String: input.ProviderEmail, Valid: true},
-		CreatedAt:      now,
-	})
-	if err != nil {
+	if err := s.insertIdentityForSignup(ctx, qtx, userID, input, now); err != nil {
 		return nil, err
 	}
 
@@ -74,6 +58,28 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWi
 	}, nil
 }
 
+func (s *Storage) insertUserForSignup(ctx context.Context, qtx *storeq.Queries, userID string, input CreateUserWithIdentityInput, now time.Time) error {
+	return qtx.InsertUser(ctx, storeq.InsertUserParams{
+		ID:            userID,
+		Email:         input.Email,
+		EmailVerified: input.EmailVerified,
+		Name:          sql.NullString{String: input.Name, Valid: true},
+		AvatarUrl:     sql.NullString{String: input.AvatarURL, Valid: true},
+		CreatedAt:     now,
+	})
+}
+
+func (s *Storage) insertIdentityForSignup(ctx context.Context, qtx *storeq.Queries, userID string, input CreateUserWithIdentityInput, now time.Time) error {
+	return qtx.InsertUserIdentity(ctx, storeq.InsertUserIdentityParams{
+		ID:             s.idgen.NewUUID(),
+		UserID:         userID,
+		Provider:       input.Provider,
+		ProviderUserID: input.ProviderUserID,
+		ProviderEmail:  sql.NullString{String: input.ProviderEmail, Valid: true},
+		CreatedAt:      now,
+	})
+}
+
 func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*User, error) {
 	row, err := storeq.New(s.db).GetUserByProviderIdentity(ctx, storeq.GetUserByProviderIdentityParams{
 		Provider:       provider,
@@ -85,16 +91,7 @@ func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, provi
 	if err != nil {
 		return nil, err
 	}
-	return &User{
-		ID:            row.ID,
-		Email:         row.Email,
-		EmailVerified: row.EmailVerified,
-		Name:          nullStringToString(row.Name),
-		AvatarURL:     nullStringToPtr(row.AvatarUrl),
-		Status:        row.Status,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
-	}, nil
+	return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.AvatarUrl, row.Status, row.CreatedAt, row.UpdatedAt), nil
 }
 
 func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*User, error) {
@@ -105,13 +102,7 @@ func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*
 	if err != nil {
 		return nil, err
 	}
-	return &User{
-		ID:            row.ID,
-		Email:         row.Email,
-		EmailVerified: row.EmailVerified,
-		Name:          nullStringToString(row.Name),
-		Status:        row.Status,
-	}, nil
+	return buildCoreUser(row.ID, row.Email, row.EmailVerified, row.Name, row.Status), nil
 }
 
 // GetUserByID returns a user by ID. Public wrapper for DB-level re-read after mutations.
@@ -123,16 +114,7 @@ func (s *Storage) GetUserByID(ctx context.Context, userID string) (*User, error)
 	if err != nil {
 		return nil, err
 	}
-	return &User{
-		ID:            row.ID,
-		Email:         row.Email,
-		EmailVerified: row.EmailVerified,
-		Name:          nullStringToString(row.Name),
-		AvatarURL:     nullStringToPtr(row.AvatarUrl),
-		Status:        row.Status,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
-	}, nil
+	return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.AvatarUrl, row.Status, row.CreatedAt, row.UpdatedAt), nil
 }
 
 // RecoverUser recovers a pending_deletion user to active.
@@ -191,11 +173,7 @@ func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, user
 
 // SetUserStatus sets a user's status directly. For testing and admin operations.
 func (s *Storage) SetUserStatus(ctx context.Context, userID, status string) error {
-	return storeq.New(s.db).SetUserStatusByID(ctx, storeq.SetUserStatusByIDParams{
-		Status:    status,
-		UpdatedAt: s.clock.Now(),
-		ID:        userID,
-	})
+	return s.setUserStatus(ctx, userID, status)
 }
 
 // RequestDeletion sets a user to pending_deletion and revokes all refresh tokens. Single TX.
@@ -211,19 +189,12 @@ func (s *Storage) RequestDeletion(ctx context.Context, userID string) error {
 
 	qtx := storeq.New(tx)
 
-	err = qtx.MarkUserPendingDeletionByID(ctx, storeq.MarkUserPendingDeletionByIDParams{
-		DeletionRequestedAt: sql.NullTime{Time: now, Valid: true},
-		DeletionScheduledAt: sql.NullTime{Time: scheduledAt, Valid: true},
-		ID:                  userID,
-	})
+	err = markUserPendingDeletion(ctx, qtx, userID, now, scheduledAt)
 	if err != nil {
 		return err
 	}
 
-	err = qtx.RevokeActiveRefreshTokensByUserID(ctx, storeq.RevokeActiveRefreshTokensByUserIDParams{
-		RevokedAt: sql.NullTime{Time: now, Valid: true},
-		UserID:    userID,
-	})
+	err = revokeActiveRefreshTokensForDeletion(ctx, qtx, userID, now)
 	if err != nil {
 		return err
 	}
@@ -231,10 +202,29 @@ func (s *Storage) RequestDeletion(ctx context.Context, userID string) error {
 	return tx.Commit()
 }
 
+func markUserPendingDeletion(ctx context.Context, qtx *storeq.Queries, userID string, now, scheduledAt time.Time) error {
+	return qtx.MarkUserPendingDeletionByID(ctx, storeq.MarkUserPendingDeletionByIDParams{
+		DeletionRequestedAt: sql.NullTime{Time: now, Valid: true},
+		DeletionScheduledAt: sql.NullTime{Time: scheduledAt, Valid: true},
+		ID:                  userID,
+	})
+}
+
+func revokeActiveRefreshTokensForDeletion(ctx context.Context, qtx *storeq.Queries, userID string, now time.Time) error {
+	return qtx.RevokeActiveRefreshTokensByUserID(ctx, storeq.RevokeActiveRefreshTokensByUserIDParams{
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		UserID:    userID,
+	})
+}
+
 // DisableUser sets a user's status to disabled.
 func (s *Storage) DisableUser(ctx context.Context, userID string) error {
+	return s.setUserStatus(ctx, userID, "disabled")
+}
+
+func (s *Storage) setUserStatus(ctx context.Context, userID, status string) error {
 	return storeq.New(s.db).SetUserStatusByID(ctx, storeq.SetUserStatusByIDParams{
-		Status:    "disabled",
+		Status:    status,
 		UpdatedAt: s.clock.Now(),
 		ID:        userID,
 	})
@@ -279,14 +269,28 @@ func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User,
 	if err != nil {
 		return nil, err
 	}
+	return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.AvatarUrl, row.Status, row.CreatedAt, row.UpdatedAt), nil
+}
+
+func buildCoreUser(id, email string, emailVerified bool, name sql.NullString, status string) *User {
 	return &User{
-		ID:            row.ID,
-		Email:         row.Email,
-		EmailVerified: row.EmailVerified,
-		Name:          nullStringToString(row.Name),
-		AvatarURL:     nullStringToPtr(row.AvatarUrl),
-		Status:        row.Status,
-		CreatedAt:     row.CreatedAt,
-		UpdatedAt:     row.UpdatedAt,
-	}, nil
+		ID:            id,
+		Email:         email,
+		EmailVerified: emailVerified,
+		Name:          nullStringToString(name),
+		Status:        status,
+	}
+}
+
+func buildFullUser(id, email string, emailVerified bool, name, avatar sql.NullString, status string, createdAt, updatedAt time.Time) *User {
+	return &User{
+		ID:            id,
+		Email:         email,
+		EmailVerified: emailVerified,
+		Name:          nullStringToString(name),
+		AvatarURL:     nullStringToPtr(avatar),
+		Status:        status,
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+	}
 }
