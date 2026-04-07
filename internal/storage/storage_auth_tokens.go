@@ -16,12 +16,10 @@ import (
 
 func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, userID string) (op.AuthRequest, error) {
 	resource := ResourceFromContext(ctx)
-	if resource == "" {
-		client, err := s.GetClientByClientID(ctx, req.ClientID)
-		if err == nil {
-			if cm, ok := client.(*ClientModel); ok && cm.LoginChannel == "mcp" {
-				return nil, &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
-			}
+	client, err := s.resolveClient(ctx, req.ClientID)
+	if err == nil && s.resourcePolicy != nil {
+		if err := s.resourcePolicy.ValidateAuthorizeRequest(ctx, client, resource); err != nil {
+			return nil, err
 		}
 	}
 
@@ -39,7 +37,7 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, 
 		CreatedAt:           s.clock.Now(),
 	}
 
-	err := storeq.New(s.db).InsertAuthRequest(ctx, storeq.InsertAuthRequestParams{
+	err = storeq.New(s.db).InsertAuthRequest(ctx, storeq.InsertAuthRequestParams{
 		ID:                  ar.ID,
 		ClientID:            ar.ClientID,
 		Resource:            sql.NullString{String: ar.Resource, Valid: true},
@@ -83,15 +81,10 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 		return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "authorization code expired"}
 	}
 	requestResource := ResourceFromContext(ctx)
-	if ar.Resource != "" {
-		if requestResource == "" {
-			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
+	if s.resourcePolicy != nil {
+		if err := s.resourcePolicy.ValidateTokenRequest(ctx, ar.ClientID, ar.Resource, requestResource); err != nil {
+			return nil, err
 		}
-		if requestResource != ar.Resource {
-			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "resource mismatch"}
-		}
-	} else if requestResource != "" {
-		return nil, &oidc.Error{ErrorType: "invalid_target", Description: "unexpected resource"}
 	}
 	if s.stateChecker != nil && ar.Subject != nil && *ar.Subject != "" {
 		user, err := s.GetUserByID(ctx, *ar.Subject)
@@ -260,18 +253,11 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		return nil, op.ErrInvalidRefreshToken
 	}
 	requestResource := ResourceFromContext(ctx)
-	if rt.Resource != "" {
-		if requestResource == "" {
+	if s.resourcePolicy != nil {
+		if err := s.resourcePolicy.ValidateTokenRequest(ctx, rt.ClientID, rt.Resource, requestResource); err != nil {
 			tx.Commit()
-			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
+			return nil, err
 		}
-		if requestResource != rt.Resource {
-			tx.Commit()
-			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "resource mismatch"}
-		}
-	} else if requestResource != "" {
-		tx.Commit()
-		return nil, &oidc.Error{ErrorType: "invalid_target", Description: "unexpected resource"}
 	}
 
 	// State check (DeriveLoginState via injected function)
