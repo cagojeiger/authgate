@@ -145,6 +145,7 @@ func main() {
 	if cfg.OIDCInternalURL != "" {
 		upstreamOpts = append(upstreamOpts, upstream.WithInternalURL(cfg.OIDCInternalURL))
 	}
+	upstreamOpts = append(upstreamOpts, upstream.WithHTTPTimeout(cfg.OIDCHTTPTimeout))
 	browserProvider, err := upstream.NewOIDCProvider(ctx, cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret, cfg.PublicURL+"/login/callback", upstreamOpts...)
 	if err != nil {
 		log.Fatalf("browser provider: %v", err)

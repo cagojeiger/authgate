@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/client/rp"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -23,6 +24,7 @@ type Option func(*options)
 type options struct {
 	rpOpts      []rp.Option
 	internalURL string
+	httpTimeout time.Duration
 }
 
 // WithRPOptions passes options to the underlying rp.NewRelyingPartyOIDC.
@@ -37,6 +39,11 @@ func WithInternalURL(internalURL string) Option {
 	return func(o *options) { o.internalURL = internalURL }
 }
 
+// WithHTTPTimeout sets outbound HTTP timeout for OIDC discovery/token/userinfo calls.
+func WithHTTPTimeout(timeout time.Duration) Option {
+	return func(o *options) { o.httpTimeout = timeout }
+}
+
 // NewOIDCProvider creates a provider by performing OIDC Discovery on the issuer URL.
 func NewOIDCProvider(ctx context.Context, issuerURL, clientID, clientSecret, redirectURI string, opts ...Option) (*OIDCProvider, error) {
 	o := &options{}
@@ -44,19 +51,27 @@ func NewOIDCProvider(ctx context.Context, issuerURL, clientID, clientSecret, red
 		opt(o)
 	}
 
+	var transport http.RoundTripper = http.DefaultTransport
 	if o.internalURL != "" {
 		issuerParsed, _ := url.Parse(issuerURL)
 		internalParsed, _ := url.Parse(o.internalURL)
 		if issuerParsed != nil && internalParsed != nil {
-			o.rpOpts = append(o.rpOpts, rp.WithHTTPClient(&http.Client{
-				Transport: &hostRewriteTransport{
-					fromHost:  issuerParsed.Host,
-					toHost:    internalParsed.Host,
-					toScheme:  internalParsed.Scheme,
-					transport: http.DefaultTransport,
-				},
-			}))
+			transport = &hostRewriteTransport{
+				fromHost:  issuerParsed.Host,
+				toHost:    internalParsed.Host,
+				toScheme:  internalParsed.Scheme,
+				transport: http.DefaultTransport,
+			}
 		}
+	}
+	if o.httpTimeout > 0 || o.internalURL != "" {
+		client := &http.Client{
+			Transport: transport,
+		}
+		if o.httpTimeout > 0 {
+			client.Timeout = o.httpTimeout
+		}
+		o.rpOpts = append(o.rpOpts, rp.WithHTTPClient(client))
 	}
 
 	scopes := []string{"openid", "email", "profile"}
