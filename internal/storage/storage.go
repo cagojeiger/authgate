@@ -49,7 +49,6 @@ type Storage struct {
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
 	clients         sync.Map // map[string]*ClientModel (client_id → client)
-	cimdFetcher     CIMDFetcher
 	clientPolicy    ClientResolutionPolicy
 	resourcePolicy  ResourceBindingPolicy
 }
