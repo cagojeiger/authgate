@@ -65,6 +65,7 @@ authgate의 성능 개선을 "측정 가능한 순서"로 진행한다.
   - shutdown timeout 중 종료 실패 요청 수 관찰
 - rate limiting 전략 결정
   - `/authorize`, `/oauth/token`, `/oauth/device/authorize` 보호 정책 정의
+  - **결정: 앱 외부(리버스 프록시/API Gateway)에서 처리**. authgate 내부에 rate limit 코드를 넣지 않는다. 멀티 파드 환경에서 앱 내부 rate limit은 Redis 등 공유 저장소 의존성이 추가되어 복잡도만 올라가고, 프로덕션에서 앞단 게이트웨이 없이 배포하는 구성은 없기 때문이다.
 
 완료 조건(검증 시나리오 기반):
 
@@ -73,45 +74,14 @@ authgate의 성능 개선을 "측정 가능한 순서"로 진행한다.
 3. 2개 이상 파드에서 cleanup가 동시에 실행되지 않음
 4. SIGTERM 후 shutdown timeout 내 inflight 요청이 drain되거나 명시적 timeout으로 종료됨
 
-## Phase 2: 관측성 기반(로그 + 기본 metrics)
+## ~~Phase 2: 관측성 기반(로그 + 기본 metrics)~~ — 취소
 
-범위:
+운영 환경과 트래픽 규모가 구체화된 후 별도 계획으로 재설계한다.
+관측성 범위(로그/metrics 분리 단위, Prometheus 도입 시점)를 먼저 확정해야 하므로 현 시점에서는 진행하지 않는다.
 
-- 공통 request logging middleware 추가
-  - `request_id`, `method`, `path`, `status`, `duration_ms`
-- 기본 metrics 도입 (`/metrics`)
-  - counter: 요청 수, 에러 수
-  - histogram: handler/DB/upstream 지연시간
-  - gauge: inflight requests
-- Upstream 호출 결과 로그/메트릭 표준화
-  - `provider`, `operation(exchange/userinfo)`, `duration_ms`, `result`
-- Cleanup 실행 로그/메트릭 표준화
-  - job별 `duration_ms`, `affected_rows`, `result`
+## ~~Phase 3: 부하 테스트 및 기준선 수립~~ — 취소
 
-완료 조건:
-
-1. 단일 요청의 로그와 메트릭이 같은 `path/status`로 상호 검증됨
-2. 병목 발생 시 Handler/Upstream/DB 중 어디가 느린지 10분 내 구분 가능
-
-## Phase 3: 부하 테스트 및 기준선 수립
-
-범위:
-
-- 핵심 플로우 부하 테스트
-  - browser login callback
-  - device approve/poll
-  - token refresh
-  - MCP authorize -> token (CIMD fetch 포함)
-- 측정 지표
-  - `p50/p95/p99 latency`
-  - `error rate`
-  - `timeout rate`
-  - upstream 실패율
-
-완료 조건:
-
-1. 기준선 리포트 1회 작성(워크로드, 동시성, 기간, 결과 포함)
-2. 느린 경로 Top N 확정
+Phase 2와 동일한 사유로 보류. 운영 트래픽이 발생한 후 기준선 수립이 의미 있다.
 
 ## Phase 4: 코드 경로 최적화
 
@@ -121,49 +91,41 @@ authgate의 성능 개선을 "측정 가능한 순서"로 진행한다.
 - cleanup 배치 처리(대량 delete/update 분할)
 - audit write 전략 정리(동기 유지 또는 비동기 버퍼)
 
+식별 방법:
+
+- 부하 테스트 없이 진행하므로, 코드 리뷰 기반으로 명확한 비효율을 찾아 수정한다.
+- `pg_stat_statements` 또는 slow query log로 DB 레벨 병목을 관측한다.
+
 완료 조건:
 
-- Phase 3 대비 p95 또는 timeout rate가 합의된 목표치 이상 개선
+- 식별된 비효율 항목별 before/after 쿼리 수 또는 실행 시간 비교 기록
 
 ## Phase 5: 인덱스 최적화 (마지막)
 
 원칙:
 
-- Phase 3/4 실측 결과로 "필요한 최소 인덱스"만 추가
+- Phase 4 실측 결과로 "필요한 최소 인덱스"만 추가
 - 추측 기반 인덱스 추가 금지
 
 절차:
 
-1. 느린 쿼리 식별
+1. 느린 쿼리 식별 (`pg_stat_statements`, `EXPLAIN ANALYZE`)
 2. 후보 인덱스 제안
-3. 적용 전/후 부하테스트 비교
+3. 적용 전/후 비교
 4. 효과 없는 인덱스는 보류
 
 완료 조건:
 
 - 인덱스 추가 근거(측정값)와 효과(개선값)가 문서화됨
 
-## Phase 6: 운영 고도화
-
-범위:
-
-- Prometheus 대시보드 구성
-- 알람 규칙 설정(SLO 기반)
-- 용량 계획 및 임계치 재조정
-
-완료 조건:
-
-- 대시보드와 알람만으로 성능 이상 징후 탐지 및 1차 대응 가능
-
 ## 작업 체크리스트
 
 ```text
-[ ] Phase 1 완료
-[ ] Phase 2 완료
-[ ] Phase 3 완료
+[x] Phase 1 완료
+[-] Phase 2 취소 — 운영 환경 구체화 후 재설계
+[-] Phase 3 취소 — 운영 트래픽 발생 후 재설계
 [ ] Phase 4 완료
 [ ] Phase 5 완료 (인덱스)
-[ ] Phase 6 완료 (운영 고도화)
 ```
 
 ## 의사결정 규칙
