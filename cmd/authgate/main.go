@@ -86,7 +86,7 @@ func main() {
 
 	// MCP adapter policies: enable CIMD-based client resolution and MCP-specific resource checks.
 	if cfg.EnableMCP {
-		cimdFetcher := storage.NewHTTPCIMDFetcher()
+		cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
 		store.SetClientResolutionPolicy(mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher))
 		store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy()))
 	}

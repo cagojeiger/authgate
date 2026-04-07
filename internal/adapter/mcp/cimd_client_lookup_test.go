@@ -1,4 +1,4 @@
-package storage
+package mcp
 
 import (
 	"context"
@@ -9,30 +9,25 @@ import (
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
+	"github.com/kangheeyong/authgate/internal/idgen"
+	"github.com/kangheeyong/authgate/internal/storage"
 )
 
-type testCIMDClientResolutionPolicy struct {
-	s       *Storage
-	fetcher CIMDFetcher
-}
-
-func (p testCIMDClientResolutionPolicy) ResolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
-	if v, ok := p.s.clients.Load(clientID); ok {
-		return v.(*ClientModel), nil
-	}
-	if p.fetcher != nil && IsCIMDClientID(clientID) {
-		return p.fetcher.FetchClient(ctx, clientID)
-	}
-	return nil, ErrNotFound
+func newStoreForClientLookup() *storage.Storage {
+	return storage.New(nil, clock.RealClock{}, idgen.CryptoGenerator{}, nil, time.Minute, time.Hour)
 }
 
 func TestGetClientByClientID_YAML(t *testing.T) {
-	store := &Storage{}
-	store.clients.Store("my-app", &ClientModel{
-		ID:   "my-app",
-		Name: "My App",
-		Type: "public",
-	})
+	store := newStoreForClientLookup()
+	store.LoadClients([]storage.ClientConfigEntry{{
+		ClientID:          "my-app",
+		ClientType:        "public",
+		LoginChannel:      "browser",
+		Name:              "My App",
+		RedirectURIs:      []string{"http://localhost:3000/callback"},
+		AllowedScopes:     []string{"openid"},
+		AllowedGrantTypes: []string{"authorization_code"},
+	}})
 
 	client, err := store.GetClientByClientID(context.Background(), "my-app")
 	if err != nil {
@@ -44,10 +39,10 @@ func TestGetClientByClientID_YAML(t *testing.T) {
 }
 
 func TestGetClientByClientID_NotFound(t *testing.T) {
-	store := &Storage{}
+	store := newStoreForClientLookup()
 
 	_, err := store.GetClientByClientID(context.Background(), "nonexistent")
-	if err != ErrNotFound {
+	if err != storage.ErrNotFound {
 		t.Errorf("error = %v, want ErrNotFound", err)
 	}
 }
@@ -67,9 +62,9 @@ func TestGetClientByClientID_CIMD(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	store := &Storage{}
+	store := newStoreForClientLookup()
 	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
-	store.SetClientResolutionPolicy(testCIMDClientResolutionPolicy{s: store, fetcher: fetcher})
+	store.SetClientResolutionPolicy(NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), fetcher))
 
 	clientID := serverURL + "/oauth/client.json"
 	client, err := store.GetClientByClientID(context.Background(), clientID)
