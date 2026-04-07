@@ -151,6 +151,7 @@ go run ./cmd/authgate
 | `HTTP_READ_TIMEOUT_SEC` | `15` | HTTP server `ReadTimeout` in seconds |
 | `HTTP_WRITE_TIMEOUT_SEC` | `30` | HTTP server `WriteTimeout` in seconds |
 | `HTTP_IDLE_TIMEOUT_SEC` | `60` | HTTP server `IdleTimeout` in seconds |
+| `SHUTDOWN_TIMEOUT_SEC` | `10` | graceful shutdown timeout in seconds before forced close |
 | `ENABLE_MCP` | `true` | enable MCP optional adapter routes/policies (`/mcp/*`, CIMD/resource binding) |
 | `CLIENT_CONFIG` | `/etc/authgate/clients.yaml` | YAML path for client metadata preload |
 

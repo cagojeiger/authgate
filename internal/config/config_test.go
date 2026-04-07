@@ -16,6 +16,7 @@ func clearEnv() {
 		"DB_CONN_MAX_LIFETIME_SEC", "DB_CONN_MAX_IDLE_TIME_SEC",
 		"HTTP_READ_HEADER_TIMEOUT_SEC", "HTTP_READ_TIMEOUT_SEC",
 		"HTTP_WRITE_TIMEOUT_SEC", "HTTP_IDLE_TIMEOUT_SEC",
+		"SHUTDOWN_TIMEOUT_SEC",
 	} {
 		os.Unsetenv(key)
 	}
@@ -140,6 +141,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.HTTPIdleTimeout.Seconds() != 60 {
 		t.Errorf("HTTPIdleTimeout = %v, want 60s", cfg.HTTPIdleTimeout)
 	}
+	if cfg.ShutdownTimeout.Seconds() != 10 {
+		t.Errorf("ShutdownTimeout = %v, want 10s", cfg.ShutdownTimeout)
+	}
 	if cfg.DBMaxOpenConns != 25 {
 		t.Errorf("DBMaxOpenConns = %d, want 25", cfg.DBMaxOpenConns)
 	}
@@ -259,6 +263,31 @@ func TestLoad_OIDCHTTPTimeoutInvalid(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error: OIDC_HTTP_TIMEOUT_SEC must be > 0")
+	}
+}
+
+func TestLoad_ShutdownTimeoutFromEnv(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("SHUTDOWN_TIMEOUT_SEC", "20")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ShutdownTimeout.Seconds() != 20 {
+		t.Errorf("ShutdownTimeout = %v, want 20s", cfg.ShutdownTimeout)
+	}
+}
+
+func TestLoad_ShutdownTimeoutInvalid(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("SHUTDOWN_TIMEOUT_SEC", "0")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error: SHUTDOWN_TIMEOUT_SEC must be > 0")
 	}
 }
 
