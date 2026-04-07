@@ -21,23 +21,53 @@ func envDefault(key, fallback string) string {
 }
 
 func main() {
-	listenAddr := envDefault("LISTEN_ADDR", ":9090")
-	clientID := envDefault("CLIENT_ID", "sample-app")
-	authgateInternal := envDefault("AUTHGATE_ISSUER", "http://localhost:8080")      // server-to-server
-	authgateBrowser := envDefault("AUTHGATE_BROWSER_URL", "http://localhost:8080")   // browser-facing
-	selfURL := envDefault("SELF_URL", "http://localhost:9090")
+	cfg := loadAppConfig()
+	srv := buildServer(cfg)
 
-	redirectURI := selfURL + "/auth/callback"
-	authorizeURL := authgateBrowser + "/authorize"
-	tokenURL := authgateInternal + "/oauth/token"
-	userinfoURL := authgateInternal + "/userinfo"
-	jwksURL := authgateInternal + "/keys"
+	slog.Info("sample-app starting", "addr", cfg.ListenAddr, "client_id", cfg.ClientID, "authgate", cfg.AuthgateBrowser)
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatal(fmt.Errorf("server: %w", err))
+	}
+}
+
+type appConfig struct {
+	ListenAddr       string
+	ClientID         string
+	AuthgateInternal string
+	AuthgateBrowser  string
+	SelfURL          string
+}
+
+func loadAppConfig() appConfig {
+	return appConfig{
+		ListenAddr:       envDefault("LISTEN_ADDR", ":9090"),
+		ClientID:         envDefault("CLIENT_ID", "sample-app"),
+		AuthgateInternal: envDefault("AUTHGATE_ISSUER", "http://localhost:8080"),
+		AuthgateBrowser:  envDefault("AUTHGATE_BROWSER_URL", "http://localhost:8080"),
+		SelfURL:          envDefault("SELF_URL", "http://localhost:9090"),
+	}
+}
+
+func buildServer(cfg appConfig) *http.Server {
+	redirectURI := cfg.SelfURL + "/auth/callback"
+	authorizeURL := cfg.AuthgateBrowser + "/authorize"
+	tokenURL := cfg.AuthgateInternal + "/oauth/token"
+	userinfoURL := cfg.AuthgateInternal + "/userinfo"
+	jwksURL := cfg.AuthgateInternal + "/keys"
 
 	sessions := NewSessionStore()
-	verifier := NewJWKSVerifier(jwksURL, authgateBrowser, clientID)
-	authHandler := NewAuthHandler(sessions, clientID, redirectURI, authorizeURL, tokenURL, userinfoURL)
+	verifier := NewJWKSVerifier(jwksURL, cfg.AuthgateBrowser, cfg.ClientID)
+	authHandler := NewAuthHandler(sessions, cfg.ClientID, redirectURI, authorizeURL, tokenURL, userinfoURL)
 	authMiddleware := RequireAuth(verifier, authHandler)
 
+	mux := newWebAppMux(authHandler, authMiddleware)
+	return &http.Server{
+		Addr:    cfg.ListenAddr,
+		Handler: mux,
+	}
+}
+
+func newWebAppMux(authHandler *AuthHandler, authMiddleware func(http.Handler) http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Auth routes (registered before catch-all)
@@ -52,14 +82,5 @@ func main() {
 	// Static files (catch-all, must be last)
 	staticContent, _ := fs.Sub(staticFS, "static")
 	mux.Handle("/", http.FileServer(http.FS(staticContent)))
-
-	srv := &http.Server{
-		Addr:    listenAddr,
-		Handler: mux,
-	}
-
-	slog.Info("sample-app starting", "addr", listenAddr, "client_id", clientID, "authgate", authgateBrowser)
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatal(fmt.Errorf("server: %w", err))
-	}
+	return mux
 }

@@ -277,25 +277,61 @@ func authMiddleware(verifier *JWKSVerifier, authgateURL, resourceMetadataURL, re
 }
 
 func main() {
+	cfg := loadMCPConfig()
+	handler := buildMCPHandler(cfg)
+
+	slog.Info("mcp-server starting", "addr", cfg.ListenAddr, "authgate", cfg.AuthgateURL)
+	if err := http.ListenAndServe(cfg.ListenAddr, handler); err != nil {
+		log.Fatal(err)
+	}
+}
+
+type mcpConfig struct {
+	ListenAddr       string
+	AuthgateURL      string
+	ResourceURL      string
+	RequiredScope    string
+	JWKSURL          string
+	ResourceMetaURL  string
+	ResourceMetaPath string
+}
+
+func loadMCPConfig() mcpConfig {
 	listenAddr := envOr("LISTEN_ADDR", ":9091")
 	authgateURL := envOr("AUTHGATE_URL", "http://localhost:8080")
 	resourceURL := envOr("RESOURCE_URL", "http://localhost:9091")
 	requiredScope := envOr("REQUIRED_SCOPE", "openid")
-	jwksURL := authgateURL + "/keys"
 	resourceMetadataURL, resourceMetadataPath, err := protectedResourceMetadataURL(resourceURL)
 	if err != nil {
 		log.Fatalf("resource metadata url: %v", err)
 	}
+	return mcpConfig{
+		ListenAddr:       listenAddr,
+		AuthgateURL:      authgateURL,
+		ResourceURL:      resourceURL,
+		RequiredScope:    requiredScope,
+		JWKSURL:          authgateURL + "/keys",
+		ResourceMetaURL:  resourceMetadataURL,
+		ResourceMetaPath: resourceMetadataPath,
+	}
+}
 
-	verifier := NewJWKSVerifier(jwksURL, authgateURL, resourceURL)
+func buildMCPHandler(cfg mcpConfig) http.Handler {
+	verifier := NewJWKSVerifier(cfg.JWKSURL, cfg.AuthgateURL, cfg.ResourceURL)
+	mcpServer := buildMCPServer()
+	mcpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+		return mcpServer
+	}, nil)
+	mux := newMCPMux(cfg, mcpHandler)
+	return authMiddleware(verifier, cfg.AuthgateURL, cfg.ResourceMetaURL, cfg.RequiredScope, mux)
+}
 
-	// Create MCP server
+func buildMCPServer() *mcp.Server {
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "authgate-mcp-server",
 		Version: "1.0.0",
 	}, nil)
 
-	// Register "me" tool — returns authenticated user info
 	mcp.AddTool(mcpServer, &mcp.Tool{
 		Name:        "me",
 		Description: "Returns the currently authenticated user's information (sub, email, name)",
@@ -316,28 +352,31 @@ func main() {
 			"name":  claims.Name,
 		}
 		data, _ := json.MarshalIndent(info, "", "  ")
-
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: string(data)},
 			},
 		}, nil, nil
 	})
+	return mcpServer
+}
 
-	// Streamable HTTP handler (supports single POST JSON-RPC calls)
-	mcpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
-		return mcpServer
-	}, nil)
-
+func newMCPMux(cfg mcpConfig, mcpHandler http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"healthy"}`))
-	})
+	mux.HandleFunc("/health", handleMCPHealth)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", newMCPOAuthMetadataHandler(cfg.AuthgateURL))
+	mux.HandleFunc(cfg.ResourceMetaPath, newMCPResourceMetadataHandler(cfg.AuthgateURL, cfg.ResourceURL))
+	mux.Handle("/mcp", mcpHandler)
+	return mux
+}
 
-	// RFC 8414: OAuth Authorization Server Metadata
-	// MCP clients discover authgate's OAuth endpoints via this endpoint
-	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+func handleMCPHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"status":"healthy"}`))
+}
+
+func newMCPOAuthMetadataHandler(authgateURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		metadata := map[string]any{
 			"issuer":                                authgateURL,
 			"authorization_endpoint":                authgateURL + "/authorize",
@@ -350,26 +389,17 @@ func main() {
 			"client_id_metadata_document_supported": true,
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(metadata)
-	})
+		_ = json.NewEncoder(w).Encode(metadata)
+	}
+}
 
-	// RFC 9728: OAuth Protected Resource Metadata (draft MCP spec)
-	mux.HandleFunc(resourceMetadataPath, func(w http.ResponseWriter, r *http.Request) {
+func newMCPResourceMetadataHandler(authgateURL, resourceURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		metadata := map[string]any{
 			"resource":              resourceURL,
 			"authorization_servers": []string{authgateURL},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(metadata)
-	})
-
-	mux.Handle("/mcp", mcpHandler)
-
-	// Wrap entire mux with auth middleware
-	handler := authMiddleware(verifier, authgateURL, resourceMetadataURL, requiredScope, mux)
-
-	slog.Info("mcp-server starting", "addr", listenAddr, "authgate", authgateURL)
-	if err := http.ListenAndServe(listenAddr, handler); err != nil {
-		log.Fatal(err)
+		_ = json.NewEncoder(w).Encode(metadata)
 	}
 }
