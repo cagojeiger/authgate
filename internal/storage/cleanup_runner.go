@@ -13,8 +13,27 @@ type CleanupRunner struct {
 	db *sql.DB
 }
 
+const cleanupAdvisoryLockKey int64 = 0x6175746867617465 // "authgate" hex (stable process-wide lock key)
+
 func NewCleanupRunner(db *sql.DB) *CleanupRunner {
 	return &CleanupRunner{db: db}
+}
+
+func (r *CleanupRunner) TryAdvisoryLock(ctx context.Context) (bool, error) {
+	var acquired bool
+	err := r.db.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, cleanupAdvisoryLockKey).Scan(&acquired)
+	if err != nil {
+		return false, err
+	}
+	return acquired, nil
+}
+
+func (r *CleanupRunner) ReleaseAdvisoryLock(ctx context.Context) error {
+	var released bool
+	if err := r.db.QueryRowContext(ctx, `SELECT pg_advisory_unlock($1)`, cleanupAdvisoryLockKey).Scan(&released); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *CleanupRunner) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
