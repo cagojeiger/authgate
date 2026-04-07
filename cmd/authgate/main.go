@@ -160,6 +160,7 @@ func main() {
 
 	// Handler layer
 	loginHandler := handler.NewLoginHandler(loginService, cfg.DevMode)
+	mcpLoginHandler := handler.NewMCPLoginHandler(loginService, cfg.DevMode)
 	deviceHandler := handler.NewDeviceHandler(deviceService, cfg.DevMode)
 	accountHandler := handler.NewAccountHandler(accountService, cfg.PublicURL)
 
@@ -220,8 +221,8 @@ func main() {
 	// authgate login routes
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
-	mux.HandleFunc("/mcp/login", loginHandler.HandleMCPLogin)
-	mux.HandleFunc("/mcp/callback", loginHandler.HandleMCPCallback)
+	mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
+	mux.HandleFunc("/mcp/callback", mcpLoginHandler.HandleCallback)
 
 	// authgate account routes
 	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
