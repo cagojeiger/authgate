@@ -151,6 +151,7 @@ func main() {
 
 	// Service layer
 	loginService := service.NewLoginService(store, browserProvider, mcpProvider, cfg.SessionTTL)
+	mcpLoginService := service.NewMCPLoginService(store, mcpProvider, cfg.SessionTTL)
 
 	// Device service
 	deviceService := service.NewDeviceService(store, deviceProvider, cfg.PublicURL, cfg.SessionTTL, clk)
@@ -160,7 +161,7 @@ func main() {
 
 	// Handler layer
 	loginHandler := handler.NewLoginHandler(loginService, cfg.DevMode)
-	mcpLoginHandler := handler.NewMCPLoginHandler(loginService, cfg.DevMode)
+	mcpLoginHandler := handler.NewMCPLoginHandler(mcpLoginService, cfg.DevMode)
 	deviceHandler := handler.NewDeviceHandler(deviceService, cfg.DevMode)
 	accountHandler := handler.NewAccountHandler(accountService, cfg.PublicURL)
 

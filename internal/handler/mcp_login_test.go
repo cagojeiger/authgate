@@ -9,7 +9,7 @@ import (
 )
 
 func newTestMCPLoginHandler(devMode bool) *MCPLoginHandler {
-	svc := service.NewLoginService(nil, nil, nil, 0)
+	svc := service.NewMCPLoginService(nil, nil, 0)
 	return NewMCPLoginHandler(svc, devMode)
 }
 
@@ -36,4 +36,3 @@ func TestMCPCallback_MissingCodeOrState_ReturnsBadRequest(t *testing.T) {
 		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }
-
