@@ -24,7 +24,6 @@ import (
 	"github.com/kangheeyong/authgate/internal/config"
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
-	"github.com/kangheeyong/authgate/internal/observability"
 	"github.com/kangheeyong/authgate/internal/service"
 	"github.com/kangheeyong/authgate/internal/storage"
 	"github.com/kangheeyong/authgate/internal/upstream"
@@ -184,7 +183,6 @@ func main() {
 	// Mux: zitadel owns /.well-known/*, /authorize, /oauth/*, etc.
 	// authgate adds /login, /device, /account, /health, /ready
 	mux := http.NewServeMux()
-	httpMetrics := observability.NewHTTPMetrics()
 
 	// RFC 8414: OAuth Authorization Server Metadata
 	// This must be registered before the provider catch-all
@@ -272,16 +270,14 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ready"}`))
 	})
-	mux.Handle("/metrics", httpMetrics.MetricsHandler())
 
 	// Server
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	var inflightRequests int64
-	observedHandler := httpMetrics.Middleware(mux)
 	trackedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&inflightRequests, 1)
 		defer atomic.AddInt64(&inflightRequests, -1)
-		observedHandler.ServeHTTP(w, r)
+		mux.ServeHTTP(w, r)
 	})
 	srv := &http.Server{
 		Addr:              addr,
