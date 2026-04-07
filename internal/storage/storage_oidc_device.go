@@ -128,80 +128,12 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 	defer tx.Rollback()
 	qtx := storeq.New(tx)
 
-	row, err := qtx.GetDeviceAuthorizationForUpdate(ctx, storeq.GetDeviceAuthorizationForUpdateParams{
-		DeviceCode: deviceCode,
-		ClientID:   clientID,
-	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
+	dc, err := loadDeviceAuthorizationForUpdate(ctx, qtx, clientID, deviceCode)
 	if err != nil {
 		return nil, err
 	}
-	dc := &DeviceCodeModel{
-		ID:        row.ID,
-		ClientID:  row.ClientID,
-		Scopes:    StringArray(row.Scopes),
-		State:     row.State,
-		Subject:   nullStringToPtr(row.Subject),
-		ExpiresAt: row.ExpiresAt,
-		AuthTime:  nullTimePtr(row.AuthTime),
-	}
 
-	now := s.clock.Now()
-
-	// Expired
-	if now.After(dc.ExpiresAt) {
-		tx.Commit()
-		return &op.DeviceAuthorizationState{Expires: dc.ExpiresAt}, nil
-	}
-
-	// Denied
-	if dc.State == "denied" {
-		tx.Commit()
-		return &op.DeviceAuthorizationState{Denied: true, Expires: dc.ExpiresAt}, nil
-	}
-
-	// Approved → atomically transition to consumed
-	if dc.State == "approved" {
-		err = qtx.UpdateDeviceCodeStateConsumedByID(ctx, dc.ID)
-		if err != nil {
-			return nil, err
-		}
-		if err = tx.Commit(); err != nil {
-			return nil, err
-		}
-		subject := ""
-		if dc.Subject != nil {
-			subject = *dc.Subject
-		}
-		var authTime time.Time
-		if dc.AuthTime != nil {
-			authTime = *dc.AuthTime
-		}
-		return &op.DeviceAuthorizationState{
-			ClientID: dc.ClientID,
-			Scopes:   dc.Scopes,
-			Expires:  dc.ExpiresAt,
-			Done:     true,
-			Subject:  subject,
-			AuthTime: authTime,
-		}, nil
-	}
-
-	// Consumed → already issued
-	if dc.State == "consumed" {
-		tx.Commit()
-		return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "device code already consumed"}
-	}
-
-	// Pending
-	tx.Commit()
-	return &op.DeviceAuthorizationState{
-		ClientID: dc.ClientID,
-		Scopes:   dc.Scopes,
-		Expires:  dc.ExpiresAt,
-	}, nil
+	return resolveDeviceAuthorizationState(ctx, tx, qtx, dc, s.clock.Now())
 }
 
 // --- Device code business operations (called by service, not by zitadel) ---
@@ -239,10 +171,7 @@ func (s *Storage) ApproveDeviceCode(ctx context.Context, userCode, subject strin
 	if err != nil {
 		return err
 	}
-	if rows == 0 {
-		return errors.New("device code not found, expired, or already processed")
-	}
-	return nil
+	return ensureDeviceCodeApproved(rows)
 }
 
 // DenyDeviceCode sets a device code to denied state.
@@ -255,3 +184,100 @@ var (
 	_ op.Storage                    = (*Storage)(nil)
 	_ op.DeviceAuthorizationStorage = (*Storage)(nil)
 )
+
+func loadDeviceAuthorizationForUpdate(ctx context.Context, qtx *storeq.Queries, clientID, deviceCode string) (*DeviceCodeModel, error) {
+	row, err := qtx.GetDeviceAuthorizationForUpdate(ctx, storeq.GetDeviceAuthorizationForUpdateParams{
+		DeviceCode: deviceCode,
+		ClientID:   clientID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &DeviceCodeModel{
+		ID:        row.ID,
+		ClientID:  row.ClientID,
+		Scopes:    StringArray(row.Scopes),
+		State:     row.State,
+		Subject:   nullStringToPtr(row.Subject),
+		ExpiresAt: row.ExpiresAt,
+		AuthTime:  nullTimePtr(row.AuthTime),
+	}, nil
+}
+
+func resolveDeviceAuthorizationState(ctx context.Context, tx *sql.Tx, qtx *storeq.Queries, dc *DeviceCodeModel, now time.Time) (*op.DeviceAuthorizationState, error) {
+	// Expired
+	if now.After(dc.ExpiresAt) {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return &op.DeviceAuthorizationState{Expires: dc.ExpiresAt}, nil
+	}
+
+	// Denied
+	if dc.State == "denied" {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return &op.DeviceAuthorizationState{Denied: true, Expires: dc.ExpiresAt}, nil
+	}
+
+	// Approved -> atomically transition to consumed
+	if dc.State == "approved" {
+		if err := qtx.UpdateDeviceCodeStateConsumedByID(ctx, dc.ID); err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return toApprovedDeviceAuthorizationState(dc), nil
+	}
+
+	// Consumed -> already issued
+	if dc.State == "consumed" {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "device code already consumed"}
+	}
+
+	// Pending
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &op.DeviceAuthorizationState{
+		ClientID: dc.ClientID,
+		Scopes:   dc.Scopes,
+		Expires:  dc.ExpiresAt,
+	}, nil
+}
+
+func toApprovedDeviceAuthorizationState(dc *DeviceCodeModel) *op.DeviceAuthorizationState {
+	subject := ""
+	if dc.Subject != nil {
+		subject = *dc.Subject
+	}
+
+	var authTime time.Time
+	if dc.AuthTime != nil {
+		authTime = *dc.AuthTime
+	}
+
+	return &op.DeviceAuthorizationState{
+		ClientID: dc.ClientID,
+		Scopes:   dc.Scopes,
+		Expires:  dc.ExpiresAt,
+		Done:     true,
+		Subject:  subject,
+		AuthTime: authTime,
+	}
+}
+
+func ensureDeviceCodeApproved(rows int64) error {
+	if rows == 0 {
+		return errors.New("device code not found, expired, or already processed")
+	}
+	return nil
+}
