@@ -10,7 +10,17 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
-func (s *Storage) CreateUserWithIdentity(ctx context.Context, email string, emailVerified bool, name, avatarURL, provider, providerUserID, providerEmail string) (*User, error) {
+type CreateUserWithIdentityInput struct {
+	Email         string
+	EmailVerified bool
+	Name          string
+	AvatarURL     string
+	Provider      string
+	ProviderUserID string
+	ProviderEmail string
+}
+
+func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWithIdentityInput) (*User, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -23,10 +33,10 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, email string, emai
 
 	err = qtx.InsertUser(ctx, storeq.InsertUserParams{
 		ID:            userID,
-		Email:         email,
-		EmailVerified: emailVerified,
-		Name:          sql.NullString{String: name, Valid: true},
-		AvatarUrl:     sql.NullString{String: avatarURL, Valid: true},
+		Email:         input.Email,
+		EmailVerified: input.EmailVerified,
+		Name:          sql.NullString{String: input.Name, Valid: true},
+		AvatarUrl:     sql.NullString{String: input.AvatarURL, Valid: true},
 		CreatedAt:     now,
 	})
 	if err != nil {
@@ -40,9 +50,9 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, email string, emai
 	err = qtx.InsertUserIdentity(ctx, storeq.InsertUserIdentityParams{
 		ID:             identityID,
 		UserID:         userID,
-		Provider:       provider,
-		ProviderUserID: providerUserID,
-		ProviderEmail:  sql.NullString{String: providerEmail, Valid: true},
+		Provider:       input.Provider,
+		ProviderUserID: input.ProviderUserID,
+		ProviderEmail:  sql.NullString{String: input.ProviderEmail, Valid: true},
 		CreatedAt:      now,
 	})
 	if err != nil {
@@ -55,9 +65,9 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, email string, emai
 
 	return &User{
 		ID:            userID,
-		Email:         email,
-		EmailVerified: emailVerified,
-		Name:          name,
+		Email:         input.Email,
+		EmailVerified: input.EmailVerified,
+		Name:          input.Name,
 		Status:        "active",
 		CreatedAt:     now,
 		UpdatedAt:     now,

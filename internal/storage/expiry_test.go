@@ -53,7 +53,7 @@ func TestAuthRequestByCode_Expired_Rejected(t *testing.T) {
 
 	// Create auth request + complete + save code
 	arID, _ := store.CreateTestAuthRequest(ctx, "code-expiry")
-	user, _ := store.CreateUserWithIdentity(ctx, "code-expiry@test.com", true, "Test", "", "google", "code-expiry-sub", "ce@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "code-expiry@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "code-expiry-sub", ProviderEmail: "ce@test.com"})
 	store.CompleteAuthRequest(ctx, arID, user.ID)
 	store.SaveAuthCode(ctx, arID, "test-code-expiry")
 

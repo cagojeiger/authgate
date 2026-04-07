@@ -37,7 +37,7 @@ func TestMCP_CompleteUser_AutoApprove(t *testing.T) {
 	svc, store := setupMCPTest(t)
 	ctx := context.Background()
 
-	store.CreateUserWithIdentity(ctx, "mcp-ok@test.com", true, "MCP", "", "google", "mcp-sub-123", "mcp@test.com")
+	store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-ok@test.com", EmailVerified: true, Name: "MCP", AvatarURL: "", Provider: "google", ProviderUserID: "mcp-sub-123", ProviderEmail: "mcp@test.com"})
 	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-ok")
 
 	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
@@ -65,7 +65,7 @@ func TestMCP_DisabledUser_Rejected(t *testing.T) {
 	svc, store := setupMCPTest(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "mcp-dis@test.com", true, "MCP", "", "google", "mcp-sub-123", "mcp@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-dis@test.com", EmailVerified: true, Name: "MCP", AvatarURL: "", Provider: "google", ProviderUserID: "mcp-sub-123", ProviderEmail: "mcp@test.com"})
 	store.DisableUser(ctx, user.ID)
 
 	result := svc.HandleCallback(ctx, "fake-code", "req-mcp-dis", "127.0.0.1", "mcp-client")
@@ -83,7 +83,7 @@ func TestMCP005_Recoverable_Rejected(t *testing.T) {
 	svc, store := setupMCPExtTest(t, "mcp-005-sub")
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "mcp-recover@test.com", true, "Test", "", "google", "mcp-005-sub", "mrc@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-recover@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "mcp-005-sub", ProviderEmail: "mrc@test.com"})
 	store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-005")
@@ -102,7 +102,7 @@ func TestMCPLogin_PendingDeletionSession_Rejected(t *testing.T) {
 	svc, store := setupMCPTest(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "mcp-login-pending@test.com", true, "MCP Pending", "", "google", "mcp-login-pending-sub", "mcp-login-pending@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-login-pending@test.com", EmailVerified: true, Name: "MCP Pending", AvatarURL: "", Provider: "google", ProviderUserID: "mcp-login-pending-sub", ProviderEmail: "mcp-login-pending@test.com"})
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 	_ = store.SetUserStatus(ctx, user.ID, "pending_deletion")
 	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-login-pending")
@@ -122,7 +122,7 @@ func TestMCPLogin_DeletedSession_Rejected(t *testing.T) {
 	svc, store := setupMCPTest(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "mcp-login-deleted@test.com", true, "MCP Deleted", "", "google", "mcp-login-deleted-sub", "mcp-login-deleted@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-login-deleted@test.com", EmailVerified: true, Name: "MCP Deleted", AvatarURL: "", Provider: "google", ProviderUserID: "mcp-login-deleted-sub", ProviderEmail: "mcp-login-deleted@test.com"})
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 	_ = store.SetUserStatus(ctx, user.ID, "deleted")
 	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-login-deleted")
@@ -142,7 +142,7 @@ func TestMCP_DeletedUser_Rejected(t *testing.T) {
 	svc, store := setupMCPExtTest(t, "mcp-deleted-sub")
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "mcp-deleted@test.com", true, "MCP", "", "google", "mcp-deleted-sub", "mcp-deleted@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-deleted@test.com", EmailVerified: true, Name: "MCP", AvatarURL: "", Provider: "google", ProviderUserID: "mcp-deleted-sub", ProviderEmail: "mcp-deleted@test.com"})
 	_ = store.SetUserStatus(ctx, user.ID, "deleted")
 	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-deleted")
 

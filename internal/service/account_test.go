@@ -50,7 +50,7 @@ func setupAccountTest(t *testing.T) *accountFixture {
 func createUserWithSession(t *testing.T, store *storage.Storage, email, sub string) (string, string) {
 	t.Helper()
 	ctx := context.Background()
-	user, err := store.CreateUserWithIdentity(ctx, email, true, "Test", "", "google", sub, email)
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: email, EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: sub, ProviderEmail: email})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestAccount004_PendingDeletion_DeviceRejected(t *testing.T) {
 	fx := setupGapTest(t)
 	ctx := context.Background()
 
-	user, _ := fx.Store.CreateUserWithIdentity(ctx, "pd-device@test.com", true, "Test", "", "google", "gap-sub", "pd@test.com")
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "pd-device@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "gap-sub", ProviderEmail: "pd@test.com"})
 	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	result := fx.DeviceSvc.HandleDeviceCallback(ctx, "fake-code", "PD-CODE", "127.0.0.1", "test")
@@ -220,7 +220,7 @@ func TestAccount004b_PendingDeletion_MCPRejected(t *testing.T) {
 	fx := setupGapTest(t)
 	ctx := context.Background()
 
-	user, _ := fx.Store.CreateUserWithIdentity(ctx, "pd-mcp@test.com", true, "Test", "", "google", "gap-sub", "pdm@test.com")
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "pd-mcp@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "gap-sub", ProviderEmail: "pdm@test.com"})
 	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "pd-mcp")

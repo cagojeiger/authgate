@@ -23,7 +23,7 @@ func TestRefreshReuseDetection_FamilyRevoke(t *testing.T) {
 	store := New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, "reuse@test.com", true, "Test", "", "google", "reuse-sub", "ru@test.com")
+	user, _ := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "reuse@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "reuse-sub", ProviderEmail: "ru@test.com"})
 	_ = user
 
 	// Insert two tokens in the same family
@@ -116,7 +116,7 @@ func TestRefreshStateCheck_AllStates(t *testing.T) {
 			email := fmt.Sprintf("refresh-state-%d@test.com", i)
 			sub := fmt.Sprintf("refresh-state-sub-%d", i)
 
-			user, err := store.CreateUserWithIdentity(ctx, email, true, "Test", "", "google", sub, email)
+			user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: email, EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: sub, ProviderEmail: email})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
 			}
@@ -204,7 +204,7 @@ func TestAuthCodeStateCheck_AllStates(t *testing.T) {
 			email := fmt.Sprintf("authcode-state-%d@test.com", i)
 			sub := fmt.Sprintf("authcode-state-sub-%d", i)
 
-			user, err := store.CreateUserWithIdentity(ctx, email, true, "Test", "", "google", sub, email)
+			user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: email, EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: sub, ProviderEmail: email})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
 			}
