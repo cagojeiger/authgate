@@ -12,15 +12,16 @@ import (
 )
 
 type testCIMDClientResolutionPolicy struct {
-	s *Storage
+	s       *Storage
+	fetcher CIMDFetcher
 }
 
 func (p testCIMDClientResolutionPolicy) ResolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
 	if v, ok := p.s.clients.Load(clientID); ok {
 		return v.(*ClientModel), nil
 	}
-	if p.s.cimdFetcher != nil && IsCIMDClientID(clientID) {
-		return p.s.cimdFetcher.FetchClient(ctx, clientID)
+	if p.fetcher != nil && IsCIMDClientID(clientID) {
+		return p.fetcher.FetchClient(ctx, clientID)
 	}
 	return nil, ErrNotFound
 }
@@ -67,8 +68,8 @@ func TestGetClientByClientID_CIMD(t *testing.T) {
 	serverURL = srv.URL
 
 	store := &Storage{}
-	store.SetCIMDFetcher(&HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute})
-	store.SetClientResolutionPolicy(testCIMDClientResolutionPolicy{s: store})
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	store.SetClientResolutionPolicy(testCIMDClientResolutionPolicy{s: store, fetcher: fetcher})
 
 	clientID := serverURL + "/oauth/client.json"
 	client, err := store.GetClientByClientID(context.Background(), clientID)

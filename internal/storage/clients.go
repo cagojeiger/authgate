@@ -130,11 +130,6 @@ func (s *Storage) LoadClients(clients []ClientConfigEntry) {
 	}
 }
 
-// SetCIMDFetcher sets the CIMD fetcher for URL-based client_id resolution.
-func (s *Storage) SetCIMDFetcher(f CIMDFetcher) {
-	s.cimdFetcher = f
-}
-
 // SetClientResolutionPolicy overrides client resolution behavior for op.Storage lookups.
 func (s *Storage) SetClientResolutionPolicy(policy ClientResolutionPolicy) {
 	if policy == nil {
