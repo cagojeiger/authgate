@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -132,4 +133,30 @@ func (s *Storage) LoadClients(clients []ClientConfigEntry) {
 // SetCIMDFetcher sets the CIMD fetcher for URL-based client_id resolution.
 func (s *Storage) SetCIMDFetcher(f CIMDFetcher) {
 	s.cimdFetcher = f
+}
+
+// SetClientResolutionPolicy overrides client resolution behavior for op.Storage lookups.
+func (s *Storage) SetClientResolutionPolicy(policy ClientResolutionPolicy) {
+	if policy == nil {
+		s.clientPolicy = defaultClientResolutionPolicy{s: s}
+		return
+	}
+	s.clientPolicy = policy
+}
+
+// SetResourceBindingPolicy overrides resource binding validation for authorize/token flows.
+func (s *Storage) SetResourceBindingPolicy(policy ResourceBindingPolicy) {
+	if policy == nil {
+		s.resourcePolicy = defaultResourceBindingPolicy{}
+		return
+	}
+	s.resourcePolicy = policy
+}
+
+func (s *Storage) resolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
+	// Safety net for tests constructing Storage without New().
+	if s.clientPolicy == nil {
+		s.clientPolicy = defaultClientResolutionPolicy{s: s}
+	}
+	return s.clientPolicy.ResolveClient(ctx, clientID)
 }

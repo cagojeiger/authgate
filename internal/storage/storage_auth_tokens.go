@@ -17,10 +17,10 @@ import (
 func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, userID string) (op.AuthRequest, error) {
 	resource := ResourceFromContext(ctx)
 	if resource == "" {
-		client, err := s.GetClientByClientID(ctx, req.ClientID)
+		client, err := s.resolveClient(ctx, req.ClientID)
 		if err == nil {
-			if cm, ok := client.(*ClientModel); ok && cm.LoginChannel == "mcp" {
-				return nil, &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
+			if err := s.resourcePolicy.ValidateAuthorizeRequest(ctx, client, resource); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -83,15 +83,8 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 		return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "authorization code expired"}
 	}
 	requestResource := ResourceFromContext(ctx)
-	if ar.Resource != "" {
-		if requestResource == "" {
-			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
-		}
-		if requestResource != ar.Resource {
-			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "resource mismatch"}
-		}
-	} else if requestResource != "" {
-		return nil, &oidc.Error{ErrorType: "invalid_target", Description: "unexpected resource"}
+	if err := s.resourcePolicy.ValidateTokenRequest(ctx, ar.ClientID, ar.Resource, requestResource); err != nil {
+		return nil, err
 	}
 	if s.stateChecker != nil && ar.Subject != nil && *ar.Subject != "" {
 		user, err := s.GetUserByID(ctx, *ar.Subject)
@@ -260,18 +253,9 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		return nil, op.ErrInvalidRefreshToken
 	}
 	requestResource := ResourceFromContext(ctx)
-	if rt.Resource != "" {
-		if requestResource == "" {
-			tx.Commit()
-			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
-		}
-		if requestResource != rt.Resource {
-			tx.Commit()
-			return nil, &oidc.Error{ErrorType: "invalid_target", Description: "resource mismatch"}
-		}
-	} else if requestResource != "" {
+	if err := s.resourcePolicy.ValidateTokenRequest(ctx, rt.ClientID, rt.Resource, requestResource); err != nil {
 		tx.Commit()
-		return nil, &oidc.Error{ErrorType: "invalid_target", Description: "unexpected resource"}
+		return nil, err
 	}
 
 	// State check (DeriveLoginState via injected function)

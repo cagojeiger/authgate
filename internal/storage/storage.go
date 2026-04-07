@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"crypto/rsa"
 	"crypto/sha256"
 	"database/sql"
@@ -23,6 +24,19 @@ var (
 // Injected from main.go — storage never imports service or guard packages.
 type StateChecker func(user *User) error
 
+// ClientResolutionPolicy resolves a client profile for client_id.
+// It is invoked by storage methods that zitadel calls directly.
+type ClientResolutionPolicy interface {
+	ResolveClient(ctx context.Context, clientID string) (*ClientModel, error)
+}
+
+// ResourceBindingPolicy validates resource binding across authorize/token flows.
+// Default policy preserves current behavior for browser/mcp resource checks.
+type ResourceBindingPolicy interface {
+	ValidateAuthorizeRequest(ctx context.Context, client *ClientModel, requestResource string) error
+	ValidateTokenRequest(ctx context.Context, clientID, storedResource, requestResource string) error
+}
+
 type Storage struct {
 	db              *sql.DB
 	clock           clock.Clock
@@ -36,10 +50,12 @@ type Storage struct {
 	refreshTokenTTL time.Duration
 	clients         sync.Map // map[string]*ClientModel (client_id → client)
 	cimdFetcher     CIMDFetcher
+	clientPolicy    ClientResolutionPolicy
+	resourcePolicy  ResourceBindingPolicy
 }
 
 func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
-	return &Storage{
+	s := &Storage{
 		db:              db,
 		clock:           clk,
 		idgen:           gen,
@@ -47,6 +63,9 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 		accessTokenTTL:  accessTTL,
 		refreshTokenTTL: refreshTTL,
 	}
+	s.clientPolicy = defaultClientResolutionPolicy{s: s}
+	s.resourcePolicy = defaultResourceBindingPolicy{}
+	return s
 }
 
 // SetSigningKey sets the current RSA signing key used for JWT issuance.

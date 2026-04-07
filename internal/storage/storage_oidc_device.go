@@ -53,38 +53,22 @@ func (s *Storage) KeySet(ctx context.Context) ([]op.Key, error) {
 // --- op.Storage: OPStorage ---
 
 func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.Client, error) {
-	// 1. YAML 클라이언트: 메모리 조회
-	if v, ok := s.clients.Load(clientID); ok {
-		return v.(*ClientModel), nil
+	client, err := s.resolveClient(ctx, clientID)
+	if err != nil {
+		return nil, err
 	}
-	// 2. CIMD 클라이언트: URL 형식이면 fetch
-	if s.cimdFetcher != nil && isCIMDClientID(clientID) {
-		return s.cimdFetcher.FetchClient(ctx, clientID)
-	}
-	return nil, ErrNotFound
+	return client, nil
 }
 
 func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientSecret string) error {
-	v, ok := s.clients.Load(clientID)
-	if !ok {
-		if s.cimdFetcher != nil && isCIMDClientID(clientID) {
-			client, err := s.cimdFetcher.FetchClient(ctx, clientID)
-			if err != nil {
-				return ErrNotFound
-			}
-			cm := client
-			if cm.SecretHash == nil {
-				return errors.New("public client cannot use client_secret")
-			}
-			return verifyBcrypt(*cm.SecretHash, clientSecret)
-		}
+	client, err := s.resolveClient(ctx, clientID)
+	if err != nil {
 		return ErrNotFound
 	}
-	c := v.(*ClientModel)
-	if c.SecretHash == nil {
+	if client.SecretHash == nil {
 		return errors.New("public client cannot use client_secret")
 	}
-	return verifyBcrypt(*c.SecretHash, clientSecret)
+	return verifyBcrypt(*client.SecretHash, clientSecret)
 }
 
 func (s *Storage) SetUserinfoFromScopes(ctx context.Context, userinfo *oidc.UserInfo, userID, clientID string, scopes []string) error {
