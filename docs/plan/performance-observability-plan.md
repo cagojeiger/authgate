@@ -57,26 +57,41 @@ authgate의 성능 개선을 "측정 가능한 순서"로 진행한다.
 - DB 풀 설정
   - `SetMaxOpenConns`, `SetMaxIdleConns`, `SetConnMaxLifetime`, `SetConnMaxIdleTime`
 - Upstream OIDC 호출 타임아웃 명시
+- 멀티 파드 안전성
+  - cleanup 작업의 단일 실행 보장(`advisory lock`)
+  - 세션/토큰 상태가 파드 로컬 메모리에 의존하지 않음 확인
+- graceful shutdown 개선
+  - inflight request drain 확인
+  - shutdown timeout 중 종료 실패 요청 수 관찰
+- rate limiting 전략 결정
+  - `/authorize`, `/oauth/token`, `/oauth/device/authorize` 보호 정책 정의
 
-완료 조건:
+완료 조건(검증 시나리오 기반):
 
-- 과도한 hanging request가 재현되지 않음
-- DB 연결 고갈 상황에서 fail-fast 동작 확인
+1. 느린 upstream 모의(3~5초 지연)에서 요청이 timeout으로 종료되고 worker가 무한 대기하지 않음
+2. DB 연결 상한 강제 상황에서 새 요청이 fail-fast 또는 제한된 대기 후 반환됨
+3. 2개 이상 파드에서 cleanup가 동시에 실행되지 않음
+4. SIGTERM 후 shutdown timeout 내 inflight 요청이 drain되거나 명시적 timeout으로 종료됨
 
-## Phase 2: 로그 기반 관측성
+## Phase 2: 관측성 기반(로그 + 기본 metrics)
 
 범위:
 
 - 공통 request logging middleware 추가
   - `request_id`, `method`, `path`, `status`, `duration_ms`
-- Upstream 호출 결과 로그 표준화
+- 기본 metrics 도입 (`/metrics`)
+  - counter: 요청 수, 에러 수
+  - histogram: handler/DB/upstream 지연시간
+  - gauge: inflight requests
+- Upstream 호출 결과 로그/메트릭 표준화
   - `provider`, `operation(exchange/userinfo)`, `duration_ms`, `result`
-- Cleanup 실행 로그 표준화
-  - job별 `duration_ms`, `affected_rows`
+- Cleanup 실행 로그/메트릭 표준화
+  - job별 `duration_ms`, `affected_rows`, `result`
 
 완료 조건:
 
-- 문제 상황에서 로그만으로 병목 구간(Handler/Upstream/DB) 식별 가능
+1. 단일 요청의 로그와 메트릭이 같은 `path/status`로 상호 검증됨
+2. 병목 발생 시 Handler/Upstream/DB 중 어디가 느린지 10분 내 구분 가능
 
 ## Phase 3: 부하 테스트 및 기준선 수립
 
@@ -86,15 +101,17 @@ authgate의 성능 개선을 "측정 가능한 순서"로 진행한다.
   - browser login callback
   - device approve/poll
   - token refresh
+  - MCP authorize -> token (CIMD fetch 포함)
 - 측정 지표
   - `p50/p95/p99 latency`
   - `error rate`
   - `timeout rate`
+  - upstream 실패율
 
 완료 조건:
 
-- 기준선 리포트 1회 작성
-- 느린 경로 Top N 확정
+1. 기준선 리포트 1회 작성(워크로드, 동시성, 기간, 결과 포함)
+2. 느린 경로 Top N 확정
 
 ## Phase 4: 코드 경로 최적화
 
@@ -106,7 +123,7 @@ authgate의 성능 개선을 "측정 가능한 순서"로 진행한다.
 
 완료 조건:
 
-- Phase 3 대비 p95 감소 또는 timeout rate 감소
+- Phase 3 대비 p95 또는 timeout rate가 합의된 목표치 이상 개선
 
 ## Phase 5: 인덱스 최적화 (마지막)
 
@@ -126,20 +143,17 @@ authgate의 성능 개선을 "측정 가능한 순서"로 진행한다.
 
 - 인덱스 추가 근거(측정값)와 효과(개선값)가 문서화됨
 
-## Phase 6: Prometheus 도입
+## Phase 6: 운영 고도화
 
 범위:
 
-- `/metrics` 노출
-- 지표 추가
-  - counter: 요청 수, 에러 수
-  - histogram: handler/DB/upstream 지연시간
-  - gauge: inflight requests
-- 대시보드/알람 연결
+- Prometheus 대시보드 구성
+- 알람 규칙 설정(SLO 기반)
+- 용량 계획 및 임계치 재조정
 
 완료 조건:
 
-- 로그 없이도 대시보드에서 성능 이상 징후를 탐지 가능
+- 대시보드와 알람만으로 성능 이상 징후 탐지 및 1차 대응 가능
 
 ## 작업 체크리스트
 
@@ -149,7 +163,7 @@ authgate의 성능 개선을 "측정 가능한 순서"로 진행한다.
 [ ] Phase 3 완료
 [ ] Phase 4 완료
 [ ] Phase 5 완료 (인덱스)
-[ ] Phase 6 완료 (Prometheus)
+[ ] Phase 6 완료 (운영 고도화)
 ```
 
 ## 의사결정 규칙
