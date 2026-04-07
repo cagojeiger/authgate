@@ -13,6 +13,7 @@ import (
 
 	"github.com/zitadel/oidc/v3/pkg/op"
 
+	mcpadapter "github.com/kangheeyong/authgate/internal/adapter/mcp"
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
@@ -33,6 +34,15 @@ type TestServer struct {
 
 // SetupTestServer creates a full authgate server with testcontainers PostgreSQL.
 func SetupTestServer(t *testing.T) *TestServer {
+	return SetupTestServerWithOptions(t, SetupOptions{EnableMCP: true})
+}
+
+type SetupOptions struct {
+	EnableMCP bool
+}
+
+// SetupTestServerWithOptions creates a full authgate server with selectable optional adapters.
+func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	t.Helper()
 
 	db := testutil.SetupPostgres(t)
@@ -47,6 +57,11 @@ func SetupTestServer(t *testing.T) *TestServer {
 	}
 
 	store := storage.New(db, clk, gen, stateChecker, 15*time.Minute, 30*24*time.Hour)
+	if opts.EnableMCP {
+		cimdFetcher := storage.NewHTTPCIMDFetcher()
+		store.SetClientResolutionPolicy(mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher))
+		store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy()))
+	}
 
 	// Generate signing key
 	key, err := storage.LoadOrGenerateKey(t.TempDir() + "/signing_key.pem")
@@ -72,16 +87,20 @@ func SetupTestServer(t *testing.T) *TestServer {
 			AllowedScopes:     []string{"openid", "profile", "email", "offline_access"},
 			AllowedGrantTypes: []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
 		},
-		{
-			ClientID:          "mcp-client",
-			ClientType:        "public",
-			LoginChannel:      "mcp",
-			Name:              "MCP Test",
-			RedirectURIs:      []string{srv.URL + "/callback"},
-			AllowedScopes:     []string{"openid", "profile", "email", "offline_access"},
-			AllowedGrantTypes: []string{"authorization_code", "refresh_token"},
-		},
 	})
+	if opts.EnableMCP {
+		store.LoadClients([]storage.ClientConfigEntry{
+			{
+				ClientID:          "mcp-client",
+				ClientType:        "public",
+				LoginChannel:      "mcp",
+				Name:              "MCP Test",
+				RedirectURIs:      []string{srv.URL + "/callback"},
+				AllowedScopes:     []string{"openid", "profile", "email", "offline_access"},
+				AllowedGrantTypes: []string{"authorization_code", "refresh_token"},
+			},
+		})
+	}
 
 	// zitadel OP
 	cryptoKey := sha256.Sum256([]byte("test-secret-32-chars-long-enough!"))
@@ -115,15 +134,18 @@ func SetupTestServer(t *testing.T) *TestServer {
 
 	// Services
 	loginSvc := service.NewLoginService(store, fakeProvider, 24*time.Hour)
-	mcpLoginSvc := service.NewMCPLoginService(store, fakeProvider, 24*time.Hour)
 	deviceSvc := service.NewDeviceService(store, fakeProvider, srv.URL, 24*time.Hour, clk)
 	accountSvc := service.NewAccountService(store)
 
 	// Handlers
 	loginHandler := handler.NewLoginHandler(loginSvc, true)
-	mcpLoginHandler := handler.NewMCPLoginHandler(mcpLoginSvc, true)
 	deviceHandler := handler.NewDeviceHandler(deviceSvc, true)
 	accountHandler := handler.NewAccountHandler(accountSvc, srv.URL)
+	var mcpLoginHandler *handler.MCPLoginHandler
+	if opts.EnableMCP {
+		mcpLoginSvc := service.NewMCPLoginService(store, fakeProvider, 24*time.Hour)
+		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginSvc, true)
+	}
 
 	// Routes
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
@@ -141,7 +163,7 @@ func SetupTestServer(t *testing.T) *TestServer {
 			"code_challenge_methods_supported":      []string{"S256"},
 			"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post"},
 			"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
-			"client_id_metadata_document_supported": true,
+			"client_id_metadata_document_supported": opts.EnableMCP,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)
@@ -155,6 +177,10 @@ func SetupTestServer(t *testing.T) *TestServer {
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	}))
 	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !opts.EnableMCP {
+			provider.ServeHTTP(w, r)
+			return
+		}
 		if err := r.ParseForm(); err == nil {
 			clientID := strings.TrimSpace(r.Form.Get("client_id"))
 			if storage.IsCIMDClientID(clientID) {
@@ -169,8 +195,10 @@ func SetupTestServer(t *testing.T) *TestServer {
 	mux.Handle("/", provider)
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
-	mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
-	mux.HandleFunc("/mcp/callback", mcpLoginHandler.HandleCallback)
+	if opts.EnableMCP {
+		mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
+		mux.HandleFunc("/mcp/callback", mcpLoginHandler.HandleCallback)
+	}
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
 	mux.HandleFunc("/device/approve", deviceHandler.HandleDeviceApprove)
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)

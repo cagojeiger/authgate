@@ -145,6 +145,8 @@ go run ./cmd/authgate
 | `ENABLE_MCP` | `true` | enable MCP optional adapter routes/policies (`/mcp/*`, CIMD/resource binding) |
 | `CLIENT_CONFIG` | `/etc/authgate/clients.yaml` | YAML path for client metadata preload |
 
+`ENABLE_MCP=false`일 때는 `clients.yaml`의 `login_channel: mcp` 클라이언트가 허용되지 않으며 서버 시작 시 실패합니다.
+
 Production guards when `DEV_MODE=false`:
 
 - `SESSION_SECRET` must be at least 32 characters

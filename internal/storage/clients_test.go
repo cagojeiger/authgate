@@ -136,3 +136,34 @@ clients:
 		t.Fatalf("expected allowed_grant_types exceeds error, got: %v", err)
 	}
 }
+
+func TestValidateClientChannels_MCPDisabledRejectsMCPClient(t *testing.T) {
+	clients := []ClientConfigEntry{
+		{
+			ClientID:     "browser-client",
+			LoginChannel: "browser",
+		},
+		{
+			ClientID:     "mcp-client",
+			LoginChannel: "mcp",
+		},
+	}
+
+	err := ValidateClientChannels(clients, false)
+	if err == nil || !strings.Contains(err.Error(), "requires ENABLE_MCP=true") {
+		t.Fatalf("expected MCP disabled validation error, got: %v", err)
+	}
+}
+
+func TestValidateClientChannels_MCPEnabledAllowsMCPClient(t *testing.T) {
+	clients := []ClientConfigEntry{
+		{
+			ClientID:     "mcp-client",
+			LoginChannel: "mcp",
+		},
+	}
+
+	if err := ValidateClientChannels(clients, true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
