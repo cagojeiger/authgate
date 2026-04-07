@@ -15,11 +15,10 @@ jobs:
     runs-on: arc-runner-set-authgate
     container: catthehacker/ubuntu:act-latest
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-go@v5.2.0
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-          cache: true
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -32,7 +31,7 @@ jobs:
 
       - name: Upload full scan report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: govulncheck-full-report
           path: govulncheck-full.txt
