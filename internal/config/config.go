@@ -19,6 +19,7 @@ type Config struct {
 	PublicURL             string
 	OIDCIssuerURL         string
 	OIDCInternalURL       string // optional: internal base URL for server-to-server OIDC calls (Docker/K8s)
+	OIDCHTTPTimeout       time.Duration
 	OIDCClientID          string
 	OIDCClientSecret      string
 	SessionTTL            time.Duration
@@ -45,6 +46,7 @@ func Load() (*Config, error) {
 		PublicURL:             os.Getenv("PUBLIC_URL"),
 		OIDCIssuerURL:         envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
 		OIDCInternalURL:       os.Getenv("OIDC_INTERNAL_URL"),
+		OIDCHTTPTimeout:       time.Duration(envInt("OIDC_HTTP_TIMEOUT_SEC", 10)) * time.Second,
 		OIDCClientID:          envDefault("OIDC_CLIENT_ID", "authgate"),
 		OIDCClientSecret:      os.Getenv("OIDC_CLIENT_SECRET"),
 		SessionTTL:            time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
@@ -67,6 +69,9 @@ func Load() (*Config, error) {
 	}
 	if c.PublicURL == "" {
 		return nil, fmt.Errorf("PUBLIC_URL is required")
+	}
+	if c.OIDCHTTPTimeout <= 0 {
+		return nil, fmt.Errorf("OIDC_HTTP_TIMEOUT_SEC must be > 0")
 	}
 	if c.DBMaxOpenConns < 0 {
 		return nil, fmt.Errorf("DB_MAX_OPEN_CONNS must be >= 0")

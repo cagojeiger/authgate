@@ -9,6 +9,7 @@ func clearEnv() {
 	for _, key := range []string{
 		"PORT", "DATABASE_URL", "SESSION_SECRET", "PUBLIC_URL",
 		"OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
+		"OIDC_HTTP_TIMEOUT_SEC",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL",
 		"DEV_MODE", "ENABLE_MCP",
 		"DB_MAX_OPEN_CONNS", "DB_MAX_IDLE_CONNS",
@@ -108,6 +109,9 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.OIDCIssuerURL != "http://localhost:8082" {
 		t.Errorf("OIDCIssuerURL = %q, want http://localhost:8082", cfg.OIDCIssuerURL)
+	}
+	if cfg.OIDCHTTPTimeout.Seconds() != 10 {
+		t.Errorf("OIDCHTTPTimeout = %v, want 10s", cfg.OIDCHTTPTimeout)
 	}
 	if cfg.OIDCClientID != "authgate" {
 		t.Errorf("OIDCClientID = %q, want authgate", cfg.OIDCClientID)
@@ -230,6 +234,31 @@ func TestLoad_HTTPTimeoutsFromEnv(t *testing.T) {
 	}
 	if cfg.HTTPIdleTimeout.Seconds() != 120 {
 		t.Errorf("HTTPIdleTimeout = %v, want 120s", cfg.HTTPIdleTimeout)
+	}
+}
+
+func TestLoad_OIDCHTTPTimeoutFromEnv(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("OIDC_HTTP_TIMEOUT_SEC", "25")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.OIDCHTTPTimeout.Seconds() != 25 {
+		t.Errorf("OIDCHTTPTimeout = %v, want 25s", cfg.OIDCHTTPTimeout)
+	}
+}
+
+func TestLoad_OIDCHTTPTimeoutInvalid(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("OIDC_HTTP_TIMEOUT_SEC", "0")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error: OIDC_HTTP_TIMEOUT_SEC must be > 0")
 	}
 }
 

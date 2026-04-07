@@ -139,6 +139,7 @@ go run ./cmd/authgate
 | `PUBLIC_URL` | required | external authgate URL |
 | `OIDC_ISSUER_URL` | `http://localhost:8082` | upstream OIDC issuer |
 | `OIDC_INTERNAL_URL` | empty | internal URL for server-to-server OIDC calls (Docker/K8s) |
+| `OIDC_HTTP_TIMEOUT_SEC` | `10` | outbound HTTP timeout for upstream OIDC discovery/token/userinfo calls |
 | `OIDC_CLIENT_ID` | `authgate` | upstream OIDC client ID |
 | `OIDC_CLIENT_SECRET` | empty | upstream OIDC client secret |
 | `PORT` | `8080` | listen port |
