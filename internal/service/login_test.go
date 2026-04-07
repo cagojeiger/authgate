@@ -32,7 +32,7 @@ func setupLoginService(t *testing.T) (*LoginService, *storage.Storage) {
 		},
 	}
 
-	svc := NewLoginService(store, fakeProvider, fakeProvider, 24*time.Hour)
+	svc := NewLoginService(store, fakeProvider, 24*time.Hour)
 	return svc, store
 }
 
@@ -154,7 +154,7 @@ func TestHandleCallback_InactiveUser_Error(t *testing.T) {
 
 // browser-007 / E2E 6: 복구 후 auth_request 완료 실패 → 재시도 멱등성
 func TestBrowser007_RecoveryRetryIdempotent(t *testing.T) {
-	loginSvc, _, _, store, _, _ := setupGapTest(t)
+	loginSvc, _, _, _, store, _, _ := setupGapTest(t)
 	ctx := context.Background()
 
 	// Create user, then set to pending_deletion

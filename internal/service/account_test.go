@@ -28,7 +28,7 @@ func setupAccountTest(t *testing.T) (*AccountService, *LoginService, *storage.St
 	}
 
 	accountSvc := NewAccountService(store)
-	loginSvc := NewLoginService(store, fakeProvider, fakeProvider, 24*time.Hour)
+	loginSvc := NewLoginService(store, fakeProvider, 24*time.Hour)
 	return accountSvc, loginSvc, store, db, clk
 }
 
@@ -186,7 +186,7 @@ func TestE2E_DeleteThenReregister(t *testing.T) {
 
 // account-004: pending_deletion + Device/MCP → account_inactive
 func TestAccount004_PendingDeletion_DeviceRejected(t *testing.T) {
-	_, deviceSvc, _, store, _, _ := setupGapTest(t)
+	_, _, deviceSvc, _, store, _, _ := setupGapTest(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "pd-device@test.com", true, "Test", "", "google", "gap-sub", "pd@test.com")
@@ -203,14 +203,14 @@ func TestAccount004_PendingDeletion_DeviceRejected(t *testing.T) {
 
 // account-004b: pending_deletion + MCP login → account_inactive
 func TestAccount004b_PendingDeletion_MCPRejected(t *testing.T) {
-	loginSvc, _, _, store, _, _ := setupGapTest(t)
+	_, mcpLoginSvc, _, _, store, _, _ := setupGapTest(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "pd-mcp@test.com", true, "Test", "", "google", "gap-sub", "pdm@test.com")
 	store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	arID, _ := store.CreateTestAuthRequest(ctx, "pd-mcp")
-	result := loginSvc.HandleMCPCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+	result := mcpLoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
 
 	if result.Action != ActionError {
 		t.Errorf("action = %v, want Error (pending_deletion via MCP)", result.Action)

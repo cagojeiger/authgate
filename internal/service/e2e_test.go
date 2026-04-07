@@ -17,7 +17,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
-func setupE2ETest(t *testing.T) (*LoginService, *DeviceService, *AccountService, *storage.Storage, *sql.DB, *clock.FixedClock) {
+func setupE2ETest(t *testing.T) (*LoginService, *MCPLoginService, *DeviceService, *AccountService, *storage.Storage, *sql.DB, *clock.FixedClock) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
@@ -34,10 +34,11 @@ func setupE2ETest(t *testing.T) (*LoginService, *DeviceService, *AccountService,
 		User: &upstream.UserInfo{Sub: "e2e-sub", Email: "e2e@test.com", EmailVerified: true, Name: "E2E User"},
 	}
 
-	loginSvc := NewLoginService(store, fakeProvider, fakeProvider, 24*time.Hour)
+	loginSvc := NewLoginService(store, fakeProvider, 24*time.Hour)
+	mcpLoginSvc := NewMCPLoginService(store, fakeProvider, 24*time.Hour)
 	deviceSvc := NewDeviceService(store, fakeProvider, "http://localhost:8080", 24*time.Hour, clk)
 	accountSvc := NewAccountService(store)
-	return loginSvc, deviceSvc, accountSvc, store, db, clk
+	return loginSvc, mcpLoginSvc, deviceSvc, accountSvc, store, db, clk
 }
 
 func createRefreshTokenForUser(t *testing.T, ctx context.Context, store *storage.Storage, userID string) string {
@@ -56,7 +57,7 @@ func createRefreshTokenForUser(t *testing.T, ctx context.Context, store *storage
 
 // E2E 1: 최초 가입 → 정상 사용 → Device/MCP 후속 채널
 func TestE2E1_SignupToAllChannels(t *testing.T) {
-	loginSvc, deviceSvc, _, store, _, clk := setupE2ETest(t)
+	loginSvc, mcpLoginSvc, deviceSvc, _, store, _, clk := setupE2ETest(t)
 	ctx := context.Background()
 
 	// 1. Browser signup → auto-approve (no terms step)
@@ -82,7 +83,7 @@ func TestE2E1_SignupToAllChannels(t *testing.T) {
 
 	// 4. MCP → auto-approve
 	arID3, _ := store.CreateTestAuthRequest(ctx, "e2e1-mcp")
-	mcpResult := loginSvc.HandleMCPCallback(ctx, "fake-code", arID3, "127.0.0.1", "mcp-client")
+	mcpResult := mcpLoginSvc.HandleCallback(ctx, "fake-code", arID3, "127.0.0.1", "mcp-client")
 	if mcpResult.Action != ActionAutoApprove {
 		t.Fatalf("step 4: mcp action = %v, want AutoApprove", mcpResult.Action)
 	}
@@ -93,7 +94,7 @@ func TestE2E1_SignupToAllChannels(t *testing.T) {
 // Device/MCP 로그인을 시도하면 account_not_found로 차단된다.
 // Browser로 가입 완료 후에는 모든 채널이 정상 동작해야 한다.
 func TestE2E2_SignupAbandonAndReturn(t *testing.T) {
-	loginSvc, deviceSvc, _, store, _, clk := setupE2ETest(t)
+	loginSvc, mcpLoginSvc, deviceSvc, _, store, _, clk := setupE2ETest(t)
 	ctx := context.Background()
 
 	// Step 2/3: 유저 DB 없음 → Device/MCP 차단 (account_not_found)
@@ -104,7 +105,7 @@ func TestE2E2_SignupAbandonAndReturn(t *testing.T) {
 	}
 
 	arIDMCP, _ := store.CreateTestAuthRequest(ctx, "e2e2-mcp-pre")
-	mcpResult := loginSvc.HandleMCPCallback(ctx, "fake-code", arIDMCP, "127.0.0.1", "mcp")
+	mcpResult := mcpLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP, "127.0.0.1", "mcp")
 	if mcpResult.Action != ActionError {
 		t.Fatalf("mcp before signup: action=%v, want ActionError", mcpResult.Action)
 	}
@@ -125,7 +126,7 @@ func TestE2E2_SignupAbandonAndReturn(t *testing.T) {
 
 	// 가입 후 MCP 정상 동작
 	arIDMCP2, _ := store.CreateTestAuthRequest(ctx, "e2e2-mcp-post")
-	mcpResult2 := loginSvc.HandleMCPCallback(ctx, "fake-code", arIDMCP2, "127.0.0.1", "mcp")
+	mcpResult2 := mcpLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP2, "127.0.0.1", "mcp")
 	if mcpResult2.Action != ActionAutoApprove {
 		t.Fatalf("mcp after signup: action=%v, want ActionAutoApprove", mcpResult2.Action)
 	}
@@ -133,7 +134,7 @@ func TestE2E2_SignupAbandonAndReturn(t *testing.T) {
 
 // E2E 4: 탈퇴 후 복구
 func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
-	loginSvc, deviceSvc, accountSvc, store, db, clk := setupE2ETest(t)
+	loginSvc, mcpLoginSvc, deviceSvc, accountSvc, store, db, clk := setupE2ETest(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "e2e4-full@test.com", true, "Test", "", "google", "e2e-sub", "e2e4-full@test.com")
@@ -164,7 +165,7 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 		t.Fatalf("step 3: device should reject pending_deletion user, got action=%v code=%d", devResult.Action, devResult.ErrorCode)
 	}
 	arIDMCP, _ := store.CreateTestAuthRequest(ctx, "e2e4-mcp")
-	mcpResult := loginSvc.HandleMCPCallback(ctx, "fake-code", arIDMCP, "127.0.0.1", "mcp-client")
+	mcpResult := mcpLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP, "127.0.0.1", "mcp-client")
 	if mcpResult.Action != ActionError || mcpResult.ErrorCode != 403 {
 		t.Fatalf("step 3: mcp should reject pending_deletion user, got action=%v code=%d", mcpResult.Action, mcpResult.ErrorCode)
 	}
@@ -187,7 +188,7 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 		t.Fatalf("step 5: device should succeed after recovery, got action=%v", devResult2.Action)
 	}
 	arIDMCP2, _ := store.CreateTestAuthRequest(ctx, "e2e4-mcp-ok")
-	mcpResult2 := loginSvc.HandleMCPCallback(ctx, "fake-code", arIDMCP2, "127.0.0.1", "mcp-client")
+	mcpResult2 := mcpLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP2, "127.0.0.1", "mcp-client")
 	if mcpResult2.Action != ActionAutoApprove {
 		t.Fatalf("step 5: mcp should succeed after recovery, got action=%v", mcpResult2.Action)
 	}
@@ -195,7 +196,7 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 
 // E2E 5: 복구 후 로그인 완료 실패가 발생해도 다음 재시도에서 정상 완료되어야 한다.
 func TestE2E5_RecoveryThenAuthRequestRetry(t *testing.T) {
-	loginSvc, _, accountSvc, store, db, _ := setupE2ETest(t)
+	loginSvc, _, _, accountSvc, store, db, _ := setupE2ETest(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, "e2e5-retry@test.com", true, "Retry User", "", "google", "e2e-sub", "e2e5-retry@test.com")

@@ -10,7 +10,7 @@ import (
 )
 
 func newTestLoginHandler(devMode bool) *LoginHandler {
-	svc := service.NewLoginService(nil, nil, nil, 0)
+	svc := service.NewLoginService(nil, nil, 0)
 	return NewLoginHandler(svc, devMode)
 }
 

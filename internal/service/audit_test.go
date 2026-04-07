@@ -130,7 +130,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		}
 		arID, _ := store.CreateTestAuthRequest(ctx, "audit-mcp")
 
-		result := svc.HandleMCPCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-agent")
+		result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-agent")
 		if result.Action != ActionAutoApprove {
 			t.Fatalf("action = %v, want AutoApprove", result.Action)
 		}
@@ -330,7 +330,7 @@ func TestAuditSecurity_MCPInactiveUser_Metadata(t *testing.T) {
 			}
 			arID, _ := store.CreateTestAuthRequest(ctx, "audit-mcp-"+tt.name)
 
-			result := svc.HandleMCPCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-agent")
+			result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-agent")
 			if result.Action != ActionError {
 				t.Fatalf("action = %v, want ActionError", result.Action)
 			}
