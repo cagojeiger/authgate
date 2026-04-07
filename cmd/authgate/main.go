@@ -76,6 +76,9 @@ func main() {
 				log.Fatalf("client config: %v", err)
 			}
 		} else {
+			if err := storage.ValidateClientChannels(clientCfg.Clients, cfg.EnableMCP); err != nil {
+				log.Fatalf("client config: %v", err)
+			}
 			store.LoadClients(clientCfg.Clients)
 			slog.Info("client config loaded", "path", cfg.ClientConfigPath, "count", len(clientCfg.Clients))
 		}

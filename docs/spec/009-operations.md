@@ -57,6 +57,8 @@ authgate를 처음 배포할 때 필요한 것:
 | `ENABLE_MCP` | X | `true` | MCP optional adapter 활성화 여부 (`/mcp/*`, CIMD/resource binding) |
 | `CLIENT_CONFIG` | X | `/etc/authgate/clients.yaml` | 클라이언트 설정 YAML 파일 경로 (없으면 무시) |
 
+`ENABLE_MCP=false`인 경우 `clients.yaml`에 `login_channel: mcp` 항목이 있으면 서버 시작을 거부한다.
+
 ### 프로덕션 필수 조건
 
 `DEV_MODE=false` (기본값)일 때 다음이 강제됨:

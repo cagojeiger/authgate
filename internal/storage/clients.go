@@ -113,6 +113,19 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 	return &cfg, nil
 }
 
+// ValidateClientChannels enforces runtime channel constraints against loaded clients.
+func ValidateClientChannels(clients []ClientConfigEntry, enableMCP bool) error {
+	if enableMCP {
+		return nil
+	}
+	for i, c := range clients {
+		if c.LoginChannel == "mcp" {
+			return fmt.Errorf("client[%d] %q: login_channel=mcp requires ENABLE_MCP=true", i, c.ClientID)
+		}
+	}
+	return nil
+}
+
 // LoadClients loads client config entries into the in-memory client store.
 func (s *Storage) LoadClients(clients []ClientConfigEntry) {
 	for _, c := range clients {
