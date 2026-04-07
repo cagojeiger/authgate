@@ -6,6 +6,4 @@
 - architecture: 경계/책임(어떻게 나누는가)
 - plan: 실행 순서(언제 무엇을 바꾸는가)
 
-현재 활성 계획:
-
-- [성능/관측성 단계별 실행 계획](./performance-observability-plan.md)
+현재 활성 계획: 없음
