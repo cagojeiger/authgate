@@ -9,22 +9,21 @@ import (
 )
 
 type cleanupRunnerStub struct {
-	tryLockOK       bool
-	tryLockErr      error
-	releaseErr      error
-	tryLockCalls    int
-	releaseCalls    int
+	lockAcquired    bool
+	lockErr         error
+	lockCalls       int
 	cleanupCallHits int
 }
 
-func (s *cleanupRunnerStub) TryAdvisoryLock(ctx context.Context) (bool, error) {
-	s.tryLockCalls++
-	return s.tryLockOK, s.tryLockErr
-}
-
-func (s *cleanupRunnerStub) ReleaseAdvisoryLock(ctx context.Context) error {
-	s.releaseCalls++
-	return s.releaseErr
+func (s *cleanupRunnerStub) WithExclusiveLock(ctx context.Context, fn func(context.Context) error) (bool, error) {
+	s.lockCalls++
+	if s.lockErr != nil {
+		return false, s.lockErr
+	}
+	if !s.lockAcquired {
+		return false, nil
+	}
+	return true, fn(ctx)
 }
 
 func (s *cleanupRunnerStub) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
@@ -68,35 +67,29 @@ func (s *cleanupRunnerStub) DeleteUser(ctx context.Context, userID string, now t
 }
 
 func TestCleanupRunAll_SkipsWhenAdvisoryLockNotAcquired(t *testing.T) {
-	runner := &cleanupRunnerStub{tryLockOK: false}
+	runner := &cleanupRunnerStub{lockAcquired: false}
 	svc := NewCleanupService(runner, &clock.FixedClock{T: time.Now()}, time.Minute)
 
 	svc.RunOnce(context.Background())
 
-	if runner.tryLockCalls != 1 {
-		t.Fatalf("try lock calls = %d, want 1", runner.tryLockCalls)
+	if runner.lockCalls != 1 {
+		t.Fatalf("lock calls = %d, want 1", runner.lockCalls)
 	}
 	if runner.cleanupCallHits != 0 {
 		t.Fatalf("cleanup calls = %d, want 0 when lock not acquired", runner.cleanupCallHits)
 	}
-	if runner.releaseCalls != 0 {
-		t.Fatalf("release calls = %d, want 0 when lock not acquired", runner.releaseCalls)
-	}
 }
 
 func TestCleanupRunAll_ReleasesLockAfterRun(t *testing.T) {
-	runner := &cleanupRunnerStub{tryLockOK: true}
+	runner := &cleanupRunnerStub{lockAcquired: true}
 	svc := NewCleanupService(runner, &clock.FixedClock{T: time.Now()}, time.Minute)
 
 	svc.RunOnce(context.Background())
 
-	if runner.tryLockCalls != 1 {
-		t.Fatalf("try lock calls = %d, want 1", runner.tryLockCalls)
+	if runner.lockCalls != 1 {
+		t.Fatalf("lock calls = %d, want 1", runner.lockCalls)
 	}
 	if runner.cleanupCallHits == 0 {
 		t.Fatal("cleanup calls = 0, want > 0 when lock acquired")
-	}
-	if runner.releaseCalls != 1 {
-		t.Fatalf("release calls = %d, want 1", runner.releaseCalls)
 	}
 }

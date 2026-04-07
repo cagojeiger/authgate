@@ -9,8 +9,7 @@ import (
 )
 
 type cleanupRunner interface {
-	TryAdvisoryLock(ctx context.Context) (bool, error)
-	ReleaseAdvisoryLock(ctx context.Context) error
+	WithExclusiveLock(ctx context.Context, fn func(context.Context) error) (bool, error)
 	DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	DeleteExpiredRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	DeleteExpiredOrRevokedSessions(ctx context.Context, cutoff time.Time) (int64, error)
@@ -56,21 +55,18 @@ func (c *CleanupService) Start(ctx context.Context) {
 }
 
 func (c *CleanupService) runAll(ctx context.Context) {
-	acquired, err := c.runner.TryAdvisoryLock(ctx)
+	acquired, err := c.runner.WithExclusiveLock(ctx, c.runAllLocked)
 	if err != nil {
-		slog.Error("cleanup advisory lock failed", "error", err)
+		slog.Error("cleanup run failed", "error", err)
 		return
 	}
 	if !acquired {
 		slog.Info("cleanup skipped: advisory lock not acquired")
 		return
 	}
-	defer func() {
-		if err := c.runner.ReleaseAdvisoryLock(ctx); err != nil {
-			slog.Error("cleanup advisory unlock failed", "error", err)
-		}
-	}()
+}
 
+func (c *CleanupService) runAllLocked(ctx context.Context) error {
 	now := c.clock.Now()
 
 	// 1. Token cleanup: revoked/expired refresh_tokens after 30 days
@@ -127,6 +123,7 @@ func (c *CleanupService) runAll(ctx context.Context) {
 	} else if n > 0 {
 		slog.Info("audit_log anonymization", "anonymized", n)
 	}
+	return nil
 }
 
 // deleteUser performs Spec 006 stage 3: explicit DELETE of child records + PII scrub.

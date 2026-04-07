@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/db/storeq"
@@ -19,21 +20,36 @@ func NewCleanupRunner(db *sql.DB) *CleanupRunner {
 	return &CleanupRunner{db: db}
 }
 
-func (r *CleanupRunner) TryAdvisoryLock(ctx context.Context) (bool, error) {
-	var acquired bool
-	err := r.db.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, cleanupAdvisoryLockKey).Scan(&acquired)
+func (r *CleanupRunner) WithExclusiveLock(ctx context.Context, fn func(context.Context) error) (bool, error) {
+	conn, err := r.db.Conn(ctx)
 	if err != nil {
 		return false, err
 	}
-	return acquired, nil
-}
+	defer conn.Close()
 
-func (r *CleanupRunner) ReleaseAdvisoryLock(ctx context.Context) error {
-	var released bool
-	if err := r.db.QueryRowContext(ctx, `SELECT pg_advisory_unlock($1)`, cleanupAdvisoryLockKey).Scan(&released); err != nil {
-		return err
+	var acquired bool
+	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, cleanupAdvisoryLockKey).Scan(&acquired); err != nil {
+		return false, err
 	}
-	return nil
+	if !acquired {
+		return false, nil
+	}
+
+	runErr := fn(ctx)
+
+	var released bool
+	unlockErr := conn.QueryRowContext(ctx, `SELECT pg_advisory_unlock($1)`, cleanupAdvisoryLockKey).Scan(&released)
+
+	if runErr != nil {
+		return true, runErr
+	}
+	if unlockErr != nil {
+		return true, unlockErr
+	}
+	if !released {
+		return true, fmt.Errorf("cleanup advisory unlock failed")
+	}
+	return true, nil
 }
 
 func (r *CleanupRunner) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
