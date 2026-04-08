@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -35,7 +34,7 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 		user, err := s.store.GetValidSession(ctx, sessionID)
 		if err == nil {
 			if CheckAccess(user.Status, "mcp") != AccessAllow {
-				s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status})
+				s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
 				return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 			}
 			if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
@@ -55,7 +54,7 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 
 	userInfo, err := s.mcpProvider.Exchange(ctx, code)
 	if err != nil {
-		return &CallbackResult{Action: ActionError, Error: fmt.Sprintf("upstream_error: %v", err), ErrorCode: http.StatusInternalServerError}
+		return &CallbackResult{Action: ActionError, Error: "upstream_error", ErrorCode: http.StatusInternalServerError}
 	}
 
 	providerName := s.mcpProvider.Name()
@@ -66,12 +65,11 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 	if err != nil {
 		return &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
-	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": "mcp"})
-
 	if CheckAccess(user.Status, "mcp") != AccessAllow {
 		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
 		return &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
+	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": "mcp"})
 
 	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)
 	if err != nil {

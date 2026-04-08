@@ -124,7 +124,7 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 	// Exchange code for user info
 	userInfo, err := s.browserProvider.Exchange(ctx, code)
 	if err != nil {
-		return &CallbackResult{Action: ActionError, Error: fmt.Sprintf("upstream_error: %v", err), ErrorCode: http.StatusInternalServerError}
+		return &CallbackResult{Action: ActionError, Error: "upstream_error", ErrorCode: http.StatusInternalServerError}
 	}
 
 	user, result := s.findOrCreateBrowserUser(ctx, userInfo, ipAddress, userAgent)

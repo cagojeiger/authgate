@@ -236,7 +236,7 @@ func TestAudit009_InactiveUser(t *testing.T) {
 			svc, store := setupLoginService(t)
 			ctx := context.Background()
 
-			user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-inactive-"+tt.name+"@test.com", EmailVerified: true, Name: "Inactive", AvatarURL: "", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "audit-inactive@test.com"})
+			user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-inactive-" + tt.name + "@test.com", EmailVerified: true, Name: "Inactive", AvatarURL: "", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "audit-inactive@test.com"})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
 			}
@@ -321,7 +321,7 @@ func TestAuditSecurity_MCPInactiveUser_Metadata(t *testing.T) {
 			svc, store := setupMCPExtTest(t, "audit-mcp-"+tt.name+"-sub")
 			ctx := context.Background()
 
-			user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp-"+tt.name+"@test.com", EmailVerified: true, Name: "MCP Inactive", AvatarURL: "", Provider: "google", ProviderUserID: "audit-mcp-"+tt.name+"-sub", ProviderEmail: "audit-mcp-"+tt.name+"@test.com"})
+			user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp-" + tt.name + "@test.com", EmailVerified: true, Name: "MCP Inactive", AvatarURL: "", Provider: "google", ProviderUserID: "audit-mcp-" + tt.name + "-sub", ProviderEmail: "audit-mcp-" + tt.name + "@test.com"})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
 			}
@@ -341,6 +341,11 @@ func TestAuditSecurity_MCPInactiveUser_Metadata(t *testing.T) {
 			}
 			if event.Metadata["channel"] != "mcp" {
 				t.Fatalf("channel = %v, want mcp", event.Metadata["channel"])
+			}
+
+			loginEvents := fetchAuditEvents(t, store.DB(), user.ID, "auth.login")
+			if len(loginEvents) != 0 {
+				t.Fatalf("auth.login count = %d, want 0 for inactive MCP callback", len(loginEvents))
 			}
 		})
 	}

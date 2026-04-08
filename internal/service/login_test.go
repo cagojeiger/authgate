@@ -152,6 +152,21 @@ func TestHandleCallback_InactiveUser_Error(t *testing.T) {
 	}
 }
 
+func TestHandleCallback_UpstreamError_Sanitized(t *testing.T) {
+	svc, _ := setupLoginService(t)
+	ctx := context.Background()
+	svc.browserProvider = &upstream.FakeProvider{ProviderName: "google"}
+
+	result := svc.HandleCallback(ctx, "fake-code", "req-upstream", "127.0.0.1", "test-agent")
+
+	if result.Action != ActionError {
+		t.Fatalf("action = %v, want ActionError", result.Action)
+	}
+	if result.Error != "upstream_error" {
+		t.Fatalf("error = %q, want upstream_error", result.Error)
+	}
+}
+
 // browser-007 / E2E 6: 복구 후 auth_request 완료 실패 → 재시도 멱등성
 func TestBrowser007_RecoveryRetryIdempotent(t *testing.T) {
 	fx := setupGapTest(t)

@@ -298,6 +298,7 @@ SELECT * FROM audit_log WHERE event_type = 'auth.inactive_user' ORDER BY created
 |-----------|------|----------|
 | `GET /health` | liveness (프로세스 살아있나) | 200 `{"status":"healthy"}` |
 | `GET /ready` | readiness (DB 연결 포함) | 200 `{"status":"ready"}` / 실패 시 503 `{"status":"not ready"}` |
+| `GET /metrics` | Prometheus 메트릭 수집 | 200 (text exposition) |
 
 ### 감시해야 할 것
 
