@@ -47,7 +47,7 @@ stateDiagram-v2
 | **active** | 허용 | 허용 | 허용 | 정상 |
 | **disabled** | 차단 (403) | 차단 (403) | 차단 | 운영자 정지 |
 | **pending_deletion** | 허용 → active 복구 | 차단 (403) | 차단 | 30일 유예 |
-| **deleted** | 차단 (403) | 차단 (403) | 차단 | PII 스크러빙 완료 |
+| **deleted** | `ErrNotFound` → 신규 가입 경로 | 차단 (403) | 차단 | PII 스크러빙 완료 + identity 제거 |
 
 **pending_deletion 복구는 브라우저 로그인에서만 가능.**
 CLI/MCP로는 복구할 수 없다 — 브라우저에서 먼저 로그인해야 한다.
@@ -66,7 +66,7 @@ sequenceDiagram
     AG->>AG: getSessionUser → 유저 확인
     AG->>DB: BEGIN
     AG->>DB: UPDATE users SET status='pending_deletion', deletion_scheduled_at=NOW()+30일
-    AG->>DB: UPDATE refresh_tokens SET revoked_at=NOW() WHERE user_id=$1
+    AG->>DB: UPDATE refresh_tokens SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL
     AG->>DB: COMMIT
     AG->>AG: audit: auth.deletion_requested
     AG-->>U: 200 {"status": "pending_deletion", "message": "Account scheduled for deletion in 30 days. Login to cancel."}
@@ -87,16 +87,13 @@ sequenceDiagram
     U->>AG: 브라우저 로그인 시도 (Spec 002)
     AG->>AG: GetUserByProviderIdentity → 기존 유저
     AG->>AG: user.status = 'pending_deletion'
-    AG->>DB: BEGIN
-    AG->>DB: SELECT users ... FOR UPDATE (row 잠금)
-    AG->>DB: UPDATE users SET status='active', deletion_requested_at=NULL, deletion_scheduled_at=NULL
+    AG->>DB: UPDATE users SET status='active', deletion_requested_at=NULL, deletion_scheduled_at=NULL WHERE status='pending_deletion'
     AG->>DB: INSERT sessions (새 세션)
-    AG->>DB: COMMIT
     AG->>AG: audit: auth.deletion_cancelled
     AG-->>U: 로그인 성공 (새 access_token + 새 refresh_token 발급)
 ```
 
-**원자성 규칙**: RecoverUser 자체는 원자적이다 (SELECT FOR UPDATE + UPDATE in TX). 세션 생성과 auth_request 완료는 별도 호출이지만, 각 단계가 실패해도 복구는 유지되고 다음 로그인에서 즉시 정상 완료된다 (재시도 멱등).
+**원자성 규칙**: RecoverUser 자체는 단일 UPDATE로 원자적이다. 세션 생성과 auth_request 완료는 별도 호출이지만, 각 단계가 실패해도 복구는 유지되고 다음 로그인에서 즉시 정상 완료된다 (재시도 멱등).
 
 복구 후 **새 토큰이 발급된다** (기존 토큰은 삭제 요청 시 revoke됨).
 
@@ -119,7 +116,9 @@ UPDATE users SET
   name = NULL,
   avatar_url = NULL,
   status = 'deleted',
-  deleted_at = NOW()
+  deleted_at = NOW(),
+  deletion_requested_at = NULL,
+  deletion_scheduled_at = NULL
 WHERE id = $1
   AND status = 'pending_deletion'
   AND deletion_scheduled_at < NOW();
@@ -166,8 +165,8 @@ authgate는 2종의 account cleanup을 별도 lifecycle로 관리한다:
 |--------|------|------|
 | `auth.deletion_requested` | DELETE /account | 삭제 요청 + refresh_token 즉시 revoke |
 | `auth.deletion_cancelled` | 유예 중 브라우저 로그인 | 자동 복구 |
-| `auth.deletion_completed` | cleanup 고루틴 PII 스크러빙 완료 | |
-| `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 차단 | status 포함 |
+| `auth.deletion_completed` | cleanup 고루틴 PII 스크러빙 완료 | TX 커밋 이후 best-effort 기록 |
+| `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 차단 | status, channel 포함 |
 
 ## 다른 스펙 참조
 

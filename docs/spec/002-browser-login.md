@@ -158,7 +158,7 @@ sequenceDiagram
 | redirect_uri 불일치 | `invalid_request` | 400 | zitadel이 처리 |
 | PKCE 없음 / plain | `invalid_request` | 400 | S256만 허용 |
 | state 누락/불일치 | `invalid_request` | 400 | CSRF 보호 |
-| IdP 인증 사용자 취소 | — | 302 | 앱 redirect_uri에 `error=access_denied` |
+| IdP 인증 사용자 취소/콜백 오류 | `invalid_request` 또는 `upstream_error` | 400/500 | authgate 콜백에서 오류 페이지 렌더 |
 | IdP 서버 오류 | `upstream_error` | 500 | IdP 연동 실패 |
 | DB 오류 (유저 조회) | `internal_error` | 500 | 가입 시도 안 함 |
 | 이메일 충돌 | `email_conflict` | 409 | 같은 email, 다른 IdP sub |
@@ -175,12 +175,12 @@ sequenceDiagram
 pending_deletion 복구는 로그인 완료 절차의 일부로, 다음 순서로 수행한다:
 
 ```
-1. RecoverUser: SELECT ... FOR UPDATE → status = active, deletion fields = NULL (단일 TX)
+1. RecoverUser: `UPDATE ... WHERE status='pending_deletion'`로 active 복구 + deletion 필드 NULL 처리
 2. CreateSession: 새 세션 생성
 3. CompleteAuthRequest: auth_request에 subject 연결
 ```
 
-RecoverUser 자체는 원자적이다 (SELECT FOR UPDATE + UPDATE in TX).
+RecoverUser 자체는 원자적이다 (단일 UPDATE).
 세션 생성과 auth_request 완료는 별도 호출이지만, 각 단계가 실패해도 안전하다:
 - RecoverUser 성공 후 CreateSession 실패 → 복구는 유지됨, 다음 로그인에서 세션 생성
 - CreateSession 성공 후 CompleteAuthRequest 실패 → 복구와 세션은 유지됨, 다음 로그인에서 즉시 완료 (재시도 멱등)

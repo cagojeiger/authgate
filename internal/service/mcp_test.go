@@ -115,6 +115,11 @@ func TestMCPLogin_PendingDeletionSession_Rejected(t *testing.T) {
 	if result.ErrorCode != 403 {
 		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
 	}
+
+	event := requireSingleAuditEvent(t, store.DB(), user.ID, "auth.inactive_user")
+	if event.Metadata["channel"] != "mcp" {
+		t.Fatalf("channel = %v, want mcp", event.Metadata["channel"])
+	}
 }
 
 // channel-005: deleted + mcp(login with session) -> account_inactive
@@ -134,6 +139,26 @@ func TestMCPLogin_DeletedSession_Rejected(t *testing.T) {
 	}
 	if result.ErrorCode != 403 {
 		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
+	}
+
+	event := requireSingleAuditEvent(t, store.DB(), user.ID, "auth.inactive_user")
+	if event.Metadata["channel"] != "mcp" {
+		t.Fatalf("channel = %v, want mcp", event.Metadata["channel"])
+	}
+}
+
+func TestMCPCallback_UpstreamError_Sanitized(t *testing.T) {
+	svc, _ := setupMCPTest(t)
+	ctx := context.Background()
+	svc.mcpProvider = &upstream.FakeProvider{ProviderName: "google"}
+
+	result := svc.HandleCallback(ctx, "fake-code", "req-upstream", "127.0.0.1", "mcp-client")
+
+	if result.Action != ActionError {
+		t.Fatalf("action = %v, want ActionError", result.Action)
+	}
+	if result.Error != "upstream_error" {
+		t.Fatalf("error = %q, want upstream_error", result.Error)
 	}
 }
 

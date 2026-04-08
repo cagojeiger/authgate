@@ -319,6 +319,7 @@ internal/
     mcp_login.go            # MCP login/callback
     device.go
     account.go
+    session_cookie.go
 
   storage/                  # op.Storage 구현 (코어)
     storage.go
@@ -330,6 +331,13 @@ internal/
     clients.go
     keys.go
     cleanup_runner.go
+    audit.go
+    bcrypt.go
+    dberr.go
+    mappers.go
+    models.go
+    pgarray.go
+    resource_context.go
 
   db/                       # DB 접근 계층
     storeq/                 # sqlc 생성 코드
@@ -343,6 +351,7 @@ internal/
   upstream/                 # 외부 IdP 연동
   pages/                    # HTML 템플릿 렌더링
     templates/
+  observability/            # metrics / tracing 보조
   clock/                    # 시간 추상화
   idgen/                    # ID/토큰 생성
 
@@ -350,6 +359,7 @@ internal/
   testutil/                 # 테스트 헬퍼 (test only)
 
 migrations/                 # DB 마이그레이션 SQL
+examples/                   # 샘플 앱/서버
 ```
 
 구조 의도:
