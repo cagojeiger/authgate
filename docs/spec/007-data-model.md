@@ -142,7 +142,7 @@ erDiagram
 | event_type | 설명 | 발생 위치 |
 |------------|------|----------|
 | `auth.signup` | 신규 가입 완료 | 브라우저 로그인 (신규 유저) |
-| `auth.login` | 로그인 성공 | 브라우저/Device/MCP 로그인 |
+| `auth.login` | 로그인 성공 (callback 기반) | 브라우저/Device/MCP callback 로그인 |
 | `auth.inactive_user` | 비활성 유저 로그인 시도 차단 | 브라우저/Device/MCP 로그인 |
 | `auth.device_approved` | Device 코드 승인 | Device 승인 페이지 |
 | `auth.device_denied` | Device 코드 거부 | Device 승인 페이지 |
@@ -229,12 +229,12 @@ MCP
 | 이벤트 | 시점 | metadata |
 |--------|------|----------|
 | `auth.signup` | 가입 | — |
-| `auth.login` | 로그인 | `{channel: "browser\|device\|mcp"}` |
+| `auth.login` | callback 기반 로그인 | `{channel: "browser\|device\|mcp"}` |
 | `auth.deletion_requested` | 탈퇴 요청 | — |
 | `auth.deletion_cancelled` | 탈퇴 취소 (로그인 복구) | — |
-| `auth.deletion_completed` | PII 스크러빙 완료 | — |
+| `auth.deletion_completed` | PII 스크러빙 완료 | TX 커밋 이후 best-effort 기록 |
 | `auth.device_approved` | 디바이스 승인 | — |
 | `auth.device_denied` | 디바이스 거부 | — |
 | `auth.refresh_reuse_detected` | 폐기된 refresh_token 재사용 탐지 | `{family_id}` |
 | `auth.refresh_family_revoked` | family 전체 revoke (탈취 의심) | `{family_id}` |
-| `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 | `{status}` |
+| `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 | `{status, channel}` |

@@ -158,7 +158,7 @@ sequenceDiagram
 | redirect_uri 불일치 | `invalid_request` | 400 | zitadel이 처리 |
 | PKCE 없음 / plain | `invalid_request` | 400 | S256만 허용 |
 | state 누락/불일치 | `invalid_request` | 400 | CSRF 보호 |
-| IdP 인증 사용자 취소 | — | 302 | 앱 redirect_uri에 `error=access_denied` |
+| IdP 인증 사용자 취소/콜백 오류 | `invalid_request` 또는 `upstream_error` | 400/500 | authgate 콜백에서 오류 페이지 렌더 |
 | IdP 서버 오류 | `upstream_error` | 500 | IdP 연동 실패 |
 | DB 오류 (유저 조회) | `internal_error` | 500 | 가입 시도 안 함 |
 | 이메일 충돌 | `email_conflict` | 409 | 같은 email, 다른 IdP sub |

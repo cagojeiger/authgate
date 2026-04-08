@@ -298,7 +298,7 @@ authgate는 다음을 제공하지 않는다:
 ## Consequences
 
 ### Positive
-- authgate는 1,700줄 이하로 유지 가능
+- authgate는 인증 코어 중심의 컴팩트한 범위를 유지한다 (권한/조직/비즈니스 로직 제외)
 - 앱 추가 시 authgate 코드 변경 불필요 (`clients.yaml`에 추가만, MCP는 CIMD로 자동)
 - 각 앱이 독립적으로 권한 체계를 설계 가능
 - 3개 플로우가 동일한 토큰 계약 → 앱은 로그인 방식을 몰라도 됨

@@ -66,7 +66,7 @@ sequenceDiagram
     AG->>AG: getSessionUser → 유저 확인
     AG->>DB: BEGIN
     AG->>DB: UPDATE users SET status='pending_deletion', deletion_scheduled_at=NOW()+30일
-    AG->>DB: UPDATE refresh_tokens SET revoked_at=NOW() WHERE user_id=$1
+    AG->>DB: UPDATE refresh_tokens SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL
     AG->>DB: COMMIT
     AG->>AG: audit: auth.deletion_requested
     AG-->>U: 200 {"status": "pending_deletion", "message": "Account scheduled for deletion in 30 days. Login to cancel."}
@@ -116,7 +116,9 @@ UPDATE users SET
   name = NULL,
   avatar_url = NULL,
   status = 'deleted',
-  deleted_at = NOW()
+  deleted_at = NOW(),
+  deletion_requested_at = NULL,
+  deletion_scheduled_at = NULL
 WHERE id = $1
   AND status = 'pending_deletion'
   AND deletion_scheduled_at < NOW();
@@ -163,8 +165,8 @@ authgate는 2종의 account cleanup을 별도 lifecycle로 관리한다:
 |--------|------|------|
 | `auth.deletion_requested` | DELETE /account | 삭제 요청 + refresh_token 즉시 revoke |
 | `auth.deletion_cancelled` | 유예 중 브라우저 로그인 | 자동 복구 |
-| `auth.deletion_completed` | cleanup 고루틴 PII 스크러빙 완료 | |
-| `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 차단 | status 포함 |
+| `auth.deletion_completed` | cleanup 고루틴 PII 스크러빙 완료 | TX 커밋 이후 best-effort 기록 |
+| `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 차단 | status, channel 포함 |
 
 ## 다른 스펙 참조
 
