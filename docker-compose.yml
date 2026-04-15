@@ -7,8 +7,6 @@ services:
       POSTGRES_DB: authgate
       POSTGRES_USER: authgate
       POSTGRES_PASSWORD: authgate
-    volumes:
-      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U authgate"]
       interval: 2s

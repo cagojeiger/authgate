@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 	"time"
 
@@ -13,22 +12,23 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/kangheeyong/authgate/internal/db/migrator"
 )
 
-// SetupPostgres starts a PostgreSQL container, runs migrations, and returns a *sql.DB.
-// The container is automatically cleaned up when the test ends.
+// SetupPostgres starts a PostgreSQL container, runs migrations via the
+// same migrator package authgate uses in production, and returns a
+// *sql.DB. The container is automatically cleaned up when the test ends.
 func SetupPostgres(t *testing.T) *sql.DB {
 	t.Helper()
 	ctx := context.Background()
 
-	// Find migrations directory (relative to project root)
 	migrationPath := findMigrations(t)
 
 	container, err := postgres.Run(ctx, "postgres:16-alpine",
 		postgres.WithDatabase("authgate_test"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
-		postgres.WithInitScripts(filepath.Join(migrationPath, "001_init.sql")),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
@@ -54,13 +54,13 @@ func SetupPostgres(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-
 	t.Cleanup(func() { db.Close() })
 
-	// Wait for DB to be ready
 	for i := 0; i < 30; i++ {
 		if err := db.Ping(); err == nil {
-			applyAdditionalMigrations(t, db, migrationPath)
+			if err := migrator.Run(db, migrationPath); err != nil {
+				t.Fatalf("apply migrations: %v", err)
+			}
 			return db
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -69,39 +69,14 @@ func SetupPostgres(t *testing.T) *sql.DB {
 	return nil
 }
 
-func applyAdditionalMigrations(t *testing.T, db *sql.DB, migrationPath string) {
-	t.Helper()
-
-	files, err := filepath.Glob(filepath.Join(migrationPath, "*.sql"))
-	if err != nil {
-		t.Fatalf("list migrations: %v", err)
-	}
-	sort.Strings(files)
-
-	for _, file := range files {
-		if filepath.Base(file) == "001_init.sql" {
-			continue
-		}
-		sqlBytes, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatalf("read migration %s: %v", filepath.Base(file), err)
-		}
-		if _, err := db.Exec(string(sqlBytes)); err != nil {
-			t.Fatalf("apply migration %s: %v", filepath.Base(file), err)
-		}
-	}
-}
-
 // findMigrations walks up from cwd to find the migrations/ directory.
 func findMigrations(t *testing.T) string {
 	t.Helper()
 
-	// Try from environment variable first
 	if p := os.Getenv("AUTHGATE_MIGRATIONS_PATH"); p != "" {
 		return p
 	}
 
-	// Walk up from current working directory
 	dir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
