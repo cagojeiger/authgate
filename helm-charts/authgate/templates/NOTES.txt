@@ -1,0 +1,57 @@
+authgate {{ .Chart.AppVersion }} has been installed in namespace {{ .Release.Namespace }}.
+
+1. Check pod status:
+
+   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+2. Access authgate:
+
+{{- if .Values.ingress.enabled }}
+   Configured ingress hosts:
+{{- range .Values.ingress.hosts }}
+     https://{{ .host }}
+{{- end }}
+{{- else }}
+   Port-forward for local access:
+
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "authgate.fullname" . }} 8080:{{ .Values.service.port }}
+
+   Then open:  {{ .Values.authgate.publicUrl }}
+{{- end }}
+
+3. OIDC discovery endpoint:
+
+   {{ .Values.authgate.publicUrl }}/.well-known/openid-configuration
+
+{{- if .Values.postgresql.enabled }}
+
+4. Bundled PostgreSQL:
+
+   - StatefulSet:  {{ include "authgate.postgres.fullname" . }}
+   - Database:     {{ .Values.postgresql.auth.database }}
+   - User:         {{ .Values.postgresql.auth.username }}
+   - Storage:      {{ .Values.postgresql.storage.size }}
+     (single replica, not HA — for production HA consider switching to an
+     external managed Postgres via postgresql.enabled=false)
+{{- end }}
+
+{{- if not .Values.secrets.existingSecret }}
+
+5. Generated secrets:
+
+   The chart generated a random SESSION_SECRET and RSA signing key on first
+   install. These are preserved across `helm upgrade` via the `lookup`
+   function. If you delete and reinstall the release, new values are generated
+   and all existing tokens will be invalidated.
+
+   To provide your own instead, set `secrets.existingSecret` or the
+   `secrets.sessionSecret` / `secrets.signingKey` values.
+{{- end }}
+
+{{- if and (not .Values.authgate.devMode) (not .Values.secrets.existingSecret) (not .Values.secrets.oidcClientSecret) }}
+
+WARNING: devMode=false but secrets.oidcClientSecret is empty. authgate will
+fail to start because the upstream OIDC provider requires a client secret
+in production mode. Set `secrets.oidcClientSecret` or provide an
+`secrets.existingSecret`.
+{{- end }}

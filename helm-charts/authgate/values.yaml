@@ -1,0 +1,224 @@
+# Default values for authgate.
+
+# -- Number of authgate replicas. Safe to scale >1 since state is in Postgres;
+# the RSA signing key is shared via a Kubernetes Secret.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/cagojeiger/authgate
+  # -- Image tag. If empty, defaults to "v" + .Chart.AppVersion. The release
+  # workflow tags images with a leading "v" (e.g. v0.1.3).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: auth.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: authgate-tls
+    #   hosts:
+    #     - auth.example.com
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# ---------------------------------------------------------------------------
+# authgate application configuration
+# ---------------------------------------------------------------------------
+authgate:
+  # -- External URL where authgate is reachable. MUST match the browser-facing
+  # URL (scheme + host + optional port). Used as OIDC issuer.
+  publicUrl: "https://auth.example.com"
+
+  # -- Development mode. When false, production guards apply:
+  # SESSION_SECRET >= 32 chars, OIDC_ISSUER_URL must be https://,
+  # OIDC_CLIENT_ID/SECRET required, secure cookies.
+  devMode: false
+
+  # -- Enable MCP optional routes (/mcp/*). Set false if not using MCP clients.
+  enableMcp: true
+
+  oidc:
+    # -- Upstream OIDC issuer URL (IdP).
+    issuerUrl: "https://idp.example.com"
+    # -- Optional internal URL for server-to-server OIDC calls (leave empty
+    # unless running the IdP in-cluster on a different internal hostname).
+    internalUrl: ""
+    httpTimeoutSec: 10
+    clientId: "authgate"
+    # -- OIDC client secret. Provided via secret (see `secrets` section).
+
+  # TTLs (seconds)
+  sessionTtlSec: 86400
+  accessTokenTtlSec: 900
+  refreshTokenTtlSec: 2592000
+
+  # HTTP server tuning
+  http:
+    readHeaderTimeoutSec: 5
+    readTimeoutSec: 15
+    writeTimeoutSec: 30
+    idleTimeoutSec: 60
+    shutdownTimeoutSec: 10
+
+  # DB pool tuning (used only when postgresql.enabled=false or to override
+  # sizing against the bundled postgres).
+  db:
+    maxOpenConns: 25
+    maxIdleConns: 25
+    connMaxLifetimeSec: 300
+    connMaxIdleTimeSec: 120
+
+# ---------------------------------------------------------------------------
+# Client configuration (rendered into /etc/authgate/clients.yaml)
+# ---------------------------------------------------------------------------
+clients:
+  # -- List of OAuth clients. Same schema as the repo's clients.yaml.
+  # See docs/spec/ for the full schema.
+  clients: []
+    # - client_id: sample-app
+    #   client_type: public
+    #   login_channel: browser
+    #   name: Sample Web App
+    #   redirect_uris:
+    #     - https://sample.example.com/auth/callback
+    #   allowed_scopes: [openid, profile, email, offline_access]
+    #   allowed_grant_types: [authorization_code, refresh_token]
+
+# ---------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------
+# If `existingSecret` is set, the chart will NOT create a Secret and will
+# reference the provided one. The Secret MUST contain these keys:
+#   - session-secret        (>=32 chars when devMode=false)
+#   - oidc-client-secret    (upstream OIDC client secret; can be empty if devMode=true)
+#   - signing-key.pem       (RSA PKCS#1 PEM for token signing)
+#
+# If `existingSecret` is empty:
+#   - session-secret: generated (random 48 chars) on first install, preserved
+#     across upgrades via `lookup`.
+#   - signing-key.pem: generated via Helm `genPrivateKey "rsa"` on first
+#     install, preserved across upgrades via `lookup`.
+#   - oidc-client-secret: taken from `secrets.oidcClientSecret` value below.
+secrets:
+  existingSecret: ""
+  oidcClientSecret: ""
+  # Optional: pre-provide a signing key PEM instead of letting the chart
+  # generate one. Must be RSA PKCS#1.
+  signingKey: ""
+  # Optional: pre-provide a session secret (>=32 chars).
+  sessionSecret: ""
+
+# ---------------------------------------------------------------------------
+# Bundled PostgreSQL (StatefulSet, single replica)
+# ---------------------------------------------------------------------------
+# Set enabled=false to use an external database. When disabled you must
+# provide `externalDatabase.existingSecret` with a `database-url` key.
+postgresql:
+  enabled: true
+  image: postgres:17-alpine
+  imagePullPolicy: IfNotPresent
+  auth:
+    database: authgate
+    username: authgate
+    # -- Optional: reference a pre-created Secret containing `postgres-password`.
+    # If empty, the chart generates a random password on install and preserves
+    # it across upgrades via `lookup`.
+    existingSecret: ""
+  storage:
+    size: 10Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+  service:
+    port: 5432
+  podSecurityContext:
+    fsGroup: 70
+  securityContext:
+    runAsUser: 70
+    runAsGroup: 70
+
+externalDatabase:
+  # -- Secret that contains `database-url` (full postgres:// URL). Only used
+  # when postgresql.enabled=false.
+  existingSecret: ""

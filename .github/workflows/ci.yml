@@ -12,6 +12,7 @@ on:
       - "internal/db/queries/**"
       - "sqlc.yaml"
       - ".github/workflows/ci.yml"
+      - "helm-charts/**"
   push:
     branches: [main]
     paths:
@@ -22,6 +23,7 @@ on:
       - "internal/db/queries/**"
       - "sqlc.yaml"
       - ".github/workflows/ci.yml"
+      - "helm-charts/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -133,6 +135,23 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
+
+  helm:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: azure/setup-helm@v4
+      - name: Helm lint
+        run: helm lint helm-charts/authgate
+      - name: Helm template (default values)
+        run: helm template ci helm-charts/authgate --set secrets.oidcClientSecret=dummy > /dev/null
+      - name: Helm template (external DB)
+        run: |
+          helm template ci helm-charts/authgate \
+            --set postgresql.enabled=false \
+            --set externalDatabase.existingSecret=ext-db \
+            --set secrets.oidcClientSecret=dummy > /dev/null
 
   vuln:
     name: Vulnerability Check

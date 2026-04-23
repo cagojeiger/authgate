@@ -1,0 +1,174 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "authgate.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "authgate.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "authgate.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/clients: {{ include (print $.Template.BasePath "/configmap-clients.yaml") . | sha256sum }}
+        {{- if not .Values.secrets.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "authgate.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "authgate.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.postgresql.enabled }}
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ .Values.postgresql.image }}
+          imagePullPolicy: {{ .Values.postgresql.imagePullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h {{ include "authgate.postgres.fullname" . }} -p {{ .Values.postgresql.service.port }} -U {{ .Values.postgresql.auth.username }}; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      {{- end }}
+      containers:
+        - name: authgate
+          image: {{ include "authgate.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: PUBLIC_URL
+              value: {{ .Values.authgate.publicUrl | quote }}
+            - name: DEV_MODE
+              value: {{ .Values.authgate.devMode | quote }}
+            - name: ENABLE_MCP
+              value: {{ .Values.authgate.enableMcp | quote }}
+            - name: OIDC_ISSUER_URL
+              value: {{ .Values.authgate.oidc.issuerUrl | quote }}
+            {{- with .Values.authgate.oidc.internalUrl }}
+            - name: OIDC_INTERNAL_URL
+              value: {{ . | quote }}
+            {{- end }}
+            - name: OIDC_HTTP_TIMEOUT_SEC
+              value: {{ .Values.authgate.oidc.httpTimeoutSec | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.authgate.oidc.clientId | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "authgate.secretName" . }}
+                  key: oidc-client-secret
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "authgate.secretName" . }}
+                  key: session-secret
+            - name: SESSION_TTL
+              value: {{ .Values.authgate.sessionTtlSec | quote }}
+            - name: ACCESS_TOKEN_TTL
+              value: {{ .Values.authgate.accessTokenTtlSec | quote }}
+            - name: REFRESH_TOKEN_TTL
+              value: {{ .Values.authgate.refreshTokenTtlSec | quote }}
+            - name: HTTP_READ_HEADER_TIMEOUT_SEC
+              value: {{ .Values.authgate.http.readHeaderTimeoutSec | quote }}
+            - name: HTTP_READ_TIMEOUT_SEC
+              value: {{ .Values.authgate.http.readTimeoutSec | quote }}
+            - name: HTTP_WRITE_TIMEOUT_SEC
+              value: {{ .Values.authgate.http.writeTimeoutSec | quote }}
+            - name: HTTP_IDLE_TIMEOUT_SEC
+              value: {{ .Values.authgate.http.idleTimeoutSec | quote }}
+            - name: SHUTDOWN_TIMEOUT_SEC
+              value: {{ .Values.authgate.http.shutdownTimeoutSec | quote }}
+            - name: DB_MAX_OPEN_CONNS
+              value: {{ .Values.authgate.db.maxOpenConns | quote }}
+            - name: DB_MAX_IDLE_CONNS
+              value: {{ .Values.authgate.db.maxIdleConns | quote }}
+            - name: DB_CONN_MAX_LIFETIME_SEC
+              value: {{ .Values.authgate.db.connMaxLifetimeSec | quote }}
+            - name: DB_CONN_MAX_IDLE_TIME_SEC
+              value: {{ .Values.authgate.db.connMaxIdleTimeSec | quote }}
+            - name: CLIENT_CONFIG
+              value: /etc/authgate/clients.yaml
+            {{- if .Values.postgresql.enabled }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "authgate.postgres.secretName" . }}
+                  key: postgres-password
+            - name: DATABASE_URL
+              value: "postgres://{{ .Values.postgresql.auth.username }}:$(POSTGRES_PASSWORD)@{{ include "authgate.postgres.fullname" . }}:{{ .Values.postgresql.service.port }}/{{ .Values.postgresql.auth.database }}?sslmode=disable"
+            {{- else }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "externalDatabase.existingSecret is required when postgresql.enabled=false" .Values.externalDatabase.existingSecret }}
+                  key: database-url
+            {{- end }}
+          volumeMounts:
+            - name: clients
+              mountPath: /etc/authgate/clients.yaml
+              subPath: clients.yaml
+              readOnly: true
+            - name: signing-key
+              mountPath: /signing_key.pem
+              subPath: signing-key.pem
+              readOnly: true
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: clients
+          configMap:
+            name: {{ include "authgate.fullname" . }}-clients
+        - name: signing-key
+          secret:
+            secretName: {{ include "authgate.secretName" . }}
+            items:
+              - key: signing-key.pem
+                path: signing-key.pem
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

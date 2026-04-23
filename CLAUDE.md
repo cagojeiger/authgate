@@ -7,12 +7,13 @@
 
 | 코드 변경 | 같이 바꿔야 하는 문서 |
 |-----------|----------------------|
-| 환경변수 추가/변경/제거 | `docs/spec/009-operations.md` 환경변수 표 |
+| 환경변수 추가/변경/제거 | `docs/spec/009-operations.md` 환경변수 표 + `helm-charts/authgate/values.yaml` + `templates/deployment.yaml` env |
 | 마이그레이션 파일 추가 | `docs/spec/009-operations.md` 초기 설정 섹션 |
 | 엔드포인트 추가/변경 | 해당 `docs/spec/00N-*.md` |
 | 상태기계 변경 (`user.Status` 등) | `docs/adr/000-authgate-identity.md` |
 | 테스트 파일 추가/제거 | `docs/tests/README.md` |
 | 패키지 구조 변경 | `docs/architecture/*.md` |
+| Helm 차트 템플릿 변경 | `helm-charts/authgate/README.md` + `values.yaml` 주석 |
 
 ## 문서 계층과 역할
 

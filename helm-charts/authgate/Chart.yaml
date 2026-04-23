@@ -1,0 +1,22 @@
+apiVersion: v2
+name: authgate
+description: Minimal B2C OAuth2/OIDC authentication gateway built on zitadel/oidc
+type: application
+# NOTE: version and appVersion are overridden at package time by the release
+# workflow using the repo's VERSION file. These placeholders exist only for
+# local `helm lint` / `helm template` runs.
+version: 0.0.0
+appVersion: "0.0.0"
+home: https://github.com/cagojeiger/authgate
+sources:
+  - https://github.com/cagojeiger/authgate
+maintainers:
+  - name: cagojeiger
+    email: cagojeiger89@gmail.com
+keywords:
+  - oauth2
+  - oidc
+  - openid-connect
+  - authentication
+  - identity
+  - gateway
