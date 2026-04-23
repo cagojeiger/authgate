@@ -22,6 +22,7 @@ import (
 	mcpadapter "github.com/kangheeyong/authgate/internal/adapter/mcp"
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/config"
+	"github.com/kangheeyong/authgate/internal/db/migrator"
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/observability"
@@ -34,6 +35,10 @@ func main() {
 	cfg := mustLoadConfig()
 	db := mustOpenDB(cfg)
 	defer db.Close()
+
+	if err := migrator.Run(db, cfg.MigrationsPath); err != nil {
+		log.Fatalf("migrations: %v", err)
+	}
 
 	// Components
 	clk := clock.RealClock{}

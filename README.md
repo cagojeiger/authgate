@@ -112,9 +112,8 @@ Prerequisites:
 - schema applied: `001_init.sql`
 
 ```bash
-# Apply migrations in order
-psql -f migrations/001_init.sql
-
+# Migrations run automatically on startup (golang-migrate + schema_migrations
+# state table + Postgres advisory lock). No manual psql step.
 
 # Start server
 export DATABASE_URL='postgres://...'
@@ -124,6 +123,7 @@ export OIDC_ISSUER_URL='http://localhost:8082'
 export OIDC_CLIENT_ID='authgate'
 export OIDC_CLIENT_SECRET='replace-me'
 export DEV_MODE=true
+export MIGRATIONS_PATH=./migrations
 
 go run ./cmd/authgate
 ```

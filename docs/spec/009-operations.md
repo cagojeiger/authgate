@@ -12,7 +12,9 @@ authgate를 처음 배포할 때 필요한 것:
 ```
 1. PostgreSQL 준비
    → DB 생성 (authgate)
-   → 마이그레이션 실행 (001_init.sql)
+   → 마이그레이션은 authgate가 시작 시 자동 실행
+     (golang-migrate, migrations/*.up.sql 순차 적용, schema_migrations 테이블로 상태 추적)
+     여러 replica가 동시에 시작해도 Postgres advisory lock으로 안전
 
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성
@@ -66,6 +68,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `DEV_MODE` | X | `false` | true 시: insecure 허용, cookie Secure=false |
 | `ENABLE_MCP` | X | `true` | MCP optional adapter 활성화 여부 (`/mcp/*`, CIMD/resource binding) |
 | `CLIENT_CONFIG` | X | `/etc/authgate/clients.yaml` | 클라이언트 설정 YAML 파일 경로 (없으면 무시) |
+| `MIGRATIONS_PATH` | X | `/migrations` | golang-migrate 마이그레이션 디렉터리 경로 (Docker 이미지 기본, 로컬 개발은 `./migrations`) |
 
 `ENABLE_MCP=false`인 경우 `clients.yaml`에 `login_channel: mcp` 항목이 있으면 서버 시작을 거부한다.
 

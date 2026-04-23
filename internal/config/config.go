@@ -28,6 +28,7 @@ type Config struct {
 	DevMode               bool
 	EnableMCP             bool
 	ClientConfigPath      string
+	MigrationsPath        string
 	HTTPReadHeaderTimeout time.Duration
 	HTTPReadTimeout       time.Duration
 	HTTPWriteTimeout      time.Duration
@@ -56,6 +57,7 @@ func Load() (*Config, error) {
 		DevMode:               envBool("DEV_MODE", false),
 		EnableMCP:             envBool("ENABLE_MCP", true),
 		ClientConfigPath:      envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
+		MigrationsPath:        envDefault("MIGRATIONS_PATH", "/migrations"),
 		HTTPReadHeaderTimeout: time.Duration(envInt("HTTP_READ_HEADER_TIMEOUT_SEC", 5)) * time.Second,
 		HTTPReadTimeout:       time.Duration(envInt("HTTP_READ_TIMEOUT_SEC", 15)) * time.Second,
 		HTTPWriteTimeout:      time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,
