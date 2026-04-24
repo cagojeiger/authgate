@@ -64,10 +64,14 @@ func main() {
 	// Account service
 	accountService := service.NewAccountService(store)
 
+	// Console service
+	consoleService := service.NewConsoleService(store)
+
 	// Handler layer
 	loginHandler := handler.NewLoginHandler(loginService, cfg.DevMode)
 	deviceHandler := handler.NewDeviceHandler(deviceService, cfg.DevMode)
 	accountHandler := handler.NewAccountHandler(accountService, cfg.PublicURL)
+	consoleHandler := handler.NewConsoleHandler(consoleService)
 
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if cfg.EnableMCP {
@@ -81,7 +85,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	httpMetrics := observability.NewHTTPMetrics()
-	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, httpMetrics)
+	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, httpMetrics)
 
 	// Wrap the mux with CORS middleware so all endpoints benefit.
 	corsHandler := middleware.NewCORSMiddleware(allowedOrigins)(mux)
@@ -267,11 +271,12 @@ func registerRoutes(
 	deviceHandler *handler.DeviceHandler,
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
+	consoleHandler *handler.ConsoleHandler,
 	httpMetrics *observability.HTTPMetrics,
 ) {
 	registerOAuthMetadataRoute(mux, cfg)
 	registerProviderRoutes(mux, cfg, store, provider)
-	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler)
+	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler)
 	registerHealthRoutes(mux, db, httpMetrics)
 }
 
@@ -338,6 +343,7 @@ func registerAuthgateRoutes(
 	deviceHandler *handler.DeviceHandler,
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
+	consoleHandler *handler.ConsoleHandler,
 ) {
 	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
 	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
@@ -352,6 +358,8 @@ func registerAuthgateRoutes(
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
 	mux.Handle("/device/approve", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
+	mux.HandleFunc("/console/clients", consoleHandler.HandleListClients)
+	mux.HandleFunc("/console/me/connections", consoleHandler.HandleListConnections)
 }
 
 func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, httpMetrics *observability.HTTPMetrics) {
