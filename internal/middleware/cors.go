@@ -25,28 +25,71 @@ func NewCORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler 
 			origin := r.Header.Get("Origin")
 			_, matched := allowed[origin]
 
-			if matched {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-				w.Header().Set("Access-Control-Max-Age", strconv.Itoa(86400))
-				// Vary header so caches don't mix responses for different origins.
-				w.Header().Add("Vary", "Origin")
-			}
-
 			// Handle preflight.
 			if r.Method == http.MethodOptions {
 				if matched {
-					w.WriteHeader(http.StatusNoContent)
-				} else {
-					w.WriteHeader(http.StatusNoContent)
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+					w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
+					w.Header().Set("Access-Control-Max-Age", strconv.Itoa(86400))
+					w.Header().Add("Vary", "Origin")
 				}
+				w.WriteHeader(http.StatusNoContent)
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			// For non-preflight: wrap the writer so we can enforce CORS headers
+			// right before they are committed, overriding any headers that
+			// downstream handlers (e.g. zitadel/oidc) may have set themselves.
+			cw := &corsWriter{ResponseWriter: w, origin: origin, matched: matched}
+			next.ServeHTTP(cw, r)
+			if !cw.written {
+				cw.flushCORSHeaders()
+			}
 		})
+	}
+}
+
+// corsWriter intercepts WriteHeader so CORS headers can be enforced or stripped
+// just before the response is committed, regardless of what downstream set.
+type corsWriter struct {
+	http.ResponseWriter
+	origin  string
+	matched bool
+	written bool
+}
+
+func (c *corsWriter) WriteHeader(code int) {
+	c.flushCORSHeaders()
+	c.ResponseWriter.WriteHeader(code)
+}
+
+func (c *corsWriter) Write(b []byte) (int, error) {
+	if !c.written {
+		c.flushCORSHeaders()
+	}
+	return c.ResponseWriter.Write(b)
+}
+
+func (c *corsWriter) flushCORSHeaders() {
+	if c.written {
+		return
+	}
+	c.written = true
+	h := c.ResponseWriter.Header()
+	if c.matched {
+		h.Set("Access-Control-Allow-Origin", c.origin)
+		h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		h.Set("Access-Control-Allow-Credentials", "true")
+		h.Add("Vary", "Origin")
+	} else {
+		h.Del("Access-Control-Allow-Origin")
+		h.Del("Access-Control-Allow-Methods")
+		h.Del("Access-Control-Allow-Headers")
+		h.Del("Access-Control-Allow-Credentials")
+		h.Del("Access-Control-Max-Age")
 	}
 }
 
