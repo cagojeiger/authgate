@@ -17,6 +17,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
+	"github.com/kangheeyong/authgate/internal/middleware"
 	"github.com/kangheeyong/authgate/internal/service"
 	"github.com/kangheeyong/authgate/internal/storage"
 	"github.com/kangheeyong/authgate/internal/testutil"
@@ -207,6 +208,11 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"healthy"}`))
 	})
+
+	// Apply CORS middleware: allowed origin is derived from the test client's redirect URI (srv.URL).
+	corsOrigins := middleware.OriginsFromRedirectURIs([]string{srv.URL + "/callback"})
+	corsMW := middleware.NewCORSMiddleware(corsOrigins)
+	srv.Config.Handler = corsMW(mux)
 
 	return &TestServer{
 		Server:  srv,

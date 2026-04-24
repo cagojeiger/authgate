@@ -76,12 +76,18 @@ func main() {
 		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, cfg.DevMode)
 	}
 
+	// Load client config and derive CORS allowed origins.
+	allowedOrigins := loadClientConfigIfPresent(cfg, store)
+
 	mux := http.NewServeMux()
 	httpMetrics := observability.NewHTTPMetrics()
 	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, httpMetrics)
 
+	// Wrap the mux with CORS middleware so all endpoints benefit.
+	corsHandler := middleware.NewCORSMiddleware(allowedOrigins)(mux)
+
 	var inflightRequests int64
-	srv, addr := buildHTTPServer(cfg, mux, httpMetrics, &inflightRequests)
+	srv, addr := buildHTTPServer(cfg, corsHandler, httpMetrics, &inflightRequests)
 
 	cleanupCancel := startCleanupService(db, clk)
 	defer cleanupCancel()
@@ -130,7 +136,6 @@ func newStateChecker() func(*storage.User) error {
 func mustBuildStore(cfg *config.Config, db *sql.DB, clk clock.Clock, gen idgen.CryptoGenerator) *storage.Storage {
 	store := storage.New(db, clk, gen, newStateChecker(), cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	mustConfigureSigningKey(store)
-	loadClientConfigIfPresent(cfg, store)
 	configureMCPPoliciesIfEnabled(cfg, store)
 	return store
 }
@@ -143,16 +148,16 @@ func mustConfigureSigningKey(store *storage.Storage) {
 	store.SetSigningKey(key, "authgate-key-1")
 }
 
-func loadClientConfigIfPresent(cfg *config.Config, store *storage.Storage) {
+func loadClientConfigIfPresent(cfg *config.Config, store *storage.Storage) []string {
 	if cfg.ClientConfigPath == "" {
-		return
+		return nil
 	}
 
 	clientCfg, err := storage.LoadClientConfig(cfg.ClientConfigPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			slog.Warn("client config not found, skipping", "path", cfg.ClientConfigPath)
-			return
+			return nil
 		}
 		log.Fatalf("client config: %v", err)
 	}
@@ -161,6 +166,13 @@ func loadClientConfigIfPresent(cfg *config.Config, store *storage.Storage) {
 	}
 	store.LoadClients(clientCfg.Clients)
 	slog.Info("client config loaded", "path", cfg.ClientConfigPath, "count", len(clientCfg.Clients))
+
+	// Collect allowed CORS origins from all client redirect URIs.
+	var allURIs []string
+	for _, c := range clientCfg.Clients {
+		allURIs = append(allURIs, c.RedirectURIs...)
+	}
+	return middleware.OriginsFromRedirectURIs(allURIs)
 }
 
 func configureMCPPoliciesIfEnabled(cfg *config.Config, store *storage.Storage) {
