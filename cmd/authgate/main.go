@@ -68,8 +68,8 @@ func main() {
 	consoleService := service.NewConsoleService(store)
 
 	// Handler layer
-	loginHandler := handler.NewLoginHandler(loginService, cfg.DevMode)
-	deviceHandler := handler.NewDeviceHandler(deviceService, cfg.DevMode)
+	loginHandler := handler.NewLoginHandler(loginService, cfg.DevMode, cfg.BrandName)
+	deviceHandler := handler.NewDeviceHandler(deviceService, cfg.DevMode, cfg.BrandName)
 	accountHandler := handler.NewAccountHandler(accountService, cfg.PublicURL)
 	consoleHandler := handler.NewConsoleHandler(consoleService)
 
@@ -77,7 +77,7 @@ func main() {
 	if cfg.EnableMCP {
 		mcpProvider := mustBuildUpstreamProvider(ctx, cfg, "/mcp/callback", upstreamOpts)
 		mcpLoginService := service.NewMCPLoginService(store, mcpProvider, cfg.SessionTTL)
-		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, cfg.DevMode)
+		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, cfg.DevMode, cfg.BrandName)
 	}
 
 	// Load client config and derive CORS allowed origins.

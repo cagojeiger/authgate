@@ -10,12 +10,14 @@ import (
 type LoginHandler struct {
 	loginService *service.LoginService
 	devMode      bool
+	brandName    string
 }
 
-func NewLoginHandler(loginService *service.LoginService, devMode bool) *LoginHandler {
+func NewLoginHandler(loginService *service.LoginService, devMode bool, brandName string) *LoginHandler {
 	return &LoginHandler{
 		loginService: loginService,
 		devMode:      devMode,
+		brandName:    brandName,
 	}
 }
 
@@ -64,5 +66,5 @@ func (h *LoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 func (h *LoginHandler) renderError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
-	pages.RenderError(w, pages.ErrorData{Code: code, Message: message})
+	pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: code, Message: message})
 }

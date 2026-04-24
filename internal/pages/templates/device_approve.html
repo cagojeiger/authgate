@@ -4,191 +4,218 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>authgate - Confirm Device</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #f4f7fb;
-    --panel: rgba(255,255,255,0.95);
-    --border: #d7e0ea;
-    --text: #14202b;
-    --muted: #5f6f82;
-    --primary: #175cd3;
-    --primary-hover: #114bb0;
-    --secondary: #eef3f8;
-    --secondary-hover: #e6edf5;
+    --bg-canvas:      #fafbfc;
+    --bg-surface:     #ffffff;
+    --bg-subtle:      #f4f5f7;
+    --bg-tint-violet: #f6f3ff;
+    --fg-1:           #0a0b0d;
+    --fg-2:           #3a3f4a;
+    --fg-3:           #5e6470;
+    --fg-4:           #9ca0a8;
+    --brand:          #a78bff;
+    --brand-deep:     #7170ff;
+    --brand-hover:    #8f72ff;
+    --brand-ring:     rgba(167,139,255,0.32);
+    --border-subtle:  rgba(10,11,13,0.04);
+    --border-std:     rgba(10,11,13,0.08);
+    --border-brand:   rgba(167,139,255,0.35);
+    --shadow-card:    0 1px 2px rgba(10,11,30,0.04), 0 2px 6px rgba(10,11,30,0.04);
+    --shadow-dialog:  0 24px 48px rgba(60,40,120,0.10), 0 6px 14px rgba(10,11,30,0.06), 0 2px 4px rgba(10,11,30,0.04);
+    --radius-md:      8px;
+    --radius-lg:      12px;
+    --radius-xl:      16px;
+    --radius-2xl:     20px;
+    --font-sans:      "Inter", -apple-system, "Segoe UI", sans-serif;
+    --font-mono:      "JetBrains Mono", ui-monospace, "SF Mono", monospace;
   }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: var(--font-sans);
+    font-feature-settings: "cv01", "ss03";
+    -webkit-font-smoothing: antialiased;
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 20px;
-    color: var(--text);
+    color: var(--fg-1);
     background:
-      radial-gradient(circle at top left, rgba(23,92,211,0.10), transparent 28%),
-      radial-gradient(circle at bottom right, rgba(23,92,211,0.06), transparent 26%),
-      var(--bg);
+      radial-gradient(ellipse 60% 40% at 20% 10%, rgba(167,139,255,0.08), transparent),
+      radial-gradient(ellipse 40% 30% at 80% 85%, rgba(255,182,230,0.06), transparent),
+      var(--bg-canvas);
   }
 
   .shell {
     width: 100%;
-    max-width: 560px;
-    background: var(--panel);
-    border: 1px solid rgba(255,255,255,0.72);
-    border-radius: 22px;
-    box-shadow: 0 28px 80px rgba(17, 24, 39, 0.12);
+    max-width: 460px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-std);
+    border-radius: var(--radius-2xl);
+    box-shadow: var(--shadow-dialog);
     overflow: hidden;
   }
 
   .topbar {
-    padding: 14px 18px;
-    border-bottom: 1px solid #eef2f7;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: rgba(255,255,255,0.72);
-    backdrop-filter: blur(10px);
+    background: var(--bg-subtle);
   }
 
   .brand {
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--fg-1);
   }
 
   .context {
     font-size: 11px;
-    color: var(--muted);
+    color: var(--fg-4);
+    font-weight: 500;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
   }
 
   .content {
-    padding: 28px;
+    padding: 24px;
     display: grid;
-    gap: 20px;
+    gap: 18px;
   }
 
   .eyebrow {
-    font-size: 12px;
-    color: var(--primary);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--brand-deep);
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    font-weight: 700;
+    margin-bottom: 4px;
   }
 
   h1 {
-    font-size: 28px;
+    font-size: 22px;
+    font-weight: 600;
     line-height: 1.2;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.4px;
+    color: var(--fg-1);
   }
 
   .subtitle {
-    font-size: 15px;
-    line-height: 1.65;
-    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--fg-3);
   }
 
   .code-panel {
     display: grid;
-    gap: 10px;
-    padding: 18px;
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    background: linear-gradient(180deg, #fbfdff 0%, #f3f7fb 100%);
+    gap: 8px;
+    padding: 16px;
+    border: 1px solid var(--border-brand);
+    border-radius: var(--radius-xl);
+    background: var(--bg-tint-violet);
+    text-align: center;
   }
 
   .code-label {
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--muted);
+    color: var(--brand-deep);
   }
 
   .code-display {
-    font-family: "SF Mono", Consolas, monospace;
-    font-size: 30px;
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    text-align: center;
-    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    color: var(--fg-1);
   }
 
   .note {
-    padding: 14px 16px;
-    border-radius: 14px;
-    border: 1px solid var(--border);
-    background: #f8fafc;
-    color: var(--muted);
-    font-size: 14px;
+    padding: 12px 14px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-subtle);
+    color: var(--fg-3);
+    font-size: 13px;
     line-height: 1.6;
   }
 
-  form {
-    display: grid;
-    gap: 12px;
-  }
+  form { display: grid; gap: 10px; }
 
   .btn-group {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 10px;
   }
 
   button {
-    min-height: 52px;
-    border-radius: 14px;
-    font-size: 15px;
-    font-weight: 700;
+    height: 40px;
+    border-radius: var(--radius-md);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv01", "ss03";
+    font-size: 14px;
+    font-weight: 500;
     cursor: pointer;
-    border: 1px solid transparent;
+    transition: all 120ms ease;
   }
 
   .btn-allow {
-    background: var(--primary);
+    border: none;
+    background: var(--brand-deep);
     color: #fff;
+    box-shadow: 0 1px 2px rgba(10,11,30,0.08);
   }
 
-  .btn-allow:hover { background: var(--primary-hover); }
+  .btn-allow:hover { background: var(--brand-hover); }
 
   .btn-deny {
-    background: var(--secondary);
-    color: var(--text);
-    border-color: var(--border);
+    border: 1px solid var(--border-std);
+    background: var(--bg-surface);
+    color: var(--fg-2);
+    box-shadow: 0 1px 2px rgba(10,11,30,0.04);
   }
 
-  .btn-deny:hover { background: var(--secondary-hover); }
+  .btn-deny:hover { background: var(--bg-subtle); }
 
   .footer {
     display: flex;
     justify-content: space-between;
-    gap: 16px;
-    font-size: 12px;
-    color: var(--muted);
+    gap: 12px;
+    font-size: 11px;
+    color: var(--fg-4);
+    padding-top: 2px;
   }
 
-  @media (max-width: 560px) {
-    .content { padding: 22px; }
-    h1 { font-size: 24px; }
-    .code-display { font-size: 24px; letter-spacing: 0.12em; }
+  @media (max-width: 480px) {
+    .content { padding: 20px; }
+    h1 { font-size: 20px; }
+    .code-display { font-size: 22px; letter-spacing: 0.10em; }
     .btn-group { grid-template-columns: 1fr; }
-    .footer { flex-direction: column; }
+    .footer { flex-direction: column; gap: 4px; }
   }
 </style>
 </head>
 <body>
 <div class="shell">
   <div class="topbar">
-    <div class="brand">authgate</div>
+    <div class="brand">{{.BrandName}}</div>
     <div class="context">Device Approval</div>
   </div>
 
   <div class="content">
     <div>
-      <div class="eyebrow">Step 2</div>
+      <div class="eyebrow">Step 2 of 2</div>
       <h1>Confirm device access</h1>
     </div>
 
@@ -217,8 +244,8 @@
     </form>
 
     <div class="footer">
-      <span>Approval is bound to your authenticated session.</span>
-      <span>CSRF protection is enforced for this action.</span>
+      <span>Approval is bound to your authenticated session</span>
+      <span>CSRF protection enforced</span>
     </div>
   </div>
 </div>

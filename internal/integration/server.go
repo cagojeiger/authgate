@@ -141,13 +141,13 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	accountSvc := service.NewAccountService(store)
 
 	// Handlers
-	loginHandler := handler.NewLoginHandler(loginSvc, true)
-	deviceHandler := handler.NewDeviceHandler(deviceSvc, true)
+	loginHandler := handler.NewLoginHandler(loginSvc, true, "authgate")
+	deviceHandler := handler.NewDeviceHandler(deviceSvc, true, "authgate")
 	accountHandler := handler.NewAccountHandler(accountSvc, srv.URL)
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if opts.EnableMCP {
 		mcpLoginSvc := service.NewMCPLoginService(store, fakeProvider, 24*time.Hour)
-		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginSvc, true)
+		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginSvc, true, "authgate")
 	}
 
 	// Routes
