@@ -14,6 +14,7 @@ type Querier interface {
 	AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
+	CountAuditLogByUserID(ctx context.Context, userID string) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
 	DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error)
@@ -27,6 +28,8 @@ type Querier interface {
 	GetAuthRequestByCode(ctx context.Context, code sql.NullString) (GetAuthRequestByCodeRow, error)
 	GetAuthRequestByID(ctx context.Context, id string) (GetAuthRequestByIDRow, error)
 	GetActiveConnectionsByUserID(ctx context.Context, arg GetActiveConnectionsByUserIDParams) ([]GetActiveConnectionsByUserIDRow, error)
+	GetActiveSessionsByUserID(ctx context.Context, arg GetActiveSessionsByUserIDParams) ([]GetActiveSessionsByUserIDRow, error)
+	GetAuditLogByUserID(ctx context.Context, arg GetAuditLogByUserIDParams) ([]GetAuditLogByUserIDRow, error)
 	GetDeviceAuthorizationForUpdate(ctx context.Context, arg GetDeviceAuthorizationForUpdateParams) (GetDeviceAuthorizationForUpdateRow, error)
 	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (GetDeviceCodeByUserCodeRow, error)
 	GetRefreshFamilyIDByTokenHash(ctx context.Context, tokenHash string) (string, error)
@@ -53,9 +56,11 @@ type Querier interface {
 	RecoverPendingDeletionUserByID(ctx context.Context, arg RecoverPendingDeletionUserByIDParams) error
 	RevokeActiveRefreshTokensByUserID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDParams) error
 	RevokeActiveRefreshTokensByUserIDAndClientID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDAndClientIDParams) error
+	RevokeOtherActiveSessionsByUserID(ctx context.Context, arg RevokeOtherActiveSessionsByUserIDParams) error
 	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
 	RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error
+	RevokeSessionByUserIDAndID(ctx context.Context, arg RevokeSessionByUserIDAndIDParams) error
 	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error
 	SetUserStatusByID(ctx context.Context, arg SetUserStatusByIDParams) error
 	UpdateAuthRequestCode(ctx context.Context, arg UpdateAuthRequestCodeParams) error
