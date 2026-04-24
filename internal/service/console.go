@@ -19,9 +19,9 @@ type ConsoleStore interface {
 	ValidateBearerTokenWithClientID(ctx context.Context, authHeader string) (*storage.User, string, error)
 	ListAllClients() []storage.ClientView
 	GetActiveConnections(ctx context.Context, userID string) ([]storage.ConnectionTokenInfo, error)
-	RevokeConnection(ctx context.Context, userID, clientID string) error
+	RevokeConnection(ctx context.Context, userID, clientID string) (int64, error)
 	GetActiveSessions(ctx context.Context, userID string) ([]storage.SessionInfo, error)
-	RevokeSession(ctx context.Context, userID, sessionID string) error
+	RevokeSession(ctx context.Context, userID, sessionID string) (int64, error)
 	RevokeOtherSessions(ctx context.Context, userID, currentSessionID string) error
 	GetAuditLog(ctx context.Context, userID string, limit, offset int) (*storage.AuditLogPage, error)
 	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
@@ -227,8 +227,12 @@ func (s *ConsoleService) RevokeConnection(ctx context.Context, sessionID, authHe
 	if auth.clientID != "" && auth.clientID == clientID {
 		return &RevokeConnectionResult{ErrorCode: http.StatusBadRequest}
 	}
-	if err := s.store.RevokeConnection(ctx, auth.user.ID, clientID); err != nil {
+	rows, err := s.store.RevokeConnection(ctx, auth.user.ID, clientID)
+	if err != nil {
 		return &RevokeConnectionResult{ErrorCode: http.StatusInternalServerError}
+	}
+	if rows == 0 {
+		return &RevokeConnectionResult{ErrorCode: http.StatusNotFound}
 	}
 	s.store.AuditLog(ctx, &auth.user.ID, "auth.connection_revoked", "", "", map[string]any{"client_id": clientID})
 	return &RevokeConnectionResult{}
@@ -245,8 +249,12 @@ func (s *ConsoleService) RevokeSession(ctx context.Context, sessionID, authHeade
 	if revokeSessionID == "" {
 		return &RevokeSessionResult{ErrorCode: http.StatusBadRequest}
 	}
-	if err := s.store.RevokeSession(ctx, auth.user.ID, revokeSessionID); err != nil {
+	rows, err := s.store.RevokeSession(ctx, auth.user.ID, revokeSessionID)
+	if err != nil {
 		return &RevokeSessionResult{ErrorCode: http.StatusInternalServerError}
+	}
+	if rows == 0 {
+		return &RevokeSessionResult{ErrorCode: http.StatusNotFound}
 	}
 	s.store.AuditLog(ctx, &auth.user.ID, "auth.session_revoked", "", "", map[string]any{"session_id": revokeSessionID})
 	return &RevokeSessionResult{}

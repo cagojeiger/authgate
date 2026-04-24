@@ -17,9 +17,9 @@ type fakeConsoleStore struct {
 	validateBearerWithClientFn func(ctx context.Context, authHeader string) (*storage.User, string, error)
 	listAllClientsFn           func() []storage.ClientView
 	getActiveConnFn            func(ctx context.Context, userID string) ([]storage.ConnectionTokenInfo, error)
-	revokeConnectionFn         func(ctx context.Context, userID, clientID string) error
+	revokeConnectionFn         func(ctx context.Context, userID, clientID string) (int64, error)
 	getActiveSessionsFn        func(ctx context.Context, userID string) ([]storage.SessionInfo, error)
-	revokeSessionFn            func(ctx context.Context, userID, sessionID string) error
+	revokeSessionFn            func(ctx context.Context, userID, sessionID string) (int64, error)
 	revokeOtherSessionsFn      func(ctx context.Context, userID, currentSessionID string) error
 	getAuditLogFn              func(ctx context.Context, userID string, limit, offset int) (*storage.AuditLogPage, error)
 	auditLogFn                 func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
@@ -47,13 +47,13 @@ func (f *fakeConsoleStore) ListAllClients() []storage.ClientView {
 func (f *fakeConsoleStore) GetActiveConnections(ctx context.Context, userID string) ([]storage.ConnectionTokenInfo, error) {
 	return f.getActiveConnFn(ctx, userID)
 }
-func (f *fakeConsoleStore) RevokeConnection(ctx context.Context, userID, clientID string) error {
+func (f *fakeConsoleStore) RevokeConnection(ctx context.Context, userID, clientID string) (int64, error) {
 	return f.revokeConnectionFn(ctx, userID, clientID)
 }
 func (f *fakeConsoleStore) GetActiveSessions(ctx context.Context, userID string) ([]storage.SessionInfo, error) {
 	return f.getActiveSessionsFn(ctx, userID)
 }
-func (f *fakeConsoleStore) RevokeSession(ctx context.Context, userID, sessionID string) error {
+func (f *fakeConsoleStore) RevokeSession(ctx context.Context, userID, sessionID string) (int64, error) {
 	return f.revokeSessionFn(ctx, userID, sessionID)
 }
 func (f *fakeConsoleStore) RevokeOtherSessions(ctx context.Context, userID, currentSessionID string) error {
@@ -80,11 +80,11 @@ func activeUserStore(clients []storage.ClientView, connIDs []string) *fakeConsol
 		},
 		listAllClientsFn:   func() []storage.ClientView { return clients },
 		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return connections, nil },
-		revokeConnectionFn: func(context.Context, string, string) error { return nil },
+		revokeConnectionFn: func(context.Context, string, string) (int64, error) { return 1, nil },
 		getActiveSessionsFn: func(context.Context, string) ([]storage.SessionInfo, error) {
 			return nil, nil
 		},
-		revokeSessionFn:       func(context.Context, string, string) error { return nil },
+		revokeSessionFn:       func(context.Context, string, string) (int64, error) { return 1, nil },
 		revokeOtherSessionsFn: func(context.Context, string, string) error { return nil },
 		getAuditLogFn: func(context.Context, string, int, int) (*storage.AuditLogPage, error) {
 			return &storage.AuditLogPage{}, nil
@@ -109,7 +109,7 @@ func TestConsole_ListClients_InvalidSession_Unauthorized(t *testing.T) {
 		},
 		listAllClientsFn:   func() []storage.ClientView { return nil },
 		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
-		revokeConnectionFn: func(context.Context, string, string) error { return nil },
+		revokeConnectionFn: func(context.Context, string, string) (int64, error) { return 1, nil },
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListClients(context.Background(), "sess-x", "")
@@ -125,7 +125,7 @@ func TestConsole_ListClients_DisabledUser_Forbidden(t *testing.T) {
 		},
 		listAllClientsFn:   func() []storage.ClientView { return nil },
 		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
-		revokeConnectionFn: func(context.Context, string, string) error { return nil },
+		revokeConnectionFn: func(context.Context, string, string) (int64, error) { return 1, nil },
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListClients(context.Background(), "sess-1", "")
@@ -141,7 +141,7 @@ func TestConsole_ListClients_PendingDeletion_Forbidden(t *testing.T) {
 		},
 		listAllClientsFn:   func() []storage.ClientView { return nil },
 		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
-		revokeConnectionFn: func(context.Context, string, string) error { return nil },
+		revokeConnectionFn: func(context.Context, string, string) (int64, error) { return 1, nil },
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListClients(context.Background(), "sess-1", "")
@@ -226,7 +226,7 @@ func TestConsole_ListConnections_DBError_InternalServerError(t *testing.T) {
 		getActiveConnFn: func(context.Context, string) ([]storage.ConnectionTokenInfo, error) {
 			return nil, errors.New("db error")
 		},
-		revokeConnectionFn: func(context.Context, string, string) error { return nil },
+		revokeConnectionFn: func(context.Context, string, string) (int64, error) { return 1, nil },
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListConnections(context.Background(), "sess-1", "")
@@ -296,11 +296,11 @@ func bearerStore(user *storage.User, bearerErr error) *fakeConsoleStore {
 		},
 		listAllClientsFn:   func() []storage.ClientView { return nil },
 		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
-		revokeConnectionFn: func(context.Context, string, string) error { return nil },
+		revokeConnectionFn: func(context.Context, string, string) (int64, error) { return 1, nil },
 		getActiveSessionsFn: func(context.Context, string) ([]storage.SessionInfo, error) {
 			return nil, nil
 		},
-		revokeSessionFn:       func(context.Context, string, string) error { return nil },
+		revokeSessionFn:       func(context.Context, string, string) (int64, error) { return 1, nil },
 		revokeOtherSessionsFn: func(context.Context, string, string) error { return nil },
 		getAuditLogFn: func(context.Context, string, int, int) (*storage.AuditLogPage, error) {
 			return &storage.AuditLogPage{}, nil
@@ -362,7 +362,7 @@ func TestConsole_ListClients_SessionWinsOverBearer(t *testing.T) {
 		},
 		listAllClientsFn:   func() []storage.ClientView { return nil },
 		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
-		revokeConnectionFn: func(context.Context, string, string) error { return nil },
+		revokeConnectionFn: func(context.Context, string, string) (int64, error) { return 1, nil },
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListClients(context.Background(), "sess-1", "Bearer token")
@@ -387,10 +387,10 @@ func TestConsole_RevokeConnection_NoSessionOrBearer_Unauthorized(t *testing.T) {
 func TestConsole_RevokeConnection_ValidAuth_RevokesTokens(t *testing.T) {
 	var gotUserID, gotClientID string
 	store := activeUserStore(nil, nil)
-	store.revokeConnectionFn = func(ctx context.Context, userID, clientID string) error {
+	store.revokeConnectionFn = func(ctx context.Context, userID, clientID string) (int64, error) {
 		gotUserID = userID
 		gotClientID = clientID
-		return nil
+		return 1, nil
 	}
 	svc := NewConsoleService(store)
 	r := svc.RevokeConnection(context.Background(), "sess-1", "", "app-a")
@@ -435,9 +435,9 @@ func TestConsole_RevokeConnection_OwnClient_BadRequest(t *testing.T) {
 		return &storage.User{ID: "u1", Status: "active"}, "app-a", nil
 	}
 	revokeCalled := false
-	store.revokeConnectionFn = func(context.Context, string, string) error {
+	store.revokeConnectionFn = func(context.Context, string, string) (int64, error) {
 		revokeCalled = true
-		return nil
+		return 1, nil
 	}
 	svc := NewConsoleService(store)
 	r := svc.RevokeConnection(context.Background(), "", "Bearer valid-token", "app-a")
@@ -451,13 +451,35 @@ func TestConsole_RevokeConnection_OwnClient_BadRequest(t *testing.T) {
 
 func TestConsole_RevokeConnection_DBError_InternalServerError(t *testing.T) {
 	store := activeUserStore(nil, nil)
-	store.revokeConnectionFn = func(context.Context, string, string) error {
-		return errors.New("db error")
+	store.revokeConnectionFn = func(context.Context, string, string) (int64, error) {
+		return 0, errors.New("db error")
 	}
 	svc := NewConsoleService(store)
 	r := svc.RevokeConnection(context.Background(), "sess-1", "", "app-a")
 	if r.ErrorCode != http.StatusInternalServerError {
 		t.Fatalf("want 500, got %d", r.ErrorCode)
+	}
+}
+
+func TestConsole_RevokeConnection_UnknownClient_NotFound_NoAudit(t *testing.T) {
+	auditCalled := false
+	store := activeUserStore(nil, nil)
+	store.revokeConnectionFn = func(context.Context, string, string) (int64, error) {
+		return 0, nil
+	}
+	store.auditLogFn = func(context.Context, *string, string, string, string, map[string]any) error {
+		auditCalled = true
+		return nil
+	}
+	svc := NewConsoleService(store)
+
+	r := svc.RevokeConnection(context.Background(), "sess-1", "", "unknown-client")
+
+	if r.ErrorCode != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", r.ErrorCode)
+	}
+	if auditCalled {
+		t.Fatal("audit should not be called")
 	}
 }
 
@@ -508,10 +530,10 @@ func TestConsole_RevokeSession_ValidAuth_RevokesAndAudits(t *testing.T) {
 	var gotUserID, gotSessionID, gotEventType string
 	var gotMetadata map[string]any
 	store := activeUserStore(nil, nil)
-	store.revokeSessionFn = func(ctx context.Context, userID, sessionID string) error {
+	store.revokeSessionFn = func(ctx context.Context, userID, sessionID string) (int64, error) {
 		gotUserID = userID
 		gotSessionID = sessionID
-		return nil
+		return 1, nil
 	}
 	store.auditLogFn = func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
 		gotEventType = eventType
@@ -528,6 +550,28 @@ func TestConsole_RevokeSession_ValidAuth_RevokesAndAudits(t *testing.T) {
 	}
 	if gotEventType != "auth.session_revoked" || gotMetadata["session_id"] != "sess-2" {
 		t.Fatalf("audit event=%q metadata=%#v", gotEventType, gotMetadata)
+	}
+}
+
+func TestConsole_RevokeSession_UnknownSession_NotFound_NoAudit(t *testing.T) {
+	auditCalled := false
+	store := activeUserStore(nil, nil)
+	store.revokeSessionFn = func(context.Context, string, string) (int64, error) {
+		return 0, nil
+	}
+	store.auditLogFn = func(context.Context, *string, string, string, string, map[string]any) error {
+		auditCalled = true
+		return nil
+	}
+	svc := NewConsoleService(store)
+
+	r := svc.RevokeSession(context.Background(), "sess-1", "", "unknown-session")
+
+	if r.ErrorCode != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", r.ErrorCode)
+	}
+	if auditCalled {
+		t.Fatal("audit should not be called")
 	}
 }
 
