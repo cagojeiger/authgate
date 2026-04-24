@@ -4,6 +4,8 @@ package storage
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/testutil"
+	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
 // refresh-007: revoked token → family revoke + invalid_grant
@@ -144,6 +147,89 @@ func TestRefreshStateCheck_AllStates(t *testing.T) {
 				t.Errorf("expected success, got error: %v", err)
 			}
 		})
+	}
+}
+
+func TestTokenRequestByRefreshToken_Expired_RollsBack(t *testing.T) {
+	db := testutil.SetupPostgres(t)
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	gen := idgen.CryptoGenerator{}
+	store := New(db, clk, gen, nil, 15*time.Minute, 30*24*time.Hour)
+	ctx := context.Background()
+
+	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "refresh-expired@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "refresh-expired-sub", ProviderEmail: "refresh-expired@test.com"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	token := "refresh-expired-token"
+	tokenHash := hashToken(token)
+	now := clk.Now()
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
+		 VALUES (uuid_generate_v4(), $1, uuid_generate_v4(), $2, 'test-client', '{openid}', $3, $4)`,
+		tokenHash, user.ID, now.Add(-time.Hour), now,
+	)
+	if err != nil {
+		t.Fatalf("insert token: %v", err)
+	}
+
+	_, err = store.TokenRequestByRefreshToken(ctx, token)
+	if !errors.Is(err, op.ErrInvalidRefreshToken) {
+		t.Fatalf("err = %v, want %v", err, op.ErrInvalidRefreshToken)
+	}
+
+	assertRefreshTokenMarkersUnset(t, db, ctx, tokenHash)
+}
+
+func TestTokenRequestByRefreshToken_StateCheckerFails_RollsBack(t *testing.T) {
+	db := testutil.SetupPostgres(t)
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	gen := idgen.CryptoGenerator{}
+	checker := func(user *User) error {
+		return fmt.Errorf("account not active: %s", user.Status)
+	}
+	store := New(db, clk, gen, checker, 15*time.Minute, 30*24*time.Hour)
+	ctx := context.Background()
+
+	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "refresh-state-fails@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "refresh-state-fails-sub", ProviderEmail: "refresh-state-fails@test.com"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	token := "refresh-state-fails-token"
+	tokenHash := hashToken(token)
+	now := clk.Now()
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
+		 VALUES (uuid_generate_v4(), $1, uuid_generate_v4(), $2, 'test-client', '{openid}', $3, $4)`,
+		tokenHash, user.ID, now.Add(30*24*time.Hour), now,
+	)
+	if err != nil {
+		t.Fatalf("insert token: %v", err)
+	}
+
+	_, err = store.TokenRequestByRefreshToken(ctx, token)
+	if err == nil || !containsInvalidGrant(err.Error()) {
+		t.Fatalf("err = %v, want invalid_grant", err)
+	}
+
+	assertRefreshTokenMarkersUnset(t, db, ctx, tokenHash)
+}
+
+func assertRefreshTokenMarkersUnset(t *testing.T, db *sql.DB, ctx context.Context, tokenHash string) {
+	t.Helper()
+
+	var usedAt sql.NullTime
+	var revokedAt sql.NullTime
+	if err := db.QueryRowContext(ctx, `SELECT used_at, revoked_at FROM refresh_tokens WHERE token_hash = $1`, tokenHash).Scan(&usedAt, &revokedAt); err != nil {
+		t.Fatalf("select token markers: %v", err)
+	}
+	if usedAt.Valid {
+		t.Fatalf("used_at = %v, want NULL", usedAt.Time)
+	}
+	if revokedAt.Valid {
+		t.Fatalf("revoked_at = %v, want NULL", revokedAt.Time)
 	}
 }
 

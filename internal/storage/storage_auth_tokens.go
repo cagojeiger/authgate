@@ -417,24 +417,20 @@ func (s *Storage) auditRefreshReuseDetection(ctx context.Context, userID, family
 
 func (s *Storage) validateRefreshTokenRequest(ctx context.Context, tx *sql.Tx, rt *RefreshTokenModel, now time.Time) error {
 	if now.After(rt.ExpiresAt) {
-		_ = tx.Commit()
 		return op.ErrInvalidRefreshToken
 	}
 
 	requestResource := ResourceFromContext(ctx)
 	if err := s.resourcePolicy.ValidateTokenRequest(ctx, rt.ClientID, rt.Resource, requestResource); err != nil {
-		_ = tx.Commit()
 		return err
 	}
 
 	if s.stateChecker != nil {
 		user, err := s.getUserByID(ctx, tx, rt.UserID)
 		if err != nil {
-			_ = tx.Commit()
 			return op.ErrInvalidRefreshToken
 		}
 		if err := s.stateChecker(user); err != nil {
-			_ = tx.Commit()
 			return &oidc.Error{ErrorType: "invalid_grant", Description: err.Error()}
 		}
 	}
