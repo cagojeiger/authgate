@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -50,6 +51,25 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestID, ipAddress, userAgent string) *CallbackResult {
 	if code == "" || authRequestID == "" {
 		return &CallbackResult{Action: ActionError, Error: "missing code or state", ErrorCode: http.StatusBadRequest}
+	}
+
+	// Fetch the stored auth request to validate resource binding before completing it.
+	authReq, err := s.store.GetAuthRequestModel(ctx, authRequestID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return &CallbackResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
+	}
+	if err != nil {
+		return &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+	}
+
+	// Resource binding validation (Spec 004): MCP auth requests must have a resource set.
+	// An auth request with an empty resource on the MCP path indicates a missing or tampered request.
+	if authReq.Resource == "" {
+		slog.WarnContext(ctx, "mcp callback: auth request has no resource — possible resource binding bypass attempt",
+			"authRequestID", authRequestID,
+			"ipAddress", ipAddress,
+		)
+		return &CallbackResult{Action: ActionError, Error: "invalid_target", ErrorCode: http.StatusBadRequest}
 	}
 
 	userInfo, err := s.mcpProvider.Exchange(ctx, code)

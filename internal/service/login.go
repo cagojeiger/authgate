@@ -26,6 +26,7 @@ type LoginStore interface {
 	CreateUserWithIdentity(ctx context.Context, input storage.CreateUserWithIdentityInput) (*storage.User, error)
 	GetUserByID(ctx context.Context, userID string) (*storage.User, error)
 	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
+	GetAuthRequestModel(ctx context.Context, id string) (*storage.AuthRequestModel, error)
 }
 
 func NewLoginService(store LoginStore, browserProvider upstream.Provider, sessionTTL time.Duration) *LoginService {

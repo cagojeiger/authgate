@@ -442,3 +442,20 @@ func tryRevokeRefreshByID(ctx context.Context, q *storeq.Queries, tokenOrTokenID
 		})
 	}
 }
+
+// GetAuthRequestModel fetches the auth request by ID and returns the concrete model.
+// It does not apply resource policy or state checks — callers use this for pre-completion validation.
+func (s *Storage) GetAuthRequestModel(ctx context.Context, id string) (*AuthRequestModel, error) {
+	row, err := storeq.New(s.db).GetAuthRequestByID(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	ar := authRequestModelFromRowByID(row)
+	if s.clock.Now().After(ar.ExpiresAt) {
+		return nil, &oidc.Error{ErrorType: "invalid_request", Description: "auth request expired"}
+	}
+	return ar, nil
+}
