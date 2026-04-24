@@ -33,19 +33,27 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 
 	if sessionID != "" {
 		user, err := s.store.GetValidSession(ctx, sessionID)
-		if err == nil {
-			if CheckAccess(user.Status, "mcp") != AccessAllow {
-				s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
-				return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
+		if err != nil {
+			if !errors.Is(err, storage.ErrNotFound) {
+				return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 			}
-			if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
-				return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
-			}
-			return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
+		} else {
+			return s.handleExistingMCPSession(ctx, user, authRequestID, ipAddress, userAgent)
 		}
 	}
 
 	return &LoginResult{Action: ActionRedirectToIdP, RedirectURL: s.mcpProvider.AuthURL(authRequestID)}
+}
+
+func (s *MCPLoginService) handleExistingMCPSession(ctx context.Context, user *storage.User, authRequestID, ipAddress, userAgent string) *LoginResult {
+	if CheckAccess(user.Status, "mcp") != AccessAllow {
+		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
+		return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
+	}
+	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
+		return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
+	}
+	return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
 }
 
 func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestID, ipAddress, userAgent string) *CallbackResult {
