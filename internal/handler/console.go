@@ -9,8 +9,8 @@ import (
 )
 
 type consoleServicer interface {
-	ListClients(ctx context.Context, sessionID string) *service.ClientsResult
-	ListConnections(ctx context.Context, sessionID string) *service.ConnectionsResult
+	ListClients(ctx context.Context, sessionID, authHeader string) *service.ClientsResult
+	ListConnections(ctx context.Context, sessionID, authHeader string) *service.ConnectionsResult
 }
 
 type ConsoleHandler struct {
@@ -26,7 +26,7 @@ func (h *ConsoleHandler) HandleListClients(w http.ResponseWriter, r *http.Reques
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	result := h.svc.ListClients(r.Context(), getSessionCookie(r))
+	result := h.svc.ListClients(r.Context(), getSessionCookie(r), r.Header.Get("Authorization"))
 	w.Header().Set("Content-Type", "application/json")
 	if result.ErrorCode != 0 {
 		w.WriteHeader(result.ErrorCode)
@@ -41,7 +41,7 @@ func (h *ConsoleHandler) HandleListConnections(w http.ResponseWriter, r *http.Re
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	result := h.svc.ListConnections(r.Context(), getSessionCookie(r))
+	result := h.svc.ListConnections(r.Context(), getSessionCookie(r), r.Header.Get("Authorization"))
 	w.Header().Set("Content-Type", "application/json")
 	if result.ErrorCode != 0 {
 		w.WriteHeader(result.ErrorCode)

@@ -2,8 +2,13 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"sort"
+	"strings"
+	"time"
 
+	jose "github.com/go-jose/go-jose/v4"
+	josejwt "github.com/go-jose/go-jose/v4/jwt"
 	"github.com/kangheeyong/authgate/internal/db/storeq"
 )
 
@@ -47,4 +52,38 @@ func (s *Storage) GetActiveConnections(ctx context.Context, userID string) ([]st
 		UserID:    userID,
 		ExpiresAt: s.clock.Now(),
 	})
+}
+
+// ValidateBearerToken validates an access token JWT and returns the associated user.
+// The token is verified against the current signing key using RS256.
+func (s *Storage) ValidateBearerToken(ctx context.Context, authHeader string) (*User, error) {
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if token == authHeader || token == "" {
+		return nil, errors.New("missing bearer token")
+	}
+	if s.signingKey == nil {
+		return nil, errors.New("signing key not configured")
+	}
+
+	tok, err := josejwt.ParseSigned(token, []jose.SignatureAlgorithm{jose.RS256})
+	if err != nil {
+		return nil, errors.New("invalid token format")
+	}
+
+	var claims josejwt.Claims
+	if err := tok.Claims(s.signingKey.Public(), &claims); err != nil {
+		return nil, errors.New("invalid token signature")
+	}
+
+	if err := claims.ValidateWithLeeway(josejwt.Expected{
+		Time: s.clock.Now(),
+	}, time.Second*5); err != nil {
+		return nil, errors.New("token validation failed: " + err.Error())
+	}
+
+	if claims.Subject == "" {
+		return nil, errors.New("missing sub claim")
+	}
+
+	return s.GetUserByID(ctx, claims.Subject)
 }

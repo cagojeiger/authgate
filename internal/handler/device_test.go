@@ -14,7 +14,7 @@ import (
 // nil storage is safe as long as the code path under test exits before touching it.
 func newTestDeviceHandler() *DeviceHandler {
 	svc := service.NewDeviceService(nil, nil, "", 0, nil)
-	return NewDeviceHandler(svc, true) // devMode=true
+	return NewDeviceHandler(svc, true, "authgate") // devMode=true
 }
 
 // ── Method guard ──────────────────────────────────────────────────────────────

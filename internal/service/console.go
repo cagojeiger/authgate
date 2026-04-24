@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/kangheeyong/authgate/internal/storage"
@@ -13,6 +14,7 @@ type ConsoleService struct {
 
 type ConsoleStore interface {
 	GetValidSession(ctx context.Context, sessionID string) (*storage.User, error)
+	ValidateBearerToken(ctx context.Context, authHeader string) (*storage.User, error)
 	ListAllClients() []storage.ClientView
 	GetActiveConnections(ctx context.Context, userID string) ([]string, error)
 }
@@ -37,11 +39,22 @@ type ConnectionView struct {
 	URL      string `json:"url,omitempty"`
 }
 
-func (s *ConsoleService) ListClients(ctx context.Context, sessionID string) *ClientsResult {
-	if sessionID == "" {
-		return &ClientsResult{ErrorCode: http.StatusUnauthorized}
+// resolveUser tries session cookie first, then Bearer token.
+func (s *ConsoleService) resolveUser(ctx context.Context, sessionID, authHeader string) (*storage.User, error) {
+	if sessionID != "" {
+		user, err := s.store.GetValidSession(ctx, sessionID)
+		if err == nil {
+			return user, nil
+		}
 	}
-	user, err := s.store.GetValidSession(ctx, sessionID)
+	if authHeader != "" {
+		return s.store.ValidateBearerToken(ctx, authHeader)
+	}
+	return nil, errors.New("unauthenticated")
+}
+
+func (s *ConsoleService) ListClients(ctx context.Context, sessionID, authHeader string) *ClientsResult {
+	user, err := s.resolveUser(ctx, sessionID, authHeader)
 	if err != nil {
 		return &ClientsResult{ErrorCode: http.StatusUnauthorized}
 	}
@@ -55,11 +68,8 @@ func (s *ConsoleService) ListClients(ctx context.Context, sessionID string) *Cli
 	return &ClientsResult{Clients: clients}
 }
 
-func (s *ConsoleService) ListConnections(ctx context.Context, sessionID string) *ConnectionsResult {
-	if sessionID == "" {
-		return &ConnectionsResult{ErrorCode: http.StatusUnauthorized}
-	}
-	user, err := s.store.GetValidSession(ctx, sessionID)
+func (s *ConsoleService) ListConnections(ctx context.Context, sessionID, authHeader string) *ConnectionsResult {
+	user, err := s.resolveUser(ctx, sessionID, authHeader)
 	if err != nil {
 		return &ConnectionsResult{ErrorCode: http.StatusUnauthorized}
 	}
@@ -72,9 +82,6 @@ func (s *ConsoleService) ListConnections(ctx context.Context, sessionID string) 
 		return &ConnectionsResult{ErrorCode: http.StatusInternalServerError}
 	}
 
-	// Enrich with client metadata from the in-memory registry.
-	// Fall back to client_id as name when the registry entry no longer exists
-	// (e.g. deleted YAML client with a lingering refresh token).
 	allClients := s.store.ListAllClients()
 	type clientMeta struct{ name, url string }
 	metaByID := make(map[string]clientMeta, len(allClients))
