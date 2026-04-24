@@ -6,6 +6,10 @@ on:
     paths:
       - VERSION
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -56,3 +60,11 @@ jobs:
             ghcr.io/cagojeiger/authgate:latest
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
+
+      - name: Delete old GHCR images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: authgate
+          package-type: container
+          min-versions-to-keep: 20
+          ignore-versions: "^latest$"

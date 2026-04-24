@@ -53,3 +53,39 @@ go test ./...
 # 통합 테스트 (Docker 필요, testcontainers-go)
 go test -tags=integration ./...
 ```
+
+## 릴리즈
+
+버전은 `VERSION` 파일 하나로 관리한다. `VERSION` 파일이 main에 머지되면 `release.yml`이 자동으로 나머지를 처리한다.
+
+### 릴리즈 순서
+
+```bash
+# 1. 릴리즈 브랜치 생성
+git checkout main && git pull
+git checkout -b release/vX.Y.Z
+
+# 2. VERSION 파일 수정
+echo "X.Y.Z" > VERSION
+
+# 3. 커밋 + PR
+git add VERSION
+git commit -m "chore(release): bump version to vX.Y.Z"
+git push -u origin release/vX.Y.Z
+# GitHub에서 PR 생성 → 머지
+```
+
+### 머지 후 자동 실행 (release.yml)
+
+1. `vX.Y.Z` git 태그 생성
+2. GitHub Release 생성 (릴리즈 노트 자동)
+3. GHCR 이미지 빌드 + 푸시
+   - `ghcr.io/cagojeiger/authgate:vX.Y.Z`
+   - `ghcr.io/cagojeiger/authgate:latest`
+4. 오래된 이미지 자동 정리 (최신 20개 유지)
+
+### 버전 규칙
+
+- `patch` (X.Y.**Z**): 버그 수정, 의존성 보안 패치
+- `minor` (X.**Y**.0): 새 기능 추가 (하위 호환)
+- `major` (**X**.0.0): 파괴적 변경 (API/DB 스키마 등)
