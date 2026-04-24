@@ -34,6 +34,10 @@ type Config struct {
 	HTTPWriteTimeout      time.Duration
 	HTTPIdleTimeout       time.Duration
 	ShutdownTimeout       time.Duration
+	RateLimitTokenRPS     float64
+	RateLimitTokenBurst   int
+	RateLimitAuthRPS      float64
+	RateLimitAuthBurst    int
 }
 
 func Load() (*Config, error) {
@@ -63,6 +67,10 @@ func Load() (*Config, error) {
 		HTTPWriteTimeout:      time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,
 		HTTPIdleTimeout:       time.Duration(envInt("HTTP_IDLE_TIMEOUT_SEC", 60)) * time.Second,
 		ShutdownTimeout:       time.Duration(envInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second,
+		RateLimitTokenRPS:     envFloat("RATE_LIMIT_TOKEN_RPS", 30),
+		RateLimitTokenBurst:   envInt("RATE_LIMIT_TOKEN_BURST", 60),
+		RateLimitAuthRPS:      envFloat("RATE_LIMIT_AUTH_RPS", 10),
+		RateLimitAuthBurst:    envInt("RATE_LIMIT_AUTH_BURST", 20),
 	}
 
 	if c.DatabaseURL == "" {
@@ -79,6 +87,18 @@ func Load() (*Config, error) {
 	}
 	if c.ShutdownTimeout <= 0 {
 		return nil, fmt.Errorf("SHUTDOWN_TIMEOUT_SEC must be > 0")
+	}
+	if c.RateLimitTokenRPS <= 0 {
+		return nil, fmt.Errorf("RATE_LIMIT_TOKEN_RPS must be > 0")
+	}
+	if c.RateLimitTokenBurst < 1 {
+		return nil, fmt.Errorf("RATE_LIMIT_TOKEN_BURST must be >= 1")
+	}
+	if c.RateLimitAuthRPS <= 0 {
+		return nil, fmt.Errorf("RATE_LIMIT_AUTH_RPS must be > 0")
+	}
+	if c.RateLimitAuthBurst < 1 {
+		return nil, fmt.Errorf("RATE_LIMIT_AUTH_BURST must be >= 1")
 	}
 	if c.DBMaxOpenConns < 0 {
 		return nil, fmt.Errorf("DB_MAX_OPEN_CONNS must be >= 0")
@@ -141,4 +161,16 @@ func envBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return b
+}
+
+func envFloat(key string, fallback float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return fallback
+	}
+	return f
 }

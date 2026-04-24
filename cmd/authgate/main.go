@@ -13,12 +13,12 @@ import (
 	"os/signal"
 	"strings"
 
-	"golang.org/x/time/rate"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"golang.org/x/time/rate"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
 	mcpadapter "github.com/kangheeyong/authgate/internal/adapter/mcp"
@@ -300,14 +300,14 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 
 func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *storage.Storage, provider http.Handler) {
 	// Rate limiters: strict for token endpoints, moderate for auth/login
-	strictLimiter := middleware.NewRateLimiter(rate.Limit(10), 20)
-	moderateLimiter := middleware.NewRateLimiter(rate.Limit(20), 40)
+	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
+	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
 
-	mux.Handle("/authorize", moderateLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/authorize", authLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
-	mux.Handle("/oauth/token", strictLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/oauth/token", tokenLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
@@ -327,7 +327,7 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 		}
 		provider.ServeHTTP(w, r)
 	}))
-	mux.Handle("/oauth/device/authorize", strictLimiter(provider))
+	mux.Handle("/oauth/device/authorize", tokenLimiter(provider))
 	mux.Handle("/", provider)
 }
 
@@ -339,10 +339,10 @@ func registerAuthgateRoutes(
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
 ) {
-	strictLimiter := middleware.NewRateLimiter(rate.Limit(10), 20)
-	moderateLimiter := middleware.NewRateLimiter(rate.Limit(20), 40)
+	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
+	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
 
-	mux.Handle("/login", moderateLimiter(http.HandlerFunc(loginHandler.HandleLogin)))
+	mux.Handle("/login", authLimiter(http.HandlerFunc(loginHandler.HandleLogin)))
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
 	if cfg.EnableMCP {
 		mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
@@ -350,7 +350,7 @@ func registerAuthgateRoutes(
 	}
 	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
-	mux.Handle("/device/approve", strictLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
+	mux.Handle("/device/approve", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
 }
 
