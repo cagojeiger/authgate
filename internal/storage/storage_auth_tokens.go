@@ -16,6 +16,17 @@ import (
 // --- op.Storage: AuthStorage ---
 
 func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, userID string) (op.AuthRequest, error) {
+	if req.CodeChallenge == "" {
+		err := oidc.ErrInvalidRequest()
+		err.Description = "PKCE S256 required"
+		return nil, err
+	}
+	if req.CodeChallengeMethod != oidc.CodeChallengeMethodS256 {
+		err := oidc.ErrInvalidRequest()
+		err.Description = "PKCE S256 required"
+		return nil, err
+	}
+
 	resource := ResourceFromContext(ctx)
 	if resource == "" {
 		client, err := s.resolveClient(ctx, req.ClientID)
