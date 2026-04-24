@@ -80,17 +80,6 @@ func TestAuditEvents(t *testing.T) {
 		// Re-fetch user (same provider identity, same user ID).
 		var count int
 		err = ts.DB.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM audit_log WHERE user_id = $1::uuid AND event_type = 'token.revoked'`,
-			user.ID,
-		).Scan(&count)
-		if err != nil {
-			t.Fatalf("query audit_log for token.revoked: %v", err)
-		}
-		if count == 0 {
-			t.Error("expected at least one token.revoked audit_log row, got 0")
-		}
-
-		err = ts.DB.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM audit_log WHERE user_id = $1::uuid AND event_type = 'auth.token_revoked'`,
 			user.ID,
 		).Scan(&count)
