@@ -26,6 +26,7 @@ type Querier interface {
 	DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error
 	GetAuthRequestByCode(ctx context.Context, code sql.NullString) (GetAuthRequestByCodeRow, error)
 	GetAuthRequestByID(ctx context.Context, id string) (GetAuthRequestByIDRow, error)
+	GetActiveConnectionsByUserID(ctx context.Context, arg GetActiveConnectionsByUserIDParams) ([]GetActiveConnectionsByUserIDRow, error)
 	GetDeviceAuthorizationForUpdate(ctx context.Context, arg GetDeviceAuthorizationForUpdateParams) (GetDeviceAuthorizationForUpdateRow, error)
 	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (GetDeviceCodeByUserCodeRow, error)
 	GetRefreshFamilyIDByTokenHash(ctx context.Context, tokenHash string) (string, error)
@@ -51,6 +52,7 @@ type Querier interface {
 	MarkUserPendingDeletionByID(ctx context.Context, arg MarkUserPendingDeletionByIDParams) error
 	RecoverPendingDeletionUserByID(ctx context.Context, arg RecoverPendingDeletionUserByIDParams) error
 	RevokeActiveRefreshTokensByUserID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDParams) error
+	RevokeActiveRefreshTokensByUserIDAndClientID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDAndClientIDParams) error
 	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
 	RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error

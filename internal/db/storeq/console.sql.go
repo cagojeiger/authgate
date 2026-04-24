@@ -7,16 +7,37 @@ package storeq
 
 import (
 	"context"
+	"database/sql"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const getActiveConnectionsByUserID = `-- name: GetActiveConnectionsByUserID :many
-SELECT DISTINCT client_id
-FROM refresh_tokens
-WHERE user_id = $1
-  AND revoked_at IS NULL
-  AND expires_at > $2
-ORDER BY client_id
+WITH active_tokens AS (
+  SELECT DISTINCT ON (client_id)
+         client_id,
+         scopes
+  FROM refresh_tokens
+  WHERE user_id = $1
+    AND revoked_at IS NULL
+    AND expires_at > $2
+  ORDER BY client_id, created_at DESC
+),
+last_used_tokens AS (
+  SELECT client_id,
+         MAX(used_at) AS last_used
+  FROM refresh_tokens
+  WHERE user_id = $1
+    AND used_at IS NOT NULL
+  GROUP BY client_id
+)
+SELECT active_tokens.client_id,
+       active_tokens.scopes,
+       last_used_tokens.last_used
+FROM active_tokens
+LEFT JOIN last_used_tokens ON last_used_tokens.client_id = active_tokens.client_id
+ORDER BY active_tokens.client_id
 `
 
 type GetActiveConnectionsByUserIDParams struct {
@@ -24,19 +45,44 @@ type GetActiveConnectionsByUserIDParams struct {
 	ExpiresAt time.Time
 }
 
-func (q *Queries) GetActiveConnectionsByUserID(ctx context.Context, arg GetActiveConnectionsByUserIDParams) ([]string, error) {
+type GetActiveConnectionsByUserIDRow struct {
+	ClientID string
+	Scopes   []string
+	LastUsed sql.NullTime
+}
+
+func (q *Queries) GetActiveConnectionsByUserID(ctx context.Context, arg GetActiveConnectionsByUserIDParams) ([]GetActiveConnectionsByUserIDRow, error) {
 	rows, err := q.db.QueryContext(ctx, getActiveConnectionsByUserID, arg.UserID, arg.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []string
+	var items []GetActiveConnectionsByUserIDRow
 	for rows.Next() {
-		var client_id string
-		if err := rows.Scan(&client_id); err != nil {
+		var i GetActiveConnectionsByUserIDRow
+		if err := rows.Scan(&i.ClientID, pq.Array(&i.Scopes), &i.LastUsed); err != nil {
 			return nil, err
 		}
-		items = append(items, client_id)
+		items = append(items, i)
 	}
 	return items, rows.Err()
+}
+
+const revokeActiveRefreshTokensByUserIDAndClientID = `-- name: RevokeActiveRefreshTokensByUserIDAndClientID :exec
+UPDATE refresh_tokens
+SET revoked_at = $1
+WHERE user_id = $2
+  AND client_id = $3
+  AND revoked_at IS NULL
+`
+
+type RevokeActiveRefreshTokensByUserIDAndClientIDParams struct {
+	RevokedAt sql.NullTime
+	UserID    string
+	ClientID  string
+}
+
+func (q *Queries) RevokeActiveRefreshTokensByUserIDAndClientID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDAndClientIDParams) error {
+	_, err := q.db.ExecContext(ctx, revokeActiveRefreshTokensByUserIDAndClientID, arg.RevokedAt, arg.UserID, arg.ClientID)
+	return err
 }

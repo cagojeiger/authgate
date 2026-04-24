@@ -11,6 +11,7 @@ import (
 type consoleServicer interface {
 	ListClients(ctx context.Context, sessionID, authHeader string) *service.ClientsResult
 	ListConnections(ctx context.Context, sessionID, authHeader string) *service.ConnectionsResult
+	RevokeConnection(ctx context.Context, sessionID, authHeader, clientID string) *service.RevokeConnectionResult
 }
 
 type ConsoleHandler struct {
@@ -49,4 +50,19 @@ func (h *ConsoleHandler) HandleListConnections(w http.ResponseWriter, r *http.Re
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{"connections": result.Connections})
+}
+
+func (h *ConsoleHandler) HandleRevokeConnection(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	result := h.svc.RevokeConnection(r.Context(), getSessionCookie(r), r.Header.Get("Authorization"), r.PathValue("client_id"))
+	if result.ErrorCode != 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(result.ErrorCode)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": http.StatusText(result.ErrorCode)})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
