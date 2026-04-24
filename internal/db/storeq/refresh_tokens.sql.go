@@ -171,7 +171,7 @@ func (q *Queries) RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefres
 	return result.RowsAffected()
 }
 
-const revokeRefreshTokenByID = `-- name: RevokeRefreshTokenByID :exec
+const revokeRefreshTokenByID = `-- name: RevokeRefreshTokenByID :execrows
 UPDATE refresh_tokens
 SET revoked_at = $1
 WHERE id = $2 AND revoked_at IS NULL
@@ -182,7 +182,10 @@ type RevokeRefreshTokenByIDParams struct {
 	ID        string
 }
 
-func (q *Queries) RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error {
-	_, err := q.db.ExecContext(ctx, revokeRefreshTokenByID, arg.RevokedAt, arg.ID)
-	return err
+func (q *Queries) RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeRefreshTokenByID, arg.RevokedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

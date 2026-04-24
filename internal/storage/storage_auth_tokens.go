@@ -450,25 +450,19 @@ func tryRevokeRefreshByHash(ctx context.Context, q *storeq.Queries, tokenOrToken
 	return rows > 0
 }
 
-func tryRevokeRefreshByID(ctx context.Context, q *storeq.Queries, tokenOrTokenID string, now time.Time) {
-	if _, err := uuid.Parse(tokenOrTokenID); err == nil {
-		_ = q.RevokeRefreshTokenByID(ctx, storeq.RevokeRefreshTokenByIDParams{
-			RevokedAt: sql.NullTime{Time: now, Valid: true},
-			ID:        tokenOrTokenID,
-		})
-	}
-}
-
 // tryRevokeRefreshByIDReturning attempts to revoke a refresh token by UUID ID and returns true if a row was affected.
 func tryRevokeRefreshByIDReturning(ctx context.Context, q *storeq.Queries, tokenOrTokenID string, now time.Time) bool {
 	if _, err := uuid.Parse(tokenOrTokenID); err != nil {
 		return false
 	}
-	err := q.RevokeRefreshTokenByID(ctx, storeq.RevokeRefreshTokenByIDParams{
+	rows, err := q.RevokeRefreshTokenByID(ctx, storeq.RevokeRefreshTokenByIDParams{
 		RevokedAt: sql.NullTime{Time: now, Valid: true},
 		ID:        tokenOrTokenID,
 	})
-	return err == nil
+	if err != nil {
+		return false
+	}
+	return rows > 0
 }
 
 // GetAuthRequestModel fetches the auth request by ID and returns the concrete model.

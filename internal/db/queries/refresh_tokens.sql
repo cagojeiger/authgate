@@ -29,7 +29,7 @@ UPDATE refresh_tokens
 SET used_at = $1, revoked_at = $1
 WHERE id = $2;
 
--- name: RevokeRefreshTokenByID :exec
+-- name: RevokeRefreshTokenByID :execrows
 UPDATE refresh_tokens
 SET revoked_at = $1
 WHERE id = $2 AND revoked_at IS NULL;
