@@ -1,0 +1,76 @@
+name: Helm Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Chart version to publish (default: reads VERSION file)"
+        required: false
+        default: ""
+
+concurrency:
+  group: helm-publish
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            RAW="${{ github.event.inputs.version }}"
+          else
+            RAW=$(cat VERSION | tr -d '[:space:]')
+          fi
+          echo "raw=$RAW" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm lint
+        run: helm lint helm-charts/authgate
+
+      - name: Package chart
+        run: |
+          mkdir -p .deploy
+          helm package helm-charts/authgate \
+            --version "${{ steps.version.outputs.raw }}" \
+            --app-version "${{ steps.version.outputs.raw }}" \
+            --destination .deploy
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Update gh-pages index
+        run: |
+          cp .deploy/*.tgz gh-pages/
+          cd gh-pages
+          for CHART in $(ls *.tgz 2>/dev/null | sed 's/-[0-9].*//' | sort -u); do
+            OLD=$(ls ${CHART}-*.tgz 2>/dev/null | sort -V | head -n -20)
+            if [ -n "$OLD" ]; then
+              echo "$OLD" | xargs git rm -f
+            fi
+          done
+          helm repo index . --url https://cagojeiger.github.io/authgate
+
+      - name: Push gh-pages
+        run: |
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(helm): publish authgate-${{ steps.version.outputs.raw }}" || echo "no changes to commit"
+          git push origin gh-pages

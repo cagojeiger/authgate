@@ -111,3 +111,15 @@ jobs:
           git add -A
           git commit -m "chore(helm): publish authgate-${{ steps.version.outputs.raw }}" || echo "no changes to commit"
           git push origin gh-pages
+
+      # -----------------------------------------------------------------
+      # Keep only the latest 20 GHCR image versions (untagged + old tagged).
+      # "latest" tag is excluded from deletion.
+      # -----------------------------------------------------------------
+      - name: Delete old GHCR images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: authgate
+          package-type: container
+          min-versions-to-keep: 20
+          ignore-versions: "^latest$"
