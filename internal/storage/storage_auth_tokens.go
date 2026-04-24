@@ -174,6 +174,14 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		return "", "", time.Time{}, err
 	}
 
+	// Audit token.refresh only when this is a refresh-token grant (not the initial code exchange).
+	if currentRefreshToken != "" {
+		s.AuditLog(ctx, &derived.userID, EventTokenRefresh, "", "", map[string]any{
+			"client_id": derived.clientID,
+			"family_id": derived.familyID,
+		})
+	}
+
 	return tokenID, newRefresh, expiration, nil
 }
 
@@ -228,10 +236,15 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 }
 
 func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID string) error {
-	return storeq.New(s.db).RevokeSessionsByUserID(ctx, storeq.RevokeSessionsByUserIDParams{
+	err := storeq.New(s.db).RevokeSessionsByUserID(ctx, storeq.RevokeSessionsByUserIDParams{
 		RevokedAt: sql.NullTime{Time: s.clock.Now(), Valid: true},
 		UserID:    userID,
 	})
+	if err != nil {
+		return err
+	}
+	s.AuditLog(ctx, &userID, EventSessionRevoked, "", "", nil)
+	return nil
 }
 
 func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID string, clientID string) *oidc.Error {
@@ -239,10 +252,13 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 	q := storeq.New(s.db)
 
 	if tryRevokeRefreshByHash(ctx, q, tokenOrTokenID, now) {
+		s.AuditLog(ctx, &userID, EventTokenRevoked, "", "", map[string]any{"client_id": clientID})
 		return nil
 	}
 
-	tryRevokeRefreshByID(ctx, q, tokenOrTokenID, now)
+	if tryRevokeRefreshByIDReturning(ctx, q, tokenOrTokenID, now) {
+		s.AuditLog(ctx, &userID, EventTokenRevoked, "", "", map[string]any{"client_id": clientID})
+	}
 
 	// RFC 7009: always return 200 regardless of whether anything was revoked
 	return nil
@@ -441,6 +457,18 @@ func tryRevokeRefreshByID(ctx context.Context, q *storeq.Queries, tokenOrTokenID
 			ID:        tokenOrTokenID,
 		})
 	}
+}
+
+// tryRevokeRefreshByIDReturning attempts to revoke a refresh token by UUID ID and returns true if a row was affected.
+func tryRevokeRefreshByIDReturning(ctx context.Context, q *storeq.Queries, tokenOrTokenID string, now time.Time) bool {
+	if _, err := uuid.Parse(tokenOrTokenID); err != nil {
+		return false
+	}
+	err := q.RevokeRefreshTokenByID(ctx, storeq.RevokeRefreshTokenByIDParams{
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		ID:        tokenOrTokenID,
+	})
+	return err == nil
 }
 
 // GetAuthRequestModel fetches the auth request by ID and returns the concrete model.
