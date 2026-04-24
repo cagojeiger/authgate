@@ -8,6 +8,7 @@ package storeq
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/lib/pq"
@@ -85,4 +86,172 @@ type RevokeActiveRefreshTokensByUserIDAndClientIDParams struct {
 func (q *Queries) RevokeActiveRefreshTokensByUserIDAndClientID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDAndClientIDParams) error {
 	_, err := q.db.ExecContext(ctx, revokeActiveRefreshTokensByUserIDAndClientID, arg.RevokedAt, arg.UserID, arg.ClientID)
 	return err
+}
+
+const getActiveSessionsByUserID = `-- name: GetActiveSessionsByUserID :many
+SELECT s.id,
+       s.expires_at,
+       COALESCE(login.ip_address::text, '') AS ip_address,
+       COALESCE(login.user_agent, '') AS user_agent,
+       login.created_at
+FROM sessions s
+LEFT JOIN LATERAL (
+  SELECT audit_log.ip_address,
+         audit_log.user_agent,
+         audit_log.created_at
+  FROM audit_log
+  WHERE audit_log.user_id = s.user_id
+    AND audit_log.event_type = 'auth.login'
+    AND audit_log.metadata->>'session_id' = s.id::text
+  ORDER BY audit_log.created_at DESC
+  LIMIT 1
+) login ON true
+WHERE s.user_id = $1
+  AND s.expires_at > $2
+  AND s.revoked_at IS NULL
+ORDER BY s.created_at DESC
+`
+
+type GetActiveSessionsByUserIDParams struct {
+	UserID    string
+	ExpiresAt time.Time
+}
+
+type GetActiveSessionsByUserIDRow struct {
+	ID        string
+	ExpiresAt time.Time
+	IpAddress string
+	UserAgent string
+	CreatedAt sql.NullTime
+}
+
+func (q *Queries) GetActiveSessionsByUserID(ctx context.Context, arg GetActiveSessionsByUserIDParams) ([]GetActiveSessionsByUserIDRow, error) {
+	rows, err := q.db.QueryContext(ctx, getActiveSessionsByUserID, arg.UserID, arg.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetActiveSessionsByUserIDRow
+	for rows.Next() {
+		var i GetActiveSessionsByUserIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ExpiresAt,
+			&i.IpAddress,
+			&i.UserAgent,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, rows.Err()
+}
+
+const revokeSessionByUserIDAndID = `-- name: RevokeSessionByUserIDAndID :exec
+UPDATE sessions
+SET revoked_at = $1
+WHERE user_id = $2
+  AND id = $3
+  AND revoked_at IS NULL
+`
+
+type RevokeSessionByUserIDAndIDParams struct {
+	RevokedAt sql.NullTime
+	UserID    string
+	ID        string
+}
+
+func (q *Queries) RevokeSessionByUserIDAndID(ctx context.Context, arg RevokeSessionByUserIDAndIDParams) error {
+	_, err := q.db.ExecContext(ctx, revokeSessionByUserIDAndID, arg.RevokedAt, arg.UserID, arg.ID)
+	return err
+}
+
+const revokeOtherActiveSessionsByUserID = `-- name: RevokeOtherActiveSessionsByUserID :exec
+UPDATE sessions
+SET revoked_at = $1
+WHERE user_id = $2
+  AND id <> $3
+  AND expires_at > $4
+  AND revoked_at IS NULL
+`
+
+type RevokeOtherActiveSessionsByUserIDParams struct {
+	RevokedAt sql.NullTime
+	UserID    string
+	ID        string
+	ExpiresAt time.Time
+}
+
+func (q *Queries) RevokeOtherActiveSessionsByUserID(ctx context.Context, arg RevokeOtherActiveSessionsByUserIDParams) error {
+	_, err := q.db.ExecContext(ctx, revokeOtherActiveSessionsByUserID, arg.RevokedAt, arg.UserID, arg.ID, arg.ExpiresAt)
+	return err
+}
+
+const getAuditLogByUserID = `-- name: GetAuditLogByUserID :many
+SELECT id,
+       event_type,
+       COALESCE(ip_address::text, '') AS ip_address,
+       COALESCE(user_agent, '') AS user_agent,
+       COALESCE(metadata, '{}'::jsonb) AS metadata,
+       created_at,
+       COUNT(*) OVER() AS total
+FROM audit_log
+WHERE user_id = $1
+ORDER BY created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type GetAuditLogByUserIDParams struct {
+	UserID string
+	Limit  int32
+	Offset int32
+}
+
+type GetAuditLogByUserIDRow struct {
+	ID        int64
+	EventType string
+	IpAddress string
+	UserAgent string
+	Metadata  json.RawMessage
+	CreatedAt time.Time
+	Total     int64
+}
+
+func (q *Queries) GetAuditLogByUserID(ctx context.Context, arg GetAuditLogByUserIDParams) ([]GetAuditLogByUserIDRow, error) {
+	rows, err := q.db.QueryContext(ctx, getAuditLogByUserID, arg.UserID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAuditLogByUserIDRow
+	for rows.Next() {
+		var i GetAuditLogByUserIDRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventType,
+			&i.IpAddress,
+			&i.UserAgent,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.Total,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, rows.Err()
+}
+
+const countAuditLogByUserID = `-- name: CountAuditLogByUserID :one
+SELECT COUNT(*)
+FROM audit_log
+WHERE user_id = $1
+`
+
+func (q *Queries) CountAuditLogByUserID(ctx context.Context, userID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAuditLogByUserID, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }

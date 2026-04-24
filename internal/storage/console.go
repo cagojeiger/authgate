@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -28,6 +29,28 @@ type ConnectionTokenInfo struct {
 	ClientID string
 	Scopes   []string
 	LastUsed *time.Time
+}
+
+type SessionInfo struct {
+	ID        string
+	ExpiresAt time.Time
+	IPAddress string
+	UserAgent string
+	CreatedAt *time.Time
+}
+
+type AuditEventInfo struct {
+	ID        int64
+	EventType string
+	IPAddress string
+	UserAgent string
+	Metadata  map[string]any
+	CreatedAt time.Time
+}
+
+type AuditLogPage struct {
+	Events []AuditEventInfo
+	Total  int
 }
 
 // ListAllClients returns all registered OAuth clients from the in-memory store,
@@ -83,6 +106,90 @@ func (s *Storage) RevokeConnection(ctx context.Context, userID, clientID string)
 		UserID:    userID,
 		ClientID:  clientID,
 	})
+}
+
+func (s *Storage) GetActiveSessions(ctx context.Context, userID string) ([]SessionInfo, error) {
+	rows, err := storeq.New(s.db).GetActiveSessionsByUserID(ctx, storeq.GetActiveSessionsByUserIDParams{
+		UserID:    userID,
+		ExpiresAt: s.clock.Now(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	sessions := make([]SessionInfo, 0, len(rows))
+	for _, row := range rows {
+		info := SessionInfo{
+			ID:        row.ID,
+			ExpiresAt: row.ExpiresAt,
+			IPAddress: row.IpAddress,
+			UserAgent: row.UserAgent,
+		}
+		if row.CreatedAt.Valid {
+			createdAt := row.CreatedAt.Time
+			info.CreatedAt = &createdAt
+		}
+		sessions = append(sessions, info)
+	}
+	return sessions, nil
+}
+
+func (s *Storage) RevokeSession(ctx context.Context, userID, sessionID string) error {
+	return storeq.New(s.db).RevokeSessionByUserIDAndID(ctx, storeq.RevokeSessionByUserIDAndIDParams{
+		RevokedAt: sql.NullTime{Time: s.clock.Now(), Valid: true},
+		UserID:    userID,
+		ID:        sessionID,
+	})
+}
+
+func (s *Storage) RevokeOtherSessions(ctx context.Context, userID, currentSessionID string) error {
+	now := s.clock.Now()
+	return storeq.New(s.db).RevokeOtherActiveSessionsByUserID(ctx, storeq.RevokeOtherActiveSessionsByUserIDParams{
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		UserID:    userID,
+		ID:        currentSessionID,
+		ExpiresAt: now,
+	})
+}
+
+func (s *Storage) GetAuditLog(ctx context.Context, userID string, limit, offset int) (*AuditLogPage, error) {
+	q := storeq.New(s.db)
+	rows, err := q.GetAuditLogByUserID(ctx, storeq.GetAuditLogByUserIDParams{
+		UserID: userID,
+		Limit:  int32(limit),
+		Offset: int32(offset),
+	})
+	if err != nil {
+		return nil, err
+	}
+	page := &AuditLogPage{Events: make([]AuditEventInfo, 0, len(rows))}
+	if len(rows) == 0 {
+		total, err := q.CountAuditLogByUserID(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		page.Total = int(total)
+		return page, nil
+	}
+	for _, row := range rows {
+		metadata := map[string]any{}
+		if len(row.Metadata) > 0 {
+			if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
+				return nil, err
+			}
+		}
+		page.Events = append(page.Events, AuditEventInfo{
+			ID:        row.ID,
+			EventType: row.EventType,
+			IPAddress: row.IpAddress,
+			UserAgent: row.UserAgent,
+			Metadata:  metadata,
+			CreatedAt: row.CreatedAt,
+		})
+		if page.Total == 0 {
+			page.Total = int(row.Total)
+		}
+	}
+	return page, nil
 }
 
 // ValidateBearerToken validates an access token JWT and returns the associated user.

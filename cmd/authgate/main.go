@@ -361,6 +361,10 @@ func registerAuthgateRoutes(
 	mux.HandleFunc("/console/clients", consoleHandler.HandleListClients)
 	mux.HandleFunc("/console/me/connections", consoleHandler.HandleListConnections)
 	mux.HandleFunc("/console/me/connections/{client_id}", consoleHandler.HandleRevokeConnection)
+	mux.HandleFunc("/console/me/sessions", consoleHandler.HandleListSessions)
+	mux.HandleFunc("/console/me/sessions/{id}", consoleHandler.HandleRevokeSession)
+	mux.HandleFunc("/console/me/sessions/revoke-others", consoleHandler.HandleRevokeOtherSessions)
+	mux.HandleFunc("/console/me/audit-log", consoleHandler.HandleGetAuditLog)
 }
 
 func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, httpMetrics *observability.HTTPMetrics) {
