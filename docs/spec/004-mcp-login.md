@@ -60,6 +60,7 @@ MCP Authorization
 
 - authgate에서 `zitadel/oidc`는 **내장 라이브러리**다. 별도 서버가 아니다.
 - MCP 클라이언트는 OAuth 2.1 `authorization_code + PKCE(S256)`를 지원해야 한다.
+- authgate는 모든 `/authorize` 요청에 대해 `code_challenge` + `code_challenge_method=S256`를 필수로 강제한다.
 - MCP 클라이언트는 RFC 8414 metadata를 사용할 수 있어야 한다.
 - MCP 클라이언트는 CIMD (Client ID Metadata Document)를 지원해야 한다. DCR(RFC 7591)은 지원하지 않는다.
 - **성공적으로 MCP 토큰을 발급받으려면** `user.Status = 'active'` 여야 한다.

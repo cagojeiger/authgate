@@ -10,6 +10,7 @@
 - authgate에서 zitadel/oidc는 **내장 라이브러리**다. 별도 서버가 아니다. 모든 엔드포인트는 authgate의 단일 주소에서 제공된다.
 - 앱이 `clients.yaml`에 등록되어 있어야 함
 - authgate에 OIDC 자격증명이 설정되어 있어야 함 (OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET)
+- 모든 `/authorize` 요청은 `code_challenge` + `code_challenge_method=S256`를 반드시 포함해야 함 (client 유형과 무관)
 
 ## 클라이언트 유형
 
@@ -189,7 +190,7 @@ RecoverUser 자체는 원자적이다 (단일 UPDATE).
 
 ## 보안 요구사항
 
-- PKCE S256 필수 (plain 불허, zitadel이 강제)
+- 모든 `/authorize` 요청에서 PKCE S256 필수 (plain 불허, code_challenge 누락 불허)
 - `state` 파라미터: authRequestID를 state로 사용. CSRF 보호 역할
 - confidential 클라이언트: client_secret bcrypt 검증
 - public 클라이언트: client_secret 없음, PKCE가 유일한 보호
