@@ -19,6 +19,7 @@ type fakeLoginStore struct {
 	createUserWithIdentityFn  func(ctx context.Context, input storage.CreateUserWithIdentityInput) (*storage.User, error)
 	getUserByIDFn             func(ctx context.Context, userID string) (*storage.User, error)
 	createSessionFn           func(ctx context.Context, userID string, ttl time.Duration) (string, error)
+	getAuthRequestModelFn     func(ctx context.Context, id string) (*storage.AuthRequestModel, error)
 }
 
 func (f *fakeLoginStore) GetValidSession(ctx context.Context, sessionID string) (*storage.User, error) {
@@ -133,4 +134,11 @@ func TestLogin_HandleLogin_NoSession_Redirect(t *testing.T) {
 	if result.Action != ActionRedirectToIdP {
 		t.Fatalf("action = %v, want %v", result.Action, ActionRedirectToIdP)
 	}
+}
+
+func (f *fakeLoginStore) GetAuthRequestModel(ctx context.Context, id string) (*storage.AuthRequestModel, error) {
+	if f.getAuthRequestModelFn != nil {
+		return f.getAuthRequestModelFn(ctx, id)
+	}
+	return nil, storage.ErrNotFound
 }
