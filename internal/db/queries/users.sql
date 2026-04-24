@@ -34,6 +34,11 @@ UPDATE auth_requests
 SET subject = $1, auth_time = $2, done = true
 WHERE id = $3 AND expires_at > $2;
 
+-- name: CompleteAuthRequestOnceByID :execrows
+UPDATE auth_requests
+SET subject = $1, auth_time = $2, done = true
+WHERE id = $3 AND expires_at > $2 AND done = false;
+
 -- name: SetUserStatusByID :exec
 UPDATE users
 SET status = $1, updated_at = $2

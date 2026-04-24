@@ -90,11 +90,8 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 		return &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
 
-	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)
+	sessionID, err := s.store.CompleteLogin(ctx, authRequestID, user.ID, s.sessionTTL)
 	if err != nil {
-		return &CallbackResult{Action: ActionError, Error: "session creation failed", ErrorCode: http.StatusInternalServerError}
-	}
-	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
 		return &CallbackResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
 	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{

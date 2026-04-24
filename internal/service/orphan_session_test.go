@@ -31,6 +31,11 @@ func (s *expireAfterCreateSessionStore) CreateSession(ctx context.Context, userI
 	return sessionID, nil
 }
 
+func (s *expireAfterCreateSessionStore) CompleteLogin(ctx context.Context, authRequestID, userID string, sessionTTL time.Duration) (string, error) {
+	s.clk.T = s.clk.T.Add(11 * time.Minute)
+	return s.Storage.CompleteLogin(ctx, authRequestID, userID, sessionTTL)
+}
+
 func setupOrphanSessionTest(t *testing.T, providerUserID, email string) (*storage.Storage, *expireAfterCreateSessionStore, *upstream.FakeProvider) {
 	t.Helper()
 
@@ -86,9 +91,8 @@ func TestLoginCallback_CompleteExpiresAfterCreateSession_LeavesOrphanSession(t *
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
-	if got := activeSessionCount(t, store.DB(), user.ID); got != 1 {
-		// Characterization: after the fix, this should become 0.
-		t.Fatalf("active sessions = %d, want 1", got)
+	if got := activeSessionCount(t, store.DB(), user.ID); got != 0 {
+		t.Fatalf("active sessions = %d, want 0 (atomic tx now rolls back session insert on completion failure)", got)
 	}
 }
 
@@ -122,9 +126,8 @@ func TestMCPCallback_CompleteExpiresAfterCreateSession_LeavesOrphanSession(t *te
 	if result.SessionID != "" {
 		t.Fatalf("sessionID = %q, want empty", result.SessionID)
 	}
-	if got := activeSessionCount(t, store.DB(), user.ID); got != 1 {
-		// Characterization: after the fix, this should become 0.
-		t.Fatalf("active sessions = %d, want 1", got)
+	if got := activeSessionCount(t, store.DB(), user.ID); got != 0 {
+		t.Fatalf("active sessions = %d, want 0 (atomic tx now rolls back session insert on completion failure)", got)
 	}
 }
 
@@ -142,16 +145,18 @@ func TestLoginCallback_DoubleCallback_CreatesMultipleActiveSessions(t *testing.T
 		t.Fatalf("first action = %v, want ActionAutoApprove", first.Action)
 	}
 	second := svc.HandleCallback(ctx, "fake-code", authRequestID, "127.0.0.1", "test-agent")
-	if second.Action != ActionAutoApprove {
-		t.Fatalf("second action = %v, want ActionAutoApprove", second.Action)
+	if second.Action != ActionError {
+		t.Fatalf("second action = %v, want ActionError", second.Action)
+	}
+	if second.SessionID != "" {
+		t.Fatalf("second sessionID = %q, want empty", second.SessionID)
 	}
 
 	user, err := store.GetUserByProviderIdentity(ctx, "google", "google-sub-123")
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
-	if got := activeSessionCount(t, store.DB(), user.ID); got != 2 {
-		// Characterization: adding done=false to completion should make this 1.
-		t.Fatalf("active sessions = %d, want 2", got)
+	if got := activeSessionCount(t, store.DB(), user.ID); got != 1 {
+		t.Fatalf("active sessions = %d, want 1 (second callback must fail without creating another session)", got)
 	}
 }

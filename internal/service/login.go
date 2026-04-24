@@ -22,6 +22,7 @@ type LoginStore interface {
 	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
 	RecoverUser(ctx context.Context, userID string) error
 	CompleteAuthRequest(ctx context.Context, authRequestID, userID string) error
+	CompleteLogin(ctx context.Context, authRequestID, userID string, sessionTTL time.Duration) (string, error)
 	GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*storage.User, error)
 	CreateUserWithIdentity(ctx context.Context, input storage.CreateUserWithIdentityInput) (*storage.User, error)
 	GetUserByID(ctx context.Context, userID string) (*storage.User, error)
@@ -128,14 +129,6 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 		return &CallbackResult{Action: ActionError, Error: "upstream_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	authReq, err := s.store.GetAuthRequestModel(ctx, authRequestID)
-	if errors.Is(err, storage.ErrNotFound) {
-		return &CallbackResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
-	}
-	if err != nil {
-		return &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
-	}
-
 	user, signedUp, result := s.findOrCreateBrowserUser(ctx, userInfo, ipAddress, userAgent)
 	if result != nil {
 		return result
@@ -146,12 +139,16 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 		return result
 	}
 
-	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)
+	authReq, err := s.store.GetAuthRequestModel(ctx, authRequestID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return &CallbackResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
+	}
 	if err != nil {
-		return &CallbackResult{Action: ActionError, Error: "session creation failed", ErrorCode: http.StatusInternalServerError}
+		return &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
+	sessionID, err := s.store.CompleteLogin(ctx, authRequestID, user.ID, s.sessionTTL)
+	if err != nil {
 		return &CallbackResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
 	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
