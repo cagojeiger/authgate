@@ -163,15 +163,10 @@ func TestIntegration_MCPCodeExchange_StateChange_InvalidGrant(t *testing.T) {
 // device-002: device callback must reject non-existent user (no browser signup).
 func TestIntegration_MCPCallback_NewUser_Rejected(t *testing.T) {
 	ts := SetupTestServer(t)
-	ctx := context.Background()
 
-	// Create a proper auth request with a resource so the MCP callback flow
-	// reaches the user-lookup stage (resource binding validation added in PR #94
-	// requires a non-empty resource; without it the service returns 400, not 403).
-	authRequestID, err := ts.Store.CreateTestAuthRequestWithResource(ctx, "req-mcp-new", ts.BaseURL+"/mcp")
-	if err != nil {
-		t.Fatalf("create auth request: %v", err)
-	}
+	// Create a real auth request via /authorize so PKCE enforcement is exercised.
+	// Using CreateTestAuthRequestWithResource would bypass CreateAuthRequest (raw SQL).
+	authRequestID := createMCPAuthRequest(t, ts, ts.BaseURL+"/mcp")
 
 	resp, err := http.Get(ts.BaseURL + "/mcp/callback?code=fake-code&state=" + authRequestID)
 	if err != nil {
