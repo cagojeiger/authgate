@@ -83,9 +83,10 @@ func main() {
 	// Load client config and derive CORS allowed origins.
 	allowedOrigins := loadClientConfigIfPresent(cfg, store)
 
+	var isShuttingDown atomic.Bool
 	mux := http.NewServeMux()
 	httpMetrics := observability.NewHTTPMetrics()
-	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, httpMetrics)
+	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, httpMetrics, &isShuttingDown)
 
 	// Wrap the mux with CORS middleware so all endpoints benefit.
 	corsHandler := middleware.NewCORSMiddleware(allowedOrigins)(mux)
@@ -97,7 +98,7 @@ func main() {
 
 	cleanupCancel := startCleanupService(db, clk)
 	defer cleanupCancel()
-	installGracefulShutdown(srv, cfg, &inflightRequests, cleanupCancel)
+	installGracefulShutdown(srv, cfg, &inflightRequests, cleanupCancel, &isShuttingDown)
 
 	slog.Info("authgate starting", "addr", addr, "dev", cfg.DevMode, "mcp", cfg.EnableMCP, "issuer", cfg.OIDCIssuerURL, "provider", browserProvider.Name())
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -273,11 +274,12 @@ func registerRoutes(
 	mcpLoginHandler *handler.MCPLoginHandler,
 	consoleHandler *handler.ConsoleHandler,
 	httpMetrics *observability.HTTPMetrics,
+	isShuttingDown *atomic.Bool,
 ) {
 	registerOAuthMetadataRoute(mux, cfg)
 	registerProviderRoutes(mux, cfg, store, provider)
 	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler)
-	registerHealthRoutes(mux, db, httpMetrics)
+	registerHealthRoutes(mux, db, isShuttingDown, httpMetrics)
 }
 
 func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
@@ -367,7 +369,7 @@ func registerAuthgateRoutes(
 	mux.HandleFunc("/console/me/audit-log", consoleHandler.HandleGetAuditLog)
 }
 
-func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, httpMetrics *observability.HTTPMetrics) {
+func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool, httpMetrics *observability.HTTPMetrics) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -375,6 +377,11 @@ func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, httpMetrics *observabi
 	})
 	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if isShuttingDown.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"status":"shutting down"}`))
+			return
+		}
 		if err := db.PingContext(r.Context()); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"status":"not ready"}`))
@@ -413,11 +420,12 @@ func startCleanupService(db *sql.DB, clk clock.Clock) context.CancelFunc {
 	return cleanupCancel
 }
 
-func installGracefulShutdown(srv *http.Server, cfg *config.Config, inflightRequests *int64, cleanupCancel context.CancelFunc) {
+func installGracefulShutdown(srv *http.Server, cfg *config.Config, inflightRequests *int64, cleanupCancel context.CancelFunc, isShuttingDown *atomic.Bool) {
 	go func() {
 		sigCh := make(chan os.Signal, 2)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
+		isShuttingDown.Store(true)
 		slog.Info("shutdown signal received", "inflight_requests", atomic.LoadInt64(inflightRequests))
 
 		go func() {
