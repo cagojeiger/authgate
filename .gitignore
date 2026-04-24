@@ -7,8 +7,8 @@
 *.dll
 *.so
 *.dylib
-authgate
-app
+/authgate
+/app
 .playwright-mcp/
 /examples/cli/cli
 /examples/webapp/webapp
