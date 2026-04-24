@@ -10,7 +10,7 @@ import (
 
 func newTestMCPLoginHandler(devMode bool) *MCPLoginHandler {
 	svc := service.NewMCPLoginService(nil, nil, 0)
-	return NewMCPLoginHandler(svc, devMode)
+	return NewMCPLoginHandler(svc, devMode, "authgate")
 }
 
 func TestMCPLogin_MissingAuthRequestID_ReturnsBadRequest(t *testing.T) {

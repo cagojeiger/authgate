@@ -11,7 +11,7 @@ import (
 
 func newTestLoginHandler(devMode bool) *LoginHandler {
 	svc := service.NewLoginService(nil, nil, 0)
-	return NewLoginHandler(svc, devMode)
+	return NewLoginHandler(svc, devMode, "authgate")
 }
 
 func TestLogin_MissingAuthRequestID_ReturnsBadRequest(t *testing.T) {
