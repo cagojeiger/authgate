@@ -12,6 +12,7 @@ import (
 type ClientView struct {
 	ClientID      string   `json:"client_id"`
 	Name          string   `json:"name"`
+	URL           string   `json:"url,omitempty"`
 	LoginChannel  string   `json:"login_channel"`
 	AllowedScopes []string `json:"allowed_scopes"`
 	RedirectURIs  []string `json:"redirect_uris"`
@@ -26,6 +27,7 @@ func (s *Storage) ListAllClients() []ClientView {
 		views = append(views, ClientView{
 			ClientID:      c.ID,
 			Name:          c.Name,
+			URL:           c.URL,
 			LoginChannel:  c.LoginChannel,
 			AllowedScopes: append([]string(nil), c.AllowedScopeList...),
 			RedirectURIs:  append([]string(nil), c.RedirectURIList...),

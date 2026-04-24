@@ -21,6 +21,7 @@ type ClientConfigEntry struct {
 	ClientType        string   `yaml:"client_type"`
 	LoginChannel      string   `yaml:"login_channel"`
 	Name              string   `yaml:"name"`
+	URL               string   `yaml:"url,omitempty"`
 	RedirectURIs      []string `yaml:"redirect_uris"`
 	AllowedScopes     []string `yaml:"allowed_scopes"`
 	AllowedGrantTypes []string `yaml:"allowed_grant_types"`
@@ -135,6 +136,7 @@ func (s *Storage) LoadClients(clients []ClientConfigEntry) {
 			Type:                 c.ClientType,
 			LoginChannel:         c.LoginChannel,
 			Name:                 c.Name,
+			URL:                  c.URL,
 			RedirectURIList:      StringArray(c.RedirectURIs),
 			AllowedScopeList:     StringArray(c.AllowedScopes),
 			AllowedGrantTypeList: StringArray(c.AllowedGrantTypes),
