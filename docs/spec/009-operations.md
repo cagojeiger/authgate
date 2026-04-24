@@ -69,6 +69,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `ENABLE_MCP` | X | `true` | MCP optional adapter 활성화 여부 (`/mcp/*`, CIMD/resource binding) |
 | `CLIENT_CONFIG` | X | `/etc/authgate/clients.yaml` | 클라이언트 설정 YAML 파일 경로 (없으면 무시) |
 | `MIGRATIONS_PATH` | X | `/migrations` | golang-migrate 마이그레이션 디렉터리 경로 (Docker 이미지 기본, 로컬 개발은 `./migrations`) |
+| `BRAND_NAME` | X | `authgate` | 디바이스 플로우 및 에러 페이지 좌측 상단에 표시되는 브랜드 이름 |
 | `RATE_LIMIT_TOKEN_RPS` | X | `30` | 토큰 엔드포인트 (`/oauth/token`, `/oauth/device/authorize`, `/device/approve`) 초당 허용 요청 수 |
 | `RATE_LIMIT_TOKEN_BURST` | X | `60` | 토큰 엔드포인트 버스트 허용 요청 수 (최솟값: 1) |
 | `RATE_LIMIT_AUTH_RPS` | X | `10` | 인증 엔드포인트 (`/authorize`, `/login`) 초당 허용 요청 수 |

@@ -16,23 +16,27 @@ func init() {
 }
 
 type ErrorData struct {
-	Code    int
-	Message string
+	BrandName string
+	Code      int
+	Message   string
 }
 
 type DeviceEntryData struct {
-	UserCode string
-	Error    string
+	BrandName string
+	UserCode  string
+	Error     string
 }
 
 type DeviceApproveData struct {
+	BrandName string
 	UserCode  string
 	CSRFToken string
 }
 
 type ResultData struct {
-	Success bool
-	Message string
+	BrandName string
+	Success   bool
+	Message   string
 }
 
 func RenderError(w io.Writer, data ErrorData) error {

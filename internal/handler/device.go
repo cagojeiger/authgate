@@ -12,12 +12,14 @@ import (
 type DeviceHandler struct {
 	deviceService *service.DeviceService
 	devMode       bool
+	brandName     string
 }
 
-func NewDeviceHandler(deviceService *service.DeviceService, devMode bool) *DeviceHandler {
+func NewDeviceHandler(deviceService *service.DeviceService, devMode bool, brandName string) *DeviceHandler {
 	return &DeviceHandler{
 		deviceService: deviceService,
 		devMode:       devMode,
+		brandName:     brandName,
 	}
 }
 
@@ -32,8 +34,9 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 	case service.DeviceShowEntry:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		pages.RenderDeviceEntry(w, pages.DeviceEntryData{
-			UserCode: userCode,
-			Error:    result.Error,
+			BrandName: h.brandName,
+			UserCode:  userCode,
+			Error:     result.Error,
 		})
 
 	case service.DeviceShowApprove:
@@ -48,6 +51,7 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 		})
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		pages.RenderDeviceApprove(w, pages.DeviceApproveData{
+			BrandName: h.brandName,
 			UserCode:  result.UserCode,
 			CSRFToken: csrfToken,
 		})
@@ -58,7 +62,7 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 	case service.DeviceError:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(result.ErrorCode)
-		pages.RenderError(w, pages.ErrorData{Code: result.ErrorCode, Message: result.Error})
+		pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: result.ErrorCode, Message: result.Error})
 	}
 }
 
@@ -79,7 +83,7 @@ func (h *DeviceHandler) HandleDeviceCallback(w http.ResponseWriter, r *http.Requ
 	case service.DeviceError:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(result.ErrorCode)
-		pages.RenderError(w, pages.ErrorData{Code: result.ErrorCode, Message: result.Error})
+		pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: result.ErrorCode, Message: result.Error})
 	}
 }
 
@@ -91,7 +95,7 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	}
 	if err := r.ParseForm(); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		pages.RenderError(w, pages.ErrorData{Code: 400, Message: "invalid form"})
+		pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: 400, Message: "invalid form"})
 		return
 	}
 
@@ -103,7 +107,7 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	}
 	if formToken == "" || formToken != cookieToken {
 		w.WriteHeader(http.StatusForbidden)
-		pages.RenderError(w, pages.ErrorData{Code: 403, Message: "CSRF validation failed"})
+		pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: 403, Message: "CSRF validation failed"})
 		return
 	}
 
@@ -118,8 +122,9 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 		w.WriteHeader(result.ErrorCode)
 	}
 	pages.RenderResult(w, pages.ResultData{
-		Success: result.Success,
-		Message: result.Message,
+		BrandName: h.brandName,
+		Success:   result.Success,
+		Message:   result.Message,
 	})
 }
 

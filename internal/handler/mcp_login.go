@@ -10,12 +10,14 @@ import (
 type MCPLoginHandler struct {
 	loginService *service.MCPLoginService
 	devMode      bool
+	brandName    string
 }
 
-func NewMCPLoginHandler(loginService *service.MCPLoginService, devMode bool) *MCPLoginHandler {
+func NewMCPLoginHandler(loginService *service.MCPLoginService, devMode bool, brandName string) *MCPLoginHandler {
 	return &MCPLoginHandler{
 		loginService: loginService,
 		devMode:      devMode,
+		brandName:    brandName,
 	}
 }
 
@@ -62,5 +64,5 @@ func (h *MCPLoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request)
 func (h *MCPLoginHandler) renderError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
-	pages.RenderError(w, pages.ErrorData{Code: code, Message: message})
+	pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: code, Message: message})
 }
