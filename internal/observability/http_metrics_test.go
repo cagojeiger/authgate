@@ -3,23 +3,31 @@ package observability
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
+
+	"github.com/kangheeyong/authgate/internal/middleware"
 )
+
+// wrapWithRequestID wraps a handler with RequestIDMiddleware so the context
+// is populated before the observability middleware reads it.
+func wrapWithRequestID(h http.Handler) http.Handler {
+	return middleware.RequestIDMiddleware(h)
+}
 
 func TestMiddleware_SetsRequestIDAndRecordsMetrics(t *testing.T) {
 	m := NewHTTPMetrics()
-	h := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	inner := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte("ok"))
 	}))
+	h := wrapWithRequestID(inner)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
-	if rec.Header().Get(requestIDHeader) == "" {
-		t.Fatalf("missing %s header", requestIDHeader)
+	if rec.Header().Get("X-Request-ID") == "" {
+		t.Fatal("missing X-Request-ID header")
 	}
 
 	metrics, err := m.registry.Gather()
@@ -42,7 +50,6 @@ func TestMiddleware_SetsRequestIDAndRecordsMetrics(t *testing.T) {
 				}
 			}
 		case "authgate_http_inflight_requests":
-			// Request finished, so inflight must be 0.
 			if len(mf.GetMetric()) > 0 && mf.GetMetric()[0].GetGauge().GetValue() == 0 {
 				foundInflight = true
 			}
@@ -59,17 +66,18 @@ func TestMiddleware_SetsRequestIDAndRecordsMetrics(t *testing.T) {
 
 func TestMiddleware_UsesInboundRequestID(t *testing.T) {
 	m := NewHTTPMetrics()
-	h := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	inner := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
+	h := wrapWithRequestID(inner)
 
 	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
-	req.Header.Set(requestIDHeader, "req-123")
+	req.Header.Set("X-Request-ID", "req-123")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
-	got := rec.Header().Get(requestIDHeader)
-	if strings.TrimSpace(got) != "req-123" {
-		t.Fatalf("request id = %q, want req-123", got)
+	got := rec.Header().Get("X-Request-ID")
+	if got != "req-123" {
+		t.Fatalf("X-Request-ID = %q, want req-123", got)
 	}
 }
