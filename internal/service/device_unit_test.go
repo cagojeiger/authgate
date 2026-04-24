@@ -64,7 +64,7 @@ func TestDevice_HandleDevicePage_NoSession_Redirects(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clk)
+	svc := NewDeviceService(store, provider, 24*time.Hour, clk)
 
 	result := svc.HandleDevicePage(context.Background(), "UCODE", "")
 
@@ -85,7 +85,7 @@ func TestDevice_HandleDeviceApprove_Deny(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clock.RealClock{})
+	svc := NewDeviceService(store, provider, 24*time.Hour, clock.RealClock{})
 
 	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "deny", "sess", "127.0.0.1", "ua")
 
@@ -107,7 +107,7 @@ func TestDevice_HandleDeviceApprove_ApproveError(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clock.RealClock{})
+	svc := NewDeviceService(store, provider, 24*time.Hour, clock.RealClock{})
 
 	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "approve", "sess", "127.0.0.1", "ua")
 
@@ -145,7 +145,7 @@ func TestDevice_HandleDeviceCallback_AuditLogIncludesSessionAndClient(t *testing
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clk)
+	svc := NewDeviceService(store, provider, 24*time.Hour, clk)
 
 	result := svc.HandleDeviceCallback(context.Background(), "code", "UCODE", "127.0.0.1", "ua")
 

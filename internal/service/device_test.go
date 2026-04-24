@@ -31,7 +31,7 @@ func setupDeviceService(t *testing.T) (*DeviceService, *storage.Storage, clock.C
 		},
 	}
 
-	svc := NewDeviceService(store, fakeProvider, "http://localhost:8080", 24*time.Hour, clk)
+	svc := NewDeviceService(store, fakeProvider, 24*time.Hour, clk)
 	return svc, store, clk
 }
 
@@ -270,7 +270,7 @@ func TestDeviceApprove_AfterStatusTransition_Rejected(t *testing.T) {
 			svc, store, clk := setupDeviceExtTest(t, "dev-approve-"+tt.status)
 			ctx := context.Background()
 
-			user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-approve-"+tt.status+"@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "dev-approve-"+tt.status, ProviderEmail: "dev-approve-"+tt.status+"@test.com"})
+			user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-approve-" + tt.status + "@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "dev-approve-" + tt.status, ProviderEmail: "dev-approve-" + tt.status + "@test.com"})
 			sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 			insertDeviceCode(t, store, "ASTA-"+tt.status, clk)
 
