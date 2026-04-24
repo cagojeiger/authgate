@@ -177,6 +177,9 @@ func (s *Storage) SetUserStatus(ctx context.Context, userID, status string) erro
 }
 
 // RequestDeletion sets a user to pending_deletion and revokes all refresh tokens. Single TX.
+// Sessions are intentionally NOT revoked here — they expire naturally (24h TTL).
+// Revoking refresh tokens immediately blocks new access token issuance, which is sufficient
+// per industry standard (Auth0, Okta pattern). Idempotent: safe to call multiple times.
 func (s *Storage) RequestDeletion(ctx context.Context, userID string) error {
 	now := s.clock.Now()
 	scheduledAt := now.Add(30 * 24 * time.Hour)
@@ -199,11 +202,6 @@ func (s *Storage) RequestDeletion(ctx context.Context, userID string) error {
 		return err
 	}
 
-	err = revokeActiveSessionsForDeletion(ctx, qtx, userID, now)
-	if err != nil {
-		return err
-	}
-
 	return tx.Commit()
 }
 
@@ -217,13 +215,6 @@ func markUserPendingDeletion(ctx context.Context, qtx *storeq.Queries, userID st
 
 func revokeActiveRefreshTokensForDeletion(ctx context.Context, qtx *storeq.Queries, userID string, now time.Time) error {
 	return qtx.RevokeActiveRefreshTokensByUserID(ctx, storeq.RevokeActiveRefreshTokensByUserIDParams{
-		RevokedAt: sql.NullTime{Time: now, Valid: true},
-		UserID:    userID,
-	})
-}
-
-func revokeActiveSessionsForDeletion(ctx context.Context, qtx *storeq.Queries, userID string, now time.Time) error {
-	return qtx.RevokeSessionsByUserID(ctx, storeq.RevokeSessionsByUserIDParams{
 		RevokedAt: sql.NullTime{Time: now, Valid: true},
 		UserID:    userID,
 	})
