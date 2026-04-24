@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestAuditEvents verifies that token.refresh and token.revoked events
+// TestAuditEvents verifies that token.refresh, token.revoked, and auth.token_revoked events
 // are recorded in audit_log after the corresponding operations.
 func TestAuditEvents(t *testing.T) {
 	ts := SetupTestServer(t)
@@ -50,7 +50,7 @@ func TestAuditEvents(t *testing.T) {
 		}
 	})
 
-	t.Run("token.revoked recorded after explicit revocation", func(t *testing.T) {
+	t.Run("token revoke events recorded after explicit revocation", func(t *testing.T) {
 		// Get a fresh set of tokens for revocation test.
 		freshTokens := completeLoginFlow(t, ts)
 		if freshTokens.StatusCode != 200 {
@@ -80,14 +80,14 @@ func TestAuditEvents(t *testing.T) {
 		// Re-fetch user (same provider identity, same user ID).
 		var count int
 		err = ts.DB.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM audit_log WHERE user_id = $1::uuid AND event_type = 'token.revoked'`,
+			`SELECT COUNT(*) FROM audit_log WHERE user_id = $1::uuid AND event_type = 'auth.token_revoked'`,
 			user.ID,
 		).Scan(&count)
 		if err != nil {
-			t.Fatalf("query audit_log for token.revoked: %v", err)
+			t.Fatalf("query audit_log for auth.token_revoked: %v", err)
 		}
 		if count == 0 {
-			t.Error("expected at least one token.revoked audit_log row, got 0")
+			t.Error("expected at least one auth.token_revoked audit_log row, got 0")
 		}
 	})
 }

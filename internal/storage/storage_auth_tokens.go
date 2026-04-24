@@ -243,7 +243,7 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 	if err != nil {
 		return err
 	}
-	s.AuditLog(ctx, &userID, EventSessionRevoked, "", "", nil)
+	s.AuditLog(ctx, &userID, EventAuthLogout, "", "", nil)
 	return nil
 }
 
@@ -252,12 +252,12 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 	q := storeq.New(s.db)
 
 	if tryRevokeRefreshByHash(ctx, q, tokenOrTokenID, now) {
-		s.AuditLog(ctx, &userID, EventTokenRevoked, "", "", map[string]any{"client_id": clientID})
+		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, "", "", map[string]any{"client_id": clientID})
 		return nil
 	}
 
 	if tryRevokeRefreshByIDReturning(ctx, q, tokenOrTokenID, now) {
-		s.AuditLog(ctx, &userID, EventTokenRevoked, "", "", map[string]any{"client_id": clientID})
+		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, "", "", map[string]any{"client_id": clientID})
 	}
 
 	// RFC 7009: always return 200 regardless of whether anything was revoked

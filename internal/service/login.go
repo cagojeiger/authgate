@@ -128,7 +128,15 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 		return &CallbackResult{Action: ActionError, Error: "upstream_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	user, result := s.findOrCreateBrowserUser(ctx, userInfo, ipAddress, userAgent)
+	authReq, err := s.store.GetAuthRequestModel(ctx, authRequestID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return &CallbackResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
+	}
+	if err != nil {
+		return &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+	}
+
+	user, signedUp, result := s.findOrCreateBrowserUser(ctx, userInfo, ipAddress, userAgent)
 	if result != nil {
 		return result
 	}
@@ -146,6 +154,12 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
 		return &CallbackResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
+	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
+		"channel":    "browser",
+		"session_id": sessionID,
+		"client_id":  authReq.ClientID,
+		"signup":     signedUp,
+	})
 
 	return &CallbackResult{Action: ActionAutoApprove, AuthRequestID: authRequestID, SessionID: sessionID}
 }
@@ -162,18 +176,18 @@ func (s *LoginService) recoverUser(ctx context.Context, userID, ipAddress, userA
 	return nil
 }
 
-func (s *LoginService) findOrCreateBrowserUser(ctx context.Context, userInfo *upstream.UserInfo, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
+func (s *LoginService) findOrCreateBrowserUser(ctx context.Context, userInfo *upstream.UserInfo, ipAddress, userAgent string) (*storage.User, bool, *CallbackResult) {
 	providerName := s.browserProvider.Name()
 	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
-		return s.signupBrowserUser(ctx, providerName, userInfo, ipAddress, userAgent)
+		user, result := s.signupBrowserUser(ctx, providerName, userInfo, ipAddress, userAgent)
+		return user, true, result
 	}
 	if err != nil {
-		return nil, &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+		return nil, false, &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": "browser"})
-	return user, nil
+	return user, false, nil
 }
 
 func (s *LoginService) signupBrowserUser(ctx context.Context, providerName string, userInfo *upstream.UserInfo, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
@@ -193,7 +207,7 @@ func (s *LoginService) signupBrowserUser(ctx context.Context, providerName strin
 		return nil, &CallbackResult{Action: ActionError, Error: fmt.Sprintf("signup failed: %v", err), ErrorCode: http.StatusInternalServerError}
 	}
 
-	s.store.AuditLog(ctx, &user.ID, "auth.signup", ipAddress, userAgent, nil)
+	s.store.AuditLog(ctx, &user.ID, "auth.signup", ipAddress, userAgent, map[string]any{"channel": "browser"})
 	return user, nil
 }
 

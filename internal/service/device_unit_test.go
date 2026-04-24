@@ -119,3 +119,43 @@ func TestDevice_HandleDeviceApprove_ApproveError(t *testing.T) {
 	}
 }
 
+func TestDevice_HandleDeviceCallback_AuditLogIncludesSessionAndClient(t *testing.T) {
+	var gotEventType string
+	var gotMetadata map[string]any
+	clk := &clock.FixedClock{T: time.Date(2026, 4, 3, 0, 0, 0, 0, time.UTC)}
+	store := &fakeDeviceStore{
+		getDeviceCodeByUserCodeFn: func(context.Context, string) (*storage.DeviceCodeModel, error) {
+			return &storage.DeviceCodeModel{
+				UserCode:  "UCODE",
+				ClientID:  "device-client",
+				State:     "pending",
+				ExpiresAt: clk.Now().Add(5 * time.Minute),
+			}, nil
+		},
+		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
+			return &storage.User{ID: "u1", Status: "active"}, nil
+		},
+		createSessionFn: func(context.Context, string, time.Duration) (string, error) {
+			return "sess-1", nil
+		},
+		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+			gotEventType = eventType
+			gotMetadata = metadata
+			return nil
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
+	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clk)
+
+	result := svc.HandleDeviceCallback(context.Background(), "code", "UCODE", "127.0.0.1", "ua")
+
+	if result.Action != DeviceRedirectBack {
+		t.Fatalf("action = %v, want %v", result.Action, DeviceRedirectBack)
+	}
+	if gotEventType != "auth.login" {
+		t.Fatalf("eventType = %q, want auth.login", gotEventType)
+	}
+	if gotMetadata["channel"] != "device" || gotMetadata["session_id"] != "sess-1" || gotMetadata["client_id"] != "device-client" {
+		t.Fatalf("metadata = %#v", gotMetadata)
+	}
+}

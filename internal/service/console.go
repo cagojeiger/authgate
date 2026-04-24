@@ -20,6 +20,7 @@ type ConsoleStore interface {
 	ListAllClients() []storage.ClientView
 	GetActiveConnections(ctx context.Context, userID string) ([]storage.ConnectionTokenInfo, error)
 	RevokeConnection(ctx context.Context, userID, clientID string) error
+	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
 }
 
 func NewConsoleService(store ConsoleStore) *ConsoleService {
@@ -154,5 +155,6 @@ func (s *ConsoleService) RevokeConnection(ctx context.Context, sessionID, authHe
 	if err := s.store.RevokeConnection(ctx, auth.user.ID, clientID); err != nil {
 		return &RevokeConnectionResult{ErrorCode: http.StatusInternalServerError}
 	}
+	s.store.AuditLog(ctx, &auth.user.ID, "auth.connection_revoked", "", "", map[string]any{"client_id": clientID})
 	return &RevokeConnectionResult{}
 }

@@ -92,6 +92,9 @@ func TestLogin_HandleLogin_RecoversPendingDeletionSession(t *testing.T) {
 
 func TestLogin_HandleCallback_EmailConflict(t *testing.T) {
 	store := &fakeLoginStore{
+		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
+			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "client-a"}, nil
+		},
 		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
 			return nil, storage.ErrNotFound
 		},
@@ -117,6 +120,132 @@ func TestLogin_HandleCallback_EmailConflict(t *testing.T) {
 	}
 	if result.ErrorCode != 409 {
 		t.Fatalf("errorCode = %d, want 409", result.ErrorCode)
+	}
+}
+
+func TestLogin_HandleCallback_ExistingUser_AuditLogIncludesSessionAndClient(t *testing.T) {
+	var gotEventType string
+	var gotMetadata map[string]any
+	store := &fakeLoginStore{
+		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
+			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "client-a"}, nil
+		},
+		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
+			return &storage.User{ID: "u1", Status: "active"}, nil
+		},
+		createSessionFn: func(context.Context, string, time.Duration) (string, error) {
+			return "sess-1", nil
+		},
+		completeAuthRequestFn: func(context.Context, string, string) error {
+			return nil
+		},
+		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+			gotEventType = eventType
+			gotMetadata = metadata
+			return nil
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
+	svc := NewLoginService(store, provider, 24*time.Hour)
+
+	result := svc.HandleCallback(context.Background(), "code", "ar-1", "127.0.0.1", "ua")
+
+	if result.Action != ActionAutoApprove {
+		t.Fatalf("action = %v, want %v", result.Action, ActionAutoApprove)
+	}
+	if gotEventType != "auth.login" {
+		t.Fatalf("eventType = %q, want auth.login", gotEventType)
+	}
+	if gotMetadata["channel"] != "browser" || gotMetadata["session_id"] != "sess-1" || gotMetadata["client_id"] != "client-a" {
+		t.Fatalf("metadata = %#v", gotMetadata)
+	}
+}
+
+func TestLogin_HandleCallback_SignupAuditLogIncludesChannel(t *testing.T) {
+	type auditEntry struct {
+		eventType string
+		metadata  map[string]any
+	}
+	var gotEvents []auditEntry
+	store := &fakeLoginStore{
+		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
+			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "client-a"}, nil
+		},
+		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
+			return nil, storage.ErrNotFound
+		},
+		createUserWithIdentityFn: func(context.Context, storage.CreateUserWithIdentityInput) (*storage.User, error) {
+			return &storage.User{ID: "u1", Status: "active"}, nil
+		},
+		createSessionFn: func(context.Context, string, time.Duration) (string, error) {
+			return "sess-1", nil
+		},
+		completeAuthRequestFn: func(context.Context, string, string) error {
+			return nil
+		},
+		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+			gotEvents = append(gotEvents, auditEntry{eventType: eventType, metadata: metadata})
+			return nil
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
+	svc := NewLoginService(store, provider, 24*time.Hour)
+
+	result := svc.HandleCallback(context.Background(), "code", "ar-1", "127.0.0.1", "ua")
+
+	if result.Action != ActionAutoApprove {
+		t.Fatalf("action = %v, want %v", result.Action, ActionAutoApprove)
+	}
+	var signupEvent *auditEntry
+	for i := range gotEvents {
+		if gotEvents[i].eventType == "auth.signup" {
+			signupEvent = &gotEvents[i]
+			break
+		}
+	}
+	if signupEvent == nil {
+		t.Fatalf("auth.signup event not found in %v", gotEvents)
+	}
+	if signupEvent.metadata["channel"] != "browser" {
+		t.Fatalf("signup metadata = %#v", signupEvent.metadata)
+	}
+}
+
+func TestMCPLogin_HandleCallback_AuditLogIncludesSessionAndClient(t *testing.T) {
+	var gotEventType string
+	var gotMetadata map[string]any
+	store := &fakeLoginStore{
+		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
+			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "mcp-client", Resource: "http://localhost/mcp"}, nil
+		},
+		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
+			return &storage.User{ID: "u1", Status: "active"}, nil
+		},
+		createSessionFn: func(context.Context, string, time.Duration) (string, error) {
+			return "sess-1", nil
+		},
+		completeAuthRequestFn: func(context.Context, string, string) error {
+			return nil
+		},
+		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+			gotEventType = eventType
+			gotMetadata = metadata
+			return nil
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
+	svc := NewMCPLoginService(store, provider, 24*time.Hour)
+
+	result := svc.HandleCallback(context.Background(), "code", "ar-1", "127.0.0.1", "ua")
+
+	if result.Action != ActionAutoApprove {
+		t.Fatalf("action = %v, want %v", result.Action, ActionAutoApprove)
+	}
+	if gotEventType != "auth.login" {
+		t.Fatalf("eventType = %q, want auth.login", gotEventType)
+	}
+	if gotMetadata["channel"] != "mcp" || gotMetadata["session_id"] != "sess-1" || gotMetadata["client_id"] != "mcp-client" {
+		t.Fatalf("metadata = %#v", gotMetadata)
 	}
 }
 
