@@ -18,8 +18,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"golang.org/x/time/rate"
 	"github.com/zitadel/oidc/v3/pkg/op"
+	"golang.org/x/time/rate"
 
 	mcpadapter "github.com/kangheeyong/authgate/internal/adapter/mcp"
 	"github.com/kangheeyong/authgate/internal/clock"
@@ -27,10 +27,10 @@ import (
 	"github.com/kangheeyong/authgate/internal/db/migrator"
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
+	"github.com/kangheeyong/authgate/internal/middleware"
 	"github.com/kangheeyong/authgate/internal/observability"
 	"github.com/kangheeyong/authgate/internal/service"
 	"github.com/kangheeyong/authgate/internal/storage"
-	"github.com/kangheeyong/authgate/internal/middleware"
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
@@ -360,6 +360,7 @@ func registerAuthgateRoutes(
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
 	mux.HandleFunc("/console/clients", consoleHandler.HandleListClients)
 	mux.HandleFunc("/console/me/connections", consoleHandler.HandleListConnections)
+	mux.HandleFunc("/console/me/connections/{client_id}", consoleHandler.HandleRevokeConnection)
 }
 
 func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, httpMetrics *observability.HTTPMetrics) {

@@ -4,16 +4,20 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/kangheeyong/authgate/internal/storage"
 )
 
 type fakeConsoleStore struct {
-	getValidSessionFn   func(ctx context.Context, sessionID string) (*storage.User, error)
-	validateBearerFn    func(ctx context.Context, authHeader string) (*storage.User, error)
-	listAllClientsFn    func() []storage.ClientView
-	getActiveConnFn     func(ctx context.Context, userID string) ([]string, error)
+	getValidSessionFn          func(ctx context.Context, sessionID string) (*storage.User, error)
+	validateBearerFn           func(ctx context.Context, authHeader string) (*storage.User, error)
+	validateBearerWithClientFn func(ctx context.Context, authHeader string) (*storage.User, string, error)
+	listAllClientsFn           func() []storage.ClientView
+	getActiveConnFn            func(ctx context.Context, userID string) ([]storage.ConnectionTokenInfo, error)
+	revokeConnectionFn         func(ctx context.Context, userID, clientID string) error
 }
 
 func (f *fakeConsoleStore) GetValidSession(ctx context.Context, sessionID string) (*storage.User, error) {
@@ -25,20 +29,35 @@ func (f *fakeConsoleStore) ValidateBearerToken(ctx context.Context, authHeader s
 	}
 	return nil, errors.New("bearer not configured")
 }
+func (f *fakeConsoleStore) ValidateBearerTokenWithClientID(ctx context.Context, authHeader string) (*storage.User, string, error) {
+	if f.validateBearerWithClientFn != nil {
+		return f.validateBearerWithClientFn(ctx, authHeader)
+	}
+	user, err := f.ValidateBearerToken(ctx, authHeader)
+	return user, "", err
+}
 func (f *fakeConsoleStore) ListAllClients() []storage.ClientView {
 	return f.listAllClientsFn()
 }
-func (f *fakeConsoleStore) GetActiveConnections(ctx context.Context, userID string) ([]string, error) {
+func (f *fakeConsoleStore) GetActiveConnections(ctx context.Context, userID string) ([]storage.ConnectionTokenInfo, error) {
 	return f.getActiveConnFn(ctx, userID)
+}
+func (f *fakeConsoleStore) RevokeConnection(ctx context.Context, userID, clientID string) error {
+	return f.revokeConnectionFn(ctx, userID, clientID)
 }
 
 func activeUserStore(clients []storage.ClientView, connIDs []string) *fakeConsoleStore {
+	connections := make([]storage.ConnectionTokenInfo, 0, len(connIDs))
+	for _, id := range connIDs {
+		connections = append(connections, storage.ConnectionTokenInfo{ClientID: id})
+	}
 	return &fakeConsoleStore{
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
 			return &storage.User{ID: "u1", Status: "active"}, nil
 		},
-		listAllClientsFn: func() []storage.ClientView { return clients },
-		getActiveConnFn:  func(context.Context, string) ([]string, error) { return connIDs, nil },
+		listAllClientsFn:   func() []storage.ClientView { return clients },
+		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return connections, nil },
+		revokeConnectionFn: func(context.Context, string, string) error { return nil },
 	}
 }
 
@@ -57,8 +76,9 @@ func TestConsole_ListClients_InvalidSession_Unauthorized(t *testing.T) {
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
 			return nil, errors.New("not found")
 		},
-		listAllClientsFn: func() []storage.ClientView { return nil },
-		getActiveConnFn:  func(context.Context, string) ([]string, error) { return nil, nil },
+		listAllClientsFn:   func() []storage.ClientView { return nil },
+		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
+		revokeConnectionFn: func(context.Context, string, string) error { return nil },
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListClients(context.Background(), "sess-x", "")
@@ -72,8 +92,9 @@ func TestConsole_ListClients_DisabledUser_Forbidden(t *testing.T) {
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
 			return &storage.User{ID: "u1", Status: "disabled"}, nil
 		},
-		listAllClientsFn: func() []storage.ClientView { return nil },
-		getActiveConnFn:  func(context.Context, string) ([]string, error) { return nil, nil },
+		listAllClientsFn:   func() []storage.ClientView { return nil },
+		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
+		revokeConnectionFn: func(context.Context, string, string) error { return nil },
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListClients(context.Background(), "sess-1", "")
@@ -87,8 +108,9 @@ func TestConsole_ListClients_PendingDeletion_Forbidden(t *testing.T) {
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
 			return &storage.User{ID: "u1", Status: "pending_deletion"}, nil
 		},
-		listAllClientsFn: func() []storage.ClientView { return nil },
-		getActiveConnFn:  func(context.Context, string) ([]string, error) { return nil, nil },
+		listAllClientsFn:   func() []storage.ClientView { return nil },
+		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
+		revokeConnectionFn: func(context.Context, string, string) error { return nil },
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListClients(context.Background(), "sess-1", "")
@@ -170,14 +192,64 @@ func TestConsole_ListConnections_DBError_InternalServerError(t *testing.T) {
 			return &storage.User{ID: "u1", Status: "active"}, nil
 		},
 		listAllClientsFn: func() []storage.ClientView { return nil },
-		getActiveConnFn: func(context.Context, string) ([]string, error) {
+		getActiveConnFn: func(context.Context, string) ([]storage.ConnectionTokenInfo, error) {
 			return nil, errors.New("db error")
 		},
+		revokeConnectionFn: func(context.Context, string, string) error { return nil },
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListConnections(context.Background(), "sess-1", "")
 	if r.ErrorCode != http.StatusInternalServerError {
 		t.Fatalf("want 500, got %d", r.ErrorCode)
+	}
+}
+
+func TestConsole_ListConnections_IncludesScopes(t *testing.T) {
+	store := activeUserStore([]storage.ClientView{{ClientID: "app-a", Name: "App A"}}, nil)
+	store.getActiveConnFn = func(context.Context, string) ([]storage.ConnectionTokenInfo, error) {
+		return []storage.ConnectionTokenInfo{{
+			ClientID: "app-a",
+			Scopes:   []string{"openid", "profile"},
+		}}, nil
+	}
+	svc := NewConsoleService(store)
+	r := svc.ListConnections(context.Background(), "sess-1", "")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if !reflect.DeepEqual(r.Connections[0].Scopes, []string{"openid", "profile"}) {
+		t.Fatalf("scopes = %#v, want [openid profile]", r.Connections[0].Scopes)
+	}
+}
+
+func TestConsole_ListConnections_IncludesLastUsedWhenPresent(t *testing.T) {
+	usedAt := time.Date(2026, 4, 24, 10, 11, 12, 0, time.FixedZone("KST", 9*60*60))
+	store := activeUserStore([]storage.ClientView{{ClientID: "app-a", Name: "App A"}}, nil)
+	store.getActiveConnFn = func(context.Context, string) ([]storage.ConnectionTokenInfo, error) {
+		return []storage.ConnectionTokenInfo{{ClientID: "app-a", LastUsed: &usedAt}}, nil
+	}
+	svc := NewConsoleService(store)
+	r := svc.ListConnections(context.Background(), "sess-1", "")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if r.Connections[0].LastUsed != "2026-04-24T01:11:12Z" {
+		t.Fatalf("last_used = %q, want %q", r.Connections[0].LastUsed, "2026-04-24T01:11:12Z")
+	}
+}
+
+func TestConsole_ListConnections_LastUsedEmptyWhenMissing(t *testing.T) {
+	store := activeUserStore([]storage.ClientView{{ClientID: "app-a", Name: "App A"}}, nil)
+	store.getActiveConnFn = func(context.Context, string) ([]storage.ConnectionTokenInfo, error) {
+		return []storage.ConnectionTokenInfo{{ClientID: "app-a"}}, nil
+	}
+	svc := NewConsoleService(store)
+	r := svc.ListConnections(context.Background(), "sess-1", "")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if r.Connections[0].LastUsed != "" {
+		t.Fatalf("last_used = %q, want empty string", r.Connections[0].LastUsed)
 	}
 }
 
@@ -191,8 +263,9 @@ func bearerStore(user *storage.User, bearerErr error) *fakeConsoleStore {
 		validateBearerFn: func(context.Context, string) (*storage.User, error) {
 			return user, bearerErr
 		},
-		listAllClientsFn: func() []storage.ClientView { return nil },
-		getActiveConnFn:  func(context.Context, string) ([]string, error) { return nil, nil },
+		listAllClientsFn:   func() []storage.ClientView { return nil },
+		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
+		revokeConnectionFn: func(context.Context, string, string) error { return nil },
 	}
 }
 
@@ -221,8 +294,8 @@ func TestConsole_ListClients_BearerInvalid_Unauthorized(t *testing.T) {
 
 func TestConsole_ListConnections_BearerValid_ReturnsConnections(t *testing.T) {
 	store := bearerStore(&storage.User{ID: "u1", Status: "active"}, nil)
-	store.getActiveConnFn = func(context.Context, string) ([]string, error) {
-		return []string{"app-a"}, nil
+	store.getActiveConnFn = func(context.Context, string) ([]storage.ConnectionTokenInfo, error) {
+		return []storage.ConnectionTokenInfo{{ClientID: "app-a"}}, nil
 	}
 	store.listAllClientsFn = func() []storage.ClientView {
 		return []storage.ClientView{{ClientID: "app-a", Name: "App A"}}
@@ -248,8 +321,9 @@ func TestConsole_ListClients_SessionWinsOverBearer(t *testing.T) {
 			bearerCalled = true
 			return nil, errors.New("should not be called")
 		},
-		listAllClientsFn: func() []storage.ClientView { return nil },
-		getActiveConnFn:  func(context.Context, string) ([]string, error) { return nil, nil },
+		listAllClientsFn:   func() []storage.ClientView { return nil },
+		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
+		revokeConnectionFn: func(context.Context, string, string) error { return nil },
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListClients(context.Background(), "sess-1", "Bearer token")
@@ -258,5 +332,65 @@ func TestConsole_ListClients_SessionWinsOverBearer(t *testing.T) {
 	}
 	if bearerCalled {
 		t.Fatal("bearer should not be called when session is valid")
+	}
+}
+
+// --- RevokeConnection ---
+
+func TestConsole_RevokeConnection_NoSessionOrBearer_Unauthorized(t *testing.T) {
+	svc := NewConsoleService(activeUserStore(nil, nil))
+	r := svc.RevokeConnection(context.Background(), "", "", "app-a")
+	if r.ErrorCode != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", r.ErrorCode)
+	}
+}
+
+func TestConsole_RevokeConnection_ValidAuth_RevokesTokens(t *testing.T) {
+	var gotUserID, gotClientID string
+	store := activeUserStore(nil, nil)
+	store.revokeConnectionFn = func(ctx context.Context, userID, clientID string) error {
+		gotUserID = userID
+		gotClientID = clientID
+		return nil
+	}
+	svc := NewConsoleService(store)
+	r := svc.RevokeConnection(context.Background(), "sess-1", "", "app-a")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if gotUserID != "u1" || gotClientID != "app-a" {
+		t.Fatalf("revoke called with userID=%q clientID=%q", gotUserID, gotClientID)
+	}
+}
+
+func TestConsole_RevokeConnection_OwnClient_BadRequest(t *testing.T) {
+	store := bearerStore(&storage.User{ID: "u1", Status: "active"}, nil)
+	store.validateBearerWithClientFn = func(context.Context, string) (*storage.User, string, error) {
+		return &storage.User{ID: "u1", Status: "active"}, "app-a", nil
+	}
+	revokeCalled := false
+	store.revokeConnectionFn = func(context.Context, string, string) error {
+		revokeCalled = true
+		return nil
+	}
+	svc := NewConsoleService(store)
+	r := svc.RevokeConnection(context.Background(), "", "Bearer valid-token", "app-a")
+	if r.ErrorCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", r.ErrorCode)
+	}
+	if revokeCalled {
+		t.Fatal("revoke should not be called")
+	}
+}
+
+func TestConsole_RevokeConnection_DBError_InternalServerError(t *testing.T) {
+	store := activeUserStore(nil, nil)
+	store.revokeConnectionFn = func(context.Context, string, string) error {
+		return errors.New("db error")
+	}
+	svc := NewConsoleService(store)
+	r := svc.RevokeConnection(context.Background(), "sess-1", "", "app-a")
+	if r.ErrorCode != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d", r.ErrorCode)
 	}
 }
