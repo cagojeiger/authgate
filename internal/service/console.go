@@ -34,6 +34,7 @@ type ConnectionsResult struct {
 type ConnectionView struct {
 	ClientID string `json:"client_id"`
 	Name     string `json:"name"`
+	URL      string `json:"url,omitempty"`
 }
 
 func (s *ConsoleService) ListClients(ctx context.Context, sessionID string) *ClientsResult {
@@ -71,22 +72,24 @@ func (s *ConsoleService) ListConnections(ctx context.Context, sessionID string) 
 		return &ConnectionsResult{ErrorCode: http.StatusInternalServerError}
 	}
 
-	// Enrich with client names from the in-memory registry.
+	// Enrich with client metadata from the in-memory registry.
 	// Fall back to client_id as name when the registry entry no longer exists
 	// (e.g. deleted YAML client with a lingering refresh token).
 	allClients := s.store.ListAllClients()
-	nameByID := make(map[string]string, len(allClients))
+	type clientMeta struct{ name, url string }
+	metaByID := make(map[string]clientMeta, len(allClients))
 	for _, c := range allClients {
-		nameByID[c.ClientID] = c.Name
+		metaByID[c.ClientID] = clientMeta{name: c.Name, url: c.URL}
 	}
 
 	views := make([]ConnectionView, 0, len(clientIDs))
 	for _, id := range clientIDs {
-		name := nameByID[id]
+		meta := metaByID[id]
+		name := meta.name
 		if name == "" {
 			name = id
 		}
-		views = append(views, ConnectionView{ClientID: id, Name: name})
+		views = append(views, ConnectionView{ClientID: id, Name: name, URL: meta.url})
 	}
 	return &ConnectionsResult{Connections: views}
 }

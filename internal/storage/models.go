@@ -120,6 +120,7 @@ type ClientModel struct {
 	Type                 string
 	LoginChannel         string
 	Name                 string
+	URL                  string
 	RedirectURIList      StringArray
 	AllowedScopeList     StringArray
 	AllowedGrantTypeList StringArray
