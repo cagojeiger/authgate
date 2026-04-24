@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+
+	"golang.org/x/time/rate"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -28,6 +30,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/observability"
 	"github.com/kangheeyong/authgate/internal/service"
 	"github.com/kangheeyong/authgate/internal/storage"
+	"github.com/kangheeyong/authgate/internal/middleware"
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
@@ -282,14 +285,18 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 }
 
 func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *storage.Storage, provider http.Handler) {
-	mux.Handle("/authorize", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Rate limiters: strict for token endpoints, moderate for auth/login
+	strictLimiter := middleware.NewRateLimiter(rate.Limit(10), 20)
+	moderateLimiter := middleware.NewRateLimiter(rate.Limit(20), 40)
+
+	mux.Handle("/authorize", moderateLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
-	}))
-	mux.Handle("/oauth/token", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	})))
+	mux.Handle("/oauth/token", strictLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
-	}))
+	})))
 	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !cfg.EnableMCP {
 			provider.ServeHTTP(w, r)
@@ -306,6 +313,7 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 		}
 		provider.ServeHTTP(w, r)
 	}))
+	mux.Handle("/oauth/device/authorize", strictLimiter(provider))
 	mux.Handle("/", provider)
 }
 
@@ -317,7 +325,10 @@ func registerAuthgateRoutes(
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
 ) {
-	mux.HandleFunc("/login", loginHandler.HandleLogin)
+	strictLimiter := middleware.NewRateLimiter(rate.Limit(10), 20)
+	moderateLimiter := middleware.NewRateLimiter(rate.Limit(20), 40)
+
+	mux.Handle("/login", moderateLimiter(http.HandlerFunc(loginHandler.HandleLogin)))
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
 	if cfg.EnableMCP {
 		mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
@@ -325,7 +336,7 @@ func registerAuthgateRoutes(
 	}
 	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
-	mux.HandleFunc("/device/approve", deviceHandler.HandleDeviceApprove)
+	mux.Handle("/device/approve", strictLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
 }
 
