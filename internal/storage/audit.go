@@ -7,6 +7,18 @@ import (
 	"github.com/kangheeyong/authgate/internal/db/storeq"
 )
 
+// Audit event type constants.
+const (
+	EventAuthRefreshReuseDetected = "auth.refresh_reuse_detected"
+	EventAuthRefreshFamilyRevoked = "auth.refresh_family_revoked"
+	EventAuthDeletionCompleted    = "auth.deletion_completed"
+
+	EventTokenRefresh   = "token.refresh"
+	EventTokenRevoked   = "token.revoked"
+	EventSessionRevoked = "session.revoked"
+	EventAccountDeleted = "account.deleted"
+)
+
 func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
 	var metaJSON []byte
 	if metadata != nil {
