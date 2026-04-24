@@ -128,7 +128,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		if err != nil {
 			t.Fatalf("create user: %v", err)
 		}
-		arID, _ := store.CreateTestAuthRequest(ctx, "audit-mcp")
+		arID, _ := store.CreateTestAuthRequestWithResource(ctx, "audit-mcp", "http://localhost/mcp")
 
 		result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-agent")
 		if result.Action != ActionAutoApprove {
@@ -328,7 +328,7 @@ func TestAuditSecurity_MCPInactiveUser_Metadata(t *testing.T) {
 			if err := store.SetUserStatus(ctx, user.ID, tt.status); err != nil {
 				t.Fatalf("set status %s: %v", tt.status, err)
 			}
-			arID, _ := store.CreateTestAuthRequest(ctx, "audit-mcp-"+tt.name)
+			arID, _ := store.CreateTestAuthRequestWithResource(ctx, "audit-mcp-"+tt.name, "http://localhost/mcp")
 
 			result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-agent")
 			if result.Action != ActionError {

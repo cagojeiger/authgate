@@ -255,6 +255,20 @@ func (s *Storage) CreateTestAuthRequest(ctx context.Context, label string) (stri
 	return id, err
 }
 
+// CreateTestAuthRequestWithResource creates a minimal auth request with a resource field set,
+// for testing MCP flows that require resource binding validation.
+func (s *Storage) CreateTestAuthRequestWithResource(ctx context.Context, label, resource string) (string, error) {
+	id := s.idgen.NewUUID()
+	now := s.clock.Now()
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO auth_requests (id, client_id, redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method, resource, expires_at, created_at)`+
+		` VALUES ($1, 'test-app', 'http://localhost/callback', '{openid}', $2, 'test-nonce', 'E9Melhoa2OwvFrEMT', 'S256', $3, $4, $5)`,
+		id, label, resource, now.Add(10*time.Minute), now,
+	)
+	return id, err
+}
+
+
 // Session management
 
 func (s *Storage) CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error) {

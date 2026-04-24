@@ -223,7 +223,7 @@ func TestAccount004b_PendingDeletion_MCPRejected(t *testing.T) {
 	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "pd-mcp@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "gap-sub", ProviderEmail: "pdm@test.com"})
 	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
-	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "pd-mcp")
+	arID, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "pd-mcp", "http://localhost/mcp")
 	result := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
 
 	if result.Action != ActionError {
