@@ -83,10 +83,19 @@ func TestDeleteAccount_Idempotent(t *testing.T) {
 	fx := setupAccountTest(t)
 	ctx := context.Background()
 
-	_, sessionID := createUserWithSession(t, fx.Store, "idempotent@test.com", "idem-sub")
+	userID, sessionID := createUserWithSession(t, fx.Store, "idempotent@test.com", "idem-sub")
 
+	// First DELETE: sets user to pending_deletion and revokes the session.
 	fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
-	result := fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
+
+	// After the first DELETE the original session is revoked.
+	// Create a fresh session so the second call can authenticate.
+	sessionID2, err := fx.Store.CreateSession(ctx, userID, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("create second session: %v", err)
+	}
+
+	result := fx.AccountSvc.RequestDeletion(ctx, sessionID2, "127.0.0.1", "test")
 	if !result.Success {
 		t.Errorf("expected idempotent success, got: %s", result.Message)
 	}
