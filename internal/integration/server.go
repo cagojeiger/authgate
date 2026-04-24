@@ -212,7 +212,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	// Apply CORS middleware: allowed origin is derived from the test client's redirect URI (srv.URL).
 	corsOrigins := middleware.OriginsFromRedirectURIs([]string{srv.URL + "/callback"})
 	corsMW := middleware.NewCORSMiddleware(corsOrigins)
-	srv.Config.Handler = corsMW(mux)
+	srv.Config.Handler = middleware.RequestIDMiddleware(corsMW(mux))
 
 	return &TestServer{
 		Server:  srv,

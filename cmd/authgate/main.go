@@ -85,9 +85,11 @@ func main() {
 
 	// Wrap the mux with CORS middleware so all endpoints benefit.
 	corsHandler := middleware.NewCORSMiddleware(allowedOrigins)(mux)
+	// RequestIDMiddleware runs first so every handler has a request ID in context.
+	requestIDHandler := middleware.RequestIDMiddleware(corsHandler)
 
 	var inflightRequests int64
-	srv, addr := buildHTTPServer(cfg, corsHandler, httpMetrics, &inflightRequests)
+	srv, addr := buildHTTPServer(cfg, requestIDHandler, httpMetrics, &inflightRequests)
 
 	cleanupCancel := startCleanupService(db, clk)
 	defer cleanupCancel()

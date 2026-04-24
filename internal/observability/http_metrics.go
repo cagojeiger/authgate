@@ -4,15 +4,15 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/kangheeyong/authgate/internal/middleware"
 )
 
-const requestIDHeader = "X-Request-Id"
+
 
 type HTTPMetrics struct {
 	registry       *prometheus.Registry
@@ -74,11 +74,7 @@ func (m *HTTPMetrics) Middleware(next http.Handler) http.Handler {
 		m.inflight.Inc()
 		defer m.inflight.Dec()
 
-		requestID := strings.TrimSpace(r.Header.Get(requestIDHeader))
-		if requestID == "" {
-			requestID = uuid.NewString()
-		}
-		w.Header().Set(requestIDHeader, requestID)
+		requestID := middleware.RequestIDFromContext(r.Context())
 
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
