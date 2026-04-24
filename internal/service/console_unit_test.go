@@ -18,6 +18,7 @@ type fakeConsoleStore struct {
 	listAllClientsFn           func() []storage.ClientView
 	getActiveConnFn            func(ctx context.Context, userID string) ([]storage.ConnectionTokenInfo, error)
 	revokeConnectionFn         func(ctx context.Context, userID, clientID string) error
+	auditLogFn                 func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
 }
 
 func (f *fakeConsoleStore) GetValidSession(ctx context.Context, sessionID string) (*storage.User, error) {
@@ -44,6 +45,12 @@ func (f *fakeConsoleStore) GetActiveConnections(ctx context.Context, userID stri
 }
 func (f *fakeConsoleStore) RevokeConnection(ctx context.Context, userID, clientID string) error {
 	return f.revokeConnectionFn(ctx, userID, clientID)
+}
+func (f *fakeConsoleStore) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+	if f.auditLogFn == nil {
+		return nil
+	}
+	return f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
 }
 
 func activeUserStore(clients []storage.ClientView, connIDs []string) *fakeConsoleStore {
@@ -360,6 +367,33 @@ func TestConsole_RevokeConnection_ValidAuth_RevokesTokens(t *testing.T) {
 	}
 	if gotUserID != "u1" || gotClientID != "app-a" {
 		t.Fatalf("revoke called with userID=%q clientID=%q", gotUserID, gotClientID)
+	}
+}
+
+func TestConsole_RevokeConnection_ValidAuth_AuditLogsConnectionRevoked(t *testing.T) {
+	var gotUserID, gotEventType string
+	var gotMetadata map[string]any
+	store := activeUserStore(nil, nil)
+	store.auditLogFn = func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+		if userID != nil {
+			gotUserID = *userID
+		}
+		gotEventType = eventType
+		gotMetadata = metadata
+		return nil
+	}
+	svc := NewConsoleService(store)
+
+	r := svc.RevokeConnection(context.Background(), "sess-1", "", "app-a")
+
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if gotUserID != "u1" || gotEventType != "auth.connection_revoked" {
+		t.Fatalf("audit userID=%q eventType=%q", gotUserID, gotEventType)
+	}
+	if gotMetadata["client_id"] != "app-a" {
+		t.Fatalf("metadata client_id=%v, want app-a", gotMetadata["client_id"])
 	}
 }
 

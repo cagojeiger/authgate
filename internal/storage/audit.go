@@ -12,6 +12,8 @@ const (
 	EventAuthRefreshReuseDetected = "auth.refresh_reuse_detected"
 	EventAuthRefreshFamilyRevoked = "auth.refresh_family_revoked"
 	EventAuthDeletionCompleted    = "auth.deletion_completed"
+	EventAuthLogout               = "auth.logout"
+	EventAuthTokenRevoked         = "auth.token_revoked"
 
 	EventTokenRefresh   = "token.refresh"
 	EventTokenRevoked   = "token.revoked"

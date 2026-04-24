@@ -89,7 +89,6 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
 		return &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
-	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": "mcp"})
 
 	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)
 	if err != nil {
@@ -98,5 +97,10 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
 		return &CallbackResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
+	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
+		"channel":    "mcp",
+		"session_id": sessionID,
+		"client_id":  authReq.ClientID,
+	})
 	return &CallbackResult{Action: ActionAutoApprove, AuthRequestID: authRequestID, SessionID: sessionID}
 }

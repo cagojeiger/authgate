@@ -108,12 +108,24 @@ func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode
 		return result
 	}
 
+	deviceCode, err := s.store.GetDeviceCodeByUserCode(ctx, userCode)
+	if errors.Is(err, storage.ErrNotFound) {
+		return &DevicePageResult{Action: DeviceError, Error: "invalid_request", ErrorCode: http.StatusBadRequest}
+	}
+	if err != nil {
+		return &DevicePageResult{Action: DeviceError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+	}
+
 	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)
 	if err != nil {
 		return &DevicePageResult{Action: DeviceError, Error: "session creation failed", ErrorCode: http.StatusInternalServerError}
 	}
 
-	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{"channel": "device"})
+	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
+		"channel":    "device",
+		"session_id": sessionID,
+		"client_id":  deviceCode.ClientID,
+	})
 
 	return &DevicePageResult{Action: DeviceRedirectBack, UserCode: userCode, SessionID: sessionID}
 }
