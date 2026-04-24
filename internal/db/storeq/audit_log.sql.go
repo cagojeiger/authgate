@@ -33,12 +33,16 @@ type InsertAuditLogParams struct {
 }
 
 func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error {
+	var metadataStr interface{}
+	if len(arg.Metadata) > 0 {
+		metadataStr = string(arg.Metadata)
+	}
 	_, err := q.db.ExecContext(ctx, insertAuditLog,
 		arg.UserID,
 		arg.EventType,
 		arg.IpAddress,
 		arg.UserAgent,
-		arg.Metadata,
+		metadataStr,
 		arg.CreatedAt,
 	)
 	return err
