@@ -100,7 +100,7 @@ func TestE2E1_SignupToAllChannels(t *testing.T) {
 	}
 
 	// 4. MCP → auto-approve
-	arID3, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e1-mcp")
+	arID3, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "e2e1-mcp", "http://localhost/mcp")
 	mcpResult := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arID3, "127.0.0.1", "mcp-client")
 	if mcpResult.Action != ActionAutoApprove {
 		t.Fatalf("step 4: mcp action = %v, want AutoApprove", mcpResult.Action)
@@ -122,7 +122,7 @@ func TestE2E2_SignupAbandonAndReturn(t *testing.T) {
 		t.Fatalf("device before signup: action=%v, want DeviceError", devResult.Action)
 	}
 
-	arIDMCP, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e2-mcp-pre")
+	arIDMCP, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "e2e2-mcp-pre", "http://localhost/mcp")
 	mcpResult := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP, "127.0.0.1", "mcp")
 	if mcpResult.Action != ActionError {
 		t.Fatalf("mcp before signup: action=%v, want ActionError", mcpResult.Action)
@@ -143,7 +143,7 @@ func TestE2E2_SignupAbandonAndReturn(t *testing.T) {
 	}
 
 	// 가입 후 MCP 정상 동작
-	arIDMCP2, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e2-mcp-post")
+	arIDMCP2, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "e2e2-mcp-post", "http://localhost/mcp")
 	mcpResult2 := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP2, "127.0.0.1", "mcp")
 	if mcpResult2.Action != ActionAutoApprove {
 		t.Fatalf("mcp after signup: action=%v, want ActionAutoApprove", mcpResult2.Action)
@@ -182,7 +182,7 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 	if devResult.Action != DeviceError || devResult.ErrorCode != 403 {
 		t.Fatalf("step 3: device should reject pending_deletion user, got action=%v code=%d", devResult.Action, devResult.ErrorCode)
 	}
-	arIDMCP, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e4-mcp")
+	arIDMCP, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "e2e4-mcp", "http://localhost/mcp")
 	mcpResult := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP, "127.0.0.1", "mcp-client")
 	if mcpResult.Action != ActionError || mcpResult.ErrorCode != 403 {
 		t.Fatalf("step 3: mcp should reject pending_deletion user, got action=%v code=%d", mcpResult.Action, mcpResult.ErrorCode)
@@ -205,7 +205,7 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 	if devResult2.Action != DeviceRedirectBack {
 		t.Fatalf("step 5: device should succeed after recovery, got action=%v", devResult2.Action)
 	}
-	arIDMCP2, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e4-mcp-ok")
+	arIDMCP2, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "e2e4-mcp-ok", "http://localhost/mcp")
 	mcpResult2 := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP2, "127.0.0.1", "mcp-client")
 	if mcpResult2.Action != ActionAutoApprove {
 		t.Fatalf("step 5: mcp should succeed after recovery, got action=%v", mcpResult2.Action)
