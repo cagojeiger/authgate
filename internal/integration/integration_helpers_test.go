@@ -3,6 +3,8 @@
 package integration
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -213,4 +215,78 @@ func pollDeviceToken(t *testing.T, ts *TestServer, deviceCode string) *TokenResp
 		_ = json.Unmarshal(body, tr)
 	}
 	return tr
+}
+
+// createMCPAuthRequest drives a real /authorize request through the MCP channel
+// and returns the authRequestID that the MCP login handler assigned.
+// It uses client_id=mcp-client with valid PKCE S256 params and stops at the
+// first redirect so it can extract the authRequestID before any IdP interaction.
+func createMCPAuthRequest(t *testing.T, ts *TestServer, resource string) string {
+	t.Helper()
+
+	// Generate PKCE S256 challenge.
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		t.Fatalf("createMCPAuthRequest: generate random bytes: %v", err)
+	}
+	verifier := base64.RawURLEncoding.EncodeToString(raw)
+	h := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(h[:])
+
+	params := url.Values{
+		"client_id":             {"mcp-client"},
+		"response_type":         {"code"},
+		"redirect_uri":          {ts.BaseURL + "/callback"},
+		"scope":                 {"openid profile email offline_access"},
+		"code_challenge":        {challenge},
+		"code_challenge_method": {"S256"},
+	}
+	if resource != "" {
+		params.Set("resource", resource)
+	}
+
+	noFollow := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// Step 1: GET /authorize → 302 to /mcp/login?authRequestID=xxx
+	resp1, err := noFollow.Get(ts.BaseURL + "/authorize?" + params.Encode())
+	if err != nil {
+		t.Fatalf("createMCPAuthRequest: authorize: %v", err)
+	}
+	resp1.Body.Close()
+
+	loginLoc := resp1.Header.Get("Location")
+	if loginLoc == "" {
+		t.Fatalf("createMCPAuthRequest: /authorize did not redirect, status=%d", resp1.StatusCode)
+	}
+
+	// Make absolute if relative.
+	if !strings.HasPrefix(loginLoc, "http") {
+		loginLoc = ts.BaseURL + loginLoc
+	}
+
+	// Step 2: GET /mcp/login?authRequestID=xxx → 302 to IdP with state=authRequestID
+	resp2, err := noFollow.Get(loginLoc)
+	if err != nil {
+		t.Fatalf("createMCPAuthRequest: mcp/login: %v", err)
+	}
+	resp2.Body.Close()
+
+	idpLoc := resp2.Header.Get("Location")
+	if idpLoc == "" {
+		t.Fatalf("createMCPAuthRequest: /mcp/login did not redirect, status=%d", resp2.StatusCode)
+	}
+
+	idpURL, err := url.Parse(idpLoc)
+	if err != nil {
+		t.Fatalf("createMCPAuthRequest: parse idp redirect: %v", err)
+	}
+	authRequestID := idpURL.Query().Get("state")
+	if authRequestID == "" {
+		t.Fatalf("createMCPAuthRequest: no state/authRequestID in IdP redirect: %s", idpLoc)
+	}
+	return authRequestID
 }
