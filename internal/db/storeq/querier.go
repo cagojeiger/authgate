@@ -24,12 +24,12 @@ type Querier interface {
 	DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff sql.NullTime) (int64, error)
 	DeleteSessionsByUserID(ctx context.Context, userID string) error
 	DeleteUserIdentitiesByUserID(ctx context.Context, userID string) error
-	DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error
-	GetAuthRequestByCode(ctx context.Context, code sql.NullString) (GetAuthRequestByCodeRow, error)
-	GetAuthRequestByID(ctx context.Context, id string) (GetAuthRequestByIDRow, error)
+	DenyDeviceCodeByUserCode(ctx context.Context, arg DenyDeviceCodeByUserCodeParams) (int64, error)
 	GetActiveConnectionsByUserID(ctx context.Context, arg GetActiveConnectionsByUserIDParams) ([]GetActiveConnectionsByUserIDRow, error)
 	GetActiveSessionsByUserID(ctx context.Context, arg GetActiveSessionsByUserIDParams) ([]GetActiveSessionsByUserIDRow, error)
 	GetAuditLogByUserID(ctx context.Context, arg GetAuditLogByUserIDParams) ([]GetAuditLogByUserIDRow, error)
+	GetAuthRequestByCode(ctx context.Context, code sql.NullString) (GetAuthRequestByCodeRow, error)
+	GetAuthRequestByID(ctx context.Context, id string) (GetAuthRequestByIDRow, error)
 	GetDeviceAuthorizationForUpdate(ctx context.Context, arg GetDeviceAuthorizationForUpdateParams) (GetDeviceAuthorizationForUpdateRow, error)
 	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (GetDeviceCodeByUserCodeRow, error)
 	GetRefreshFamilyIDByTokenHash(ctx context.Context, tokenHash string) (string, error)

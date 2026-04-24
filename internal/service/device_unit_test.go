@@ -75,12 +75,17 @@ func TestDevice_HandleDevicePage_NoSession_Redirects(t *testing.T) {
 
 func TestDevice_HandleDeviceApprove_Deny(t *testing.T) {
 	denyCalled := false
+	auditCalled := false
 	store := &fakeDeviceStore{
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
 			return &storage.User{ID: "u1", Status: "active"}, nil
 		},
 		denyDeviceCodeFn: func(context.Context, string) error {
 			denyCalled = true
+			return nil
+		},
+		auditLogFn: func(context.Context, *string, string, string, string, map[string]any) error {
+			auditCalled = true
 			return nil
 		},
 	}
@@ -94,6 +99,42 @@ func TestDevice_HandleDeviceApprove_Deny(t *testing.T) {
 	}
 	if !denyCalled {
 		t.Fatal("DenyDeviceCode should be called")
+	}
+	if !auditCalled {
+		t.Fatal("AuditLog should be called")
+	}
+}
+
+func TestHandleDeviceApprove_Deny_AlreadyProcessed_ReturnsError(t *testing.T) {
+	auditCalled := false
+	store := &fakeDeviceStore{
+		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
+			return &storage.User{ID: "u1", Status: "active"}, nil
+		},
+		denyDeviceCodeFn: func(context.Context, string) error {
+			return storage.ErrNotFound
+		},
+		auditLogFn: func(context.Context, *string, string, string, string, map[string]any) error {
+			auditCalled = true
+			return nil
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
+	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clock.RealClock{})
+
+	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "deny", "sess", "127.0.0.1", "ua")
+
+	if result.Success {
+		t.Fatal("deny with already processed code should fail")
+	}
+	if result.ErrorCode != 400 {
+		t.Fatalf("errorCode = %d, want 400", result.ErrorCode)
+	}
+	if result.Message != "Device code expired or already processed." {
+		t.Fatalf("message = %q, want expired/already processed", result.Message)
+	}
+	if auditCalled {
+		t.Fatal("AuditLog should not be called")
 	}
 }
 

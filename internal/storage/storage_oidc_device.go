@@ -176,7 +176,17 @@ func (s *Storage) ApproveDeviceCode(ctx context.Context, userCode, subject strin
 
 // DenyDeviceCode sets a device code to denied state.
 func (s *Storage) DenyDeviceCode(ctx context.Context, userCode string) error {
-	return storeq.New(s.db).DenyDeviceCodeByUserCode(ctx, userCode)
+	rows, err := storeq.New(s.db).DenyDeviceCodeByUserCode(ctx, storeq.DenyDeviceCodeByUserCodeParams{
+		UserCode: userCode,
+		Now:      s.clock.Now(),
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // Compile-time interface checks

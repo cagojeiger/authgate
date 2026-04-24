@@ -33,15 +33,23 @@ func (q *Queries) ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDe
 	return result.RowsAffected()
 }
 
-const denyDeviceCodeByUserCode = `-- name: DenyDeviceCodeByUserCode :exec
+const denyDeviceCodeByUserCode = `-- name: DenyDeviceCodeByUserCode :execrows
 UPDATE device_codes
 SET state = 'denied'
-WHERE user_code = $1 AND state = 'pending'
+WHERE user_code = $1 AND state = 'pending' AND expires_at > $2
 `
 
-func (q *Queries) DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error {
-	_, err := q.db.ExecContext(ctx, denyDeviceCodeByUserCode, userCode)
-	return err
+type DenyDeviceCodeByUserCodeParams struct {
+	UserCode string
+	Now      time.Time
+}
+
+func (q *Queries) DenyDeviceCodeByUserCode(ctx context.Context, arg DenyDeviceCodeByUserCodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, denyDeviceCodeByUserCode, arg.UserCode, arg.Now)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getDeviceAuthorizationForUpdate = `-- name: GetDeviceAuthorizationForUpdate :one

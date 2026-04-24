@@ -23,7 +23,7 @@ UPDATE device_codes
 SET state = 'approved', subject = $1, auth_time = $2
 WHERE user_code = $3 AND state = 'pending' AND expires_at > $2;
 
--- name: DenyDeviceCodeByUserCode :exec
+-- name: DenyDeviceCodeByUserCode :execrows
 UPDATE device_codes
 SET state = 'denied'
-WHERE user_code = $1 AND state = 'pending';
+WHERE user_code = sqlc.arg(user_code) AND state = 'pending' AND expires_at > sqlc.arg(now);
