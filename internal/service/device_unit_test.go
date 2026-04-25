@@ -120,7 +120,7 @@ func TestHandleDeviceApprove_Deny_AlreadyProcessed_ReturnsError(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clock.RealClock{})
+	svc := NewDeviceService(store, provider, 24*time.Hour, clock.RealClock{})
 
 	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "deny", "sess", "127.0.0.1", "ua")
 
