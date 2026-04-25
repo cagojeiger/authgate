@@ -69,7 +69,7 @@ func (q *Queries) GetActiveConnectionsByUserID(ctx context.Context, arg GetActiv
 	return items, rows.Err()
 }
 
-const revokeActiveRefreshTokensByUserIDAndClientID = `-- name: RevokeActiveRefreshTokensByUserIDAndClientID :exec
+const revokeActiveRefreshTokensByUserIDAndClientID = `-- name: RevokeActiveRefreshTokensByUserIDAndClientID :execrows
 UPDATE refresh_tokens
 SET revoked_at = $1
 WHERE user_id = $2
@@ -83,9 +83,12 @@ type RevokeActiveRefreshTokensByUserIDAndClientIDParams struct {
 	ClientID  string
 }
 
-func (q *Queries) RevokeActiveRefreshTokensByUserIDAndClientID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDAndClientIDParams) error {
-	_, err := q.db.ExecContext(ctx, revokeActiveRefreshTokensByUserIDAndClientID, arg.RevokedAt, arg.UserID, arg.ClientID)
-	return err
+func (q *Queries) RevokeActiveRefreshTokensByUserIDAndClientID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDAndClientIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeActiveRefreshTokensByUserIDAndClientID, arg.RevokedAt, arg.UserID, arg.ClientID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getActiveSessionsByUserID = `-- name: GetActiveSessionsByUserID :many
@@ -148,7 +151,7 @@ func (q *Queries) GetActiveSessionsByUserID(ctx context.Context, arg GetActiveSe
 	return items, rows.Err()
 }
 
-const revokeSessionByUserIDAndID = `-- name: RevokeSessionByUserIDAndID :exec
+const revokeSessionByUserIDAndID = `-- name: RevokeSessionByUserIDAndID :execrows
 UPDATE sessions
 SET revoked_at = $1
 WHERE user_id = $2
@@ -162,9 +165,12 @@ type RevokeSessionByUserIDAndIDParams struct {
 	ID        string
 }
 
-func (q *Queries) RevokeSessionByUserIDAndID(ctx context.Context, arg RevokeSessionByUserIDAndIDParams) error {
-	_, err := q.db.ExecContext(ctx, revokeSessionByUserIDAndID, arg.RevokedAt, arg.UserID, arg.ID)
-	return err
+func (q *Queries) RevokeSessionByUserIDAndID(ctx context.Context, arg RevokeSessionByUserIDAndIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeSessionByUserIDAndID, arg.RevokedAt, arg.UserID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const revokeOtherActiveSessionsByUserID = `-- name: RevokeOtherActiveSessionsByUserID :exec

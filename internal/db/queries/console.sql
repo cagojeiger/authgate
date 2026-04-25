@@ -24,7 +24,7 @@ FROM active_tokens
 LEFT JOIN last_used_tokens ON last_used_tokens.client_id = active_tokens.client_id
 ORDER BY active_tokens.client_id;
 
--- name: RevokeActiveRefreshTokensByUserIDAndClientID :exec
+-- name: RevokeActiveRefreshTokensByUserIDAndClientID :execrows
 UPDATE refresh_tokens
 SET revoked_at = $1
 WHERE user_id = $2
@@ -54,7 +54,7 @@ WHERE s.user_id = $1
   AND s.revoked_at IS NULL
 ORDER BY s.created_at DESC;
 
--- name: RevokeSessionByUserIDAndID :exec
+-- name: RevokeSessionByUserIDAndID :execrows
 UPDATE sessions
 SET revoked_at = $1
 WHERE user_id = $2
