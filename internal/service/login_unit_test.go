@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -263,7 +263,7 @@ func TestMCPLogin_HandleCallback_AuditLogIncludesSessionAndClient(t *testing.T) 
 func TestLogin_HandleLogin_NoSession_Redirect(t *testing.T) {
 	store := &fakeLoginStore{
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
-			return nil, errors.New("no session")
+			return nil, storage.ErrNotFound
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "s1"}}
@@ -273,6 +273,44 @@ func TestLogin_HandleLogin_NoSession_Redirect(t *testing.T) {
 
 	if result.Action != ActionRedirectToIdP {
 		t.Fatalf("action = %v, want %v", result.Action, ActionRedirectToIdP)
+	}
+}
+
+func TestLogin_HandleLogin_DBErrorOnSessionLookup_Returns500(t *testing.T) {
+	store := &fakeLoginStore{
+		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
+			return nil, fmt.Errorf("db down")
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "s1"}}
+	svc := NewLoginService(store, provider, 24*time.Hour)
+
+	result := svc.HandleLogin(context.Background(), "ar-1", "sess-1", "127.0.0.1", "ua")
+
+	if result.Action != ActionError {
+		t.Fatalf("action = %v, want %v", result.Action, ActionError)
+	}
+	if result.ErrorCode != 500 {
+		t.Fatalf("errorCode = %d, want 500", result.ErrorCode)
+	}
+}
+
+func TestMCP_HandleLogin_DBErrorOnSessionLookup_Returns500(t *testing.T) {
+	store := &fakeLoginStore{
+		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
+			return nil, fmt.Errorf("db down")
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "s1"}}
+	svc := NewMCPLoginService(store, provider, 24*time.Hour)
+
+	result := svc.HandleLogin(context.Background(), "ar-1", "sess-1", "127.0.0.1", "ua")
+
+	if result.Action != ActionError {
+		t.Fatalf("action = %v, want %v", result.Action, ActionError)
+	}
+	if result.ErrorCode != 500 {
+		t.Fatalf("errorCode = %d, want 500", result.ErrorCode)
 	}
 }
 

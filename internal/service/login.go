@@ -78,8 +78,11 @@ func (s *LoginService) handleSessionLogin(ctx context.Context, authRequestID, se
 	}
 
 	user, err := s.store.GetValidSession(ctx, sessionID)
-	if err != nil {
+	if errors.Is(err, storage.ErrNotFound) {
 		return nil
+	}
+	if err != nil {
+		return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
 	return s.handleExistingSession(ctx, user, authRequestID, ipAddress, userAgent)

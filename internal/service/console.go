@@ -98,6 +98,27 @@ type consoleAuth struct {
 	sessionID string
 }
 
+type consoleAuthError struct {
+	statusCode int
+	err        error
+}
+
+func (e *consoleAuthError) Error() string {
+	return e.err.Error()
+}
+
+func (e *consoleAuthError) Unwrap() error {
+	return e.err
+}
+
+func consoleAuthErrorCode(err error) int {
+	var authErr *consoleAuthError
+	if errors.As(err, &authErr) {
+		return authErr.statusCode
+	}
+	return http.StatusUnauthorized
+}
+
 // resolveUser tries session cookie first, then Bearer token.
 func (s *ConsoleService) resolveUser(ctx context.Context, sessionID, authHeader string) (*storage.User, error) {
 	auth, err := s.resolveAuth(ctx, sessionID, authHeader)
@@ -113,21 +134,24 @@ func (s *ConsoleService) resolveAuth(ctx context.Context, sessionID, authHeader 
 		if err == nil {
 			return &consoleAuth{user: user, sessionID: sessionID}, nil
 		}
+		if !errors.Is(err, storage.ErrNotFound) {
+			return nil, &consoleAuthError{statusCode: http.StatusInternalServerError, err: err}
+		}
 	}
 	if authHeader != "" {
 		user, clientID, err := s.store.ValidateBearerTokenWithClientID(ctx, authHeader)
 		if err != nil {
-			return nil, err
+			return nil, &consoleAuthError{statusCode: http.StatusUnauthorized, err: err}
 		}
 		return &consoleAuth{user: user, clientID: clientID}, nil
 	}
-	return nil, errors.New("unauthenticated")
+	return nil, &consoleAuthError{statusCode: http.StatusUnauthorized, err: errors.New("unauthenticated")}
 }
 
 func (s *ConsoleService) ListClients(ctx context.Context, sessionID, authHeader string) *ClientsResult {
 	user, err := s.resolveUser(ctx, sessionID, authHeader)
 	if err != nil {
-		return &ClientsResult{ErrorCode: http.StatusUnauthorized}
+		return &ClientsResult{ErrorCode: consoleAuthErrorCode(err)}
 	}
 	if CheckAccess(user.Status, "browser") != AccessAllow {
 		return &ClientsResult{ErrorCode: http.StatusForbidden}
@@ -142,7 +166,7 @@ func (s *ConsoleService) ListClients(ctx context.Context, sessionID, authHeader 
 func (s *ConsoleService) ListConnections(ctx context.Context, sessionID, authHeader string) *ConnectionsResult {
 	user, err := s.resolveUser(ctx, sessionID, authHeader)
 	if err != nil {
-		return &ConnectionsResult{ErrorCode: http.StatusUnauthorized}
+		return &ConnectionsResult{ErrorCode: consoleAuthErrorCode(err)}
 	}
 	if CheckAccess(user.Status, "browser") != AccessAllow {
 		return &ConnectionsResult{ErrorCode: http.StatusForbidden}
@@ -185,7 +209,7 @@ func (s *ConsoleService) ListConnections(ctx context.Context, sessionID, authHea
 func (s *ConsoleService) ListSessions(ctx context.Context, sessionID, authHeader string) *SessionsResult {
 	auth, err := s.resolveAuth(ctx, sessionID, authHeader)
 	if err != nil {
-		return &SessionsResult{ErrorCode: http.StatusUnauthorized}
+		return &SessionsResult{ErrorCode: consoleAuthErrorCode(err)}
 	}
 	if CheckAccess(auth.user.Status, "browser") != AccessAllow {
 		return &SessionsResult{ErrorCode: http.StatusForbidden}
@@ -216,7 +240,7 @@ func (s *ConsoleService) ListSessions(ctx context.Context, sessionID, authHeader
 func (s *ConsoleService) RevokeConnection(ctx context.Context, sessionID, authHeader, clientID string) *RevokeConnectionResult {
 	auth, err := s.resolveAuth(ctx, sessionID, authHeader)
 	if err != nil {
-		return &RevokeConnectionResult{ErrorCode: http.StatusUnauthorized}
+		return &RevokeConnectionResult{ErrorCode: consoleAuthErrorCode(err)}
 	}
 	if CheckAccess(auth.user.Status, "browser") != AccessAllow {
 		return &RevokeConnectionResult{ErrorCode: http.StatusForbidden}
@@ -241,7 +265,7 @@ func (s *ConsoleService) RevokeConnection(ctx context.Context, sessionID, authHe
 func (s *ConsoleService) RevokeSession(ctx context.Context, sessionID, authHeader, revokeSessionID string) *RevokeSessionResult {
 	auth, err := s.resolveAuth(ctx, sessionID, authHeader)
 	if err != nil {
-		return &RevokeSessionResult{ErrorCode: http.StatusUnauthorized}
+		return &RevokeSessionResult{ErrorCode: consoleAuthErrorCode(err)}
 	}
 	if CheckAccess(auth.user.Status, "browser") != AccessAllow {
 		return &RevokeSessionResult{ErrorCode: http.StatusForbidden}
@@ -263,7 +287,7 @@ func (s *ConsoleService) RevokeSession(ctx context.Context, sessionID, authHeade
 func (s *ConsoleService) RevokeOtherSessions(ctx context.Context, sessionID, authHeader string) *RevokeOtherSessionsResult {
 	auth, err := s.resolveAuth(ctx, sessionID, authHeader)
 	if err != nil {
-		return &RevokeOtherSessionsResult{ErrorCode: http.StatusUnauthorized}
+		return &RevokeOtherSessionsResult{ErrorCode: consoleAuthErrorCode(err)}
 	}
 	if CheckAccess(auth.user.Status, "browser") != AccessAllow {
 		return &RevokeOtherSessionsResult{ErrorCode: http.StatusForbidden}
@@ -280,7 +304,7 @@ func (s *ConsoleService) RevokeOtherSessions(ctx context.Context, sessionID, aut
 func (s *ConsoleService) GetAuditLog(ctx context.Context, sessionID, authHeader string, page, limit int) *AuditLogResult {
 	user, err := s.resolveUser(ctx, sessionID, authHeader)
 	if err != nil {
-		return &AuditLogResult{ErrorCode: http.StatusUnauthorized}
+		return &AuditLogResult{ErrorCode: consoleAuthErrorCode(err)}
 	}
 	if CheckAccess(user.Status, "browser") != AccessAllow {
 		return &AuditLogResult{ErrorCode: http.StatusForbidden}

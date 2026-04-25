@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
@@ -105,7 +106,7 @@ func TestConsole_ListClients_NoSession_Unauthorized(t *testing.T) {
 func TestConsole_ListClients_InvalidSession_Unauthorized(t *testing.T) {
 	store := &fakeConsoleStore{
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
-			return nil, errors.New("not found")
+			return nil, storage.ErrNotFound
 		},
 		listAllClientsFn:   func() []storage.ClientView { return nil },
 		getActiveConnFn:    func(context.Context, string) ([]storage.ConnectionTokenInfo, error) { return nil, nil },
@@ -115,6 +116,26 @@ func TestConsole_ListClients_InvalidSession_Unauthorized(t *testing.T) {
 	r := svc.ListClients(context.Background(), "sess-x", "")
 	if r.ErrorCode != http.StatusUnauthorized {
 		t.Fatalf("want 401, got %d", r.ErrorCode)
+	}
+}
+
+func TestConsole_ResolveAuth_DBErrorOnSessionLookup_Returns500(t *testing.T) {
+	store := &fakeConsoleStore{
+		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
+			return nil, fmt.Errorf("db down")
+		},
+		validateBearerFn: func(context.Context, string) (*storage.User, error) {
+			t.Fatal("bearer fallback should not be called on session lookup DB error")
+			return nil, nil
+		},
+		listAllClientsFn: func() []storage.ClientView { return nil },
+	}
+	svc := NewConsoleService(store)
+
+	r := svc.ListClients(context.Background(), "sess-1", "Bearer valid-token")
+
+	if r.ErrorCode != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d", r.ErrorCode)
 	}
 }
 
@@ -289,7 +310,7 @@ func TestConsole_ListConnections_LastUsedEmptyWhenMissing(t *testing.T) {
 func bearerStore(user *storage.User, bearerErr error) *fakeConsoleStore {
 	return &fakeConsoleStore{
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
-			return nil, errors.New("no session")
+			return nil, storage.ErrNotFound
 		},
 		validateBearerFn: func(context.Context, string) (*storage.User, error) {
 			return user, bearerErr
