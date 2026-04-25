@@ -142,6 +142,7 @@ func (s *Storage) CompleteAuthRequest(ctx context.Context, authRequestID, userID
 	return nil
 }
 
+// CompleteAuthRequestOnceByID only matches unfinished requests; if completion fails, the deferred rollback also removes the new session.
 func (s *Storage) CompleteLogin(ctx context.Context, authRequestID, userID string, sessionTTL time.Duration) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

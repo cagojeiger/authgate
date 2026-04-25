@@ -64,10 +64,7 @@ sequenceDiagram
 
     U->>AG: DELETE /account (세션 쿠키 필요)
     AG->>AG: getSessionUser → 유저 확인
-    AG->>DB: BEGIN
-    AG->>DB: UPDATE users SET status='pending_deletion', deletion_scheduled_at=NOW()+30일
-    AG->>DB: UPDATE refresh_tokens SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL
-    AG->>DB: COMMIT
+    AG->>DB: pending_deletion 전환 + refresh token 즉시 revoke
     AG->>AG: audit: auth.deletion_requested
     AG-->>U: 200 {"status": "pending_deletion", "message": "Account scheduled for deletion in 30 days. Login to cancel."}
 ```
@@ -85,46 +82,21 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     U->>AG: 브라우저 로그인 시도 (Spec 002)
-    AG->>AG: GetUserByProviderIdentity → 기존 유저
+    AG->>AG: IdP identity 매칭으로 기존 유저 확인
     AG->>AG: user.status = 'pending_deletion'
-    AG->>DB: UPDATE users SET status='active', deletion_requested_at=NULL, deletion_scheduled_at=NULL WHERE status='pending_deletion'
+    AG->>DB: 삭제 예약 필드를 지우고 active 복구
     AG->>DB: INSERT sessions (새 세션)
     AG->>AG: audit: auth.deletion_cancelled
     AG-->>U: 로그인 성공 (새 access_token + 새 refresh_token 발급)
 ```
 
-**원자성 규칙**: RecoverUser 자체는 단일 UPDATE로 원자적이다. 세션 생성과 auth_request 완료는 별도 호출이지만, 각 단계가 실패해도 복구는 유지되고 다음 로그인에서 즉시 정상 완료된다 (재시도 멱등).
+**원자성 규칙**: 브라우저 로그인 시 삭제 예약 필드를 지우고 active 로 복구한다. 세션 생성과 auth_request 완료는 별도 호출이지만, 각 단계가 실패해도 복구는 유지되고 다음 로그인에서 즉시 정상 완료된다 (재시도 멱등).
 
 복구 후 **새 토큰이 발급된다** (기존 토큰은 삭제 요청 시 revoke됨).
 
 ### 3단계: 실제 삭제 (PII 스크러빙)
 
-30일 경과 후 cleanup 고루틴이 처리 (단일 트랜잭션):
-
-```sql
-BEGIN;
-
--- 1. 연관 데이터 명시적 삭제
--- NOTE: UPDATE로는 CASCADE가 트리거되지 않으므로 명시적 DELETE 필요
-DELETE FROM user_identities WHERE user_id = $1;
-DELETE FROM sessions WHERE user_id = $1;
-DELETE FROM refresh_tokens WHERE user_id = $1;
-
--- 2. PII 스크러빙 + 상태 전이
-UPDATE users SET
-  email = 'deleted-' || id::text || '@deleted.invalid',
-  name = NULL,
-  avatar_url = NULL,
-  status = 'deleted',
-  deleted_at = NOW(),
-  deletion_requested_at = NULL,
-  deletion_scheduled_at = NULL
-WHERE id = $1
-  AND status = 'pending_deletion'
-  AND deletion_scheduled_at < NOW();
-
-COMMIT;
-```
+30일 경과 후 cleanup 고루틴이 PII scrub + identity/session/token 제거 + deleted 전이를 처리한다.
 
 **순서가 중요하다**: 연관 데이터를 먼저 삭제한 후 users를 UPDATE한다. FK CASCADE는 `DELETE FROM users` 시에만 동작하므로, `UPDATE users SET status='deleted'`에서는 자동 삭제가 발생하지 않는다.
 
@@ -133,8 +105,8 @@ COMMIT;
 **deleted 상태의 user row는 어떤 로그인에서도 재활성화되지 않는다** ([ADR-000 사이클 규칙](../adr/000-authgate-identity.md) 참조).
 
 삭제 완료 후 같은 IdP 계정으로 로그인하면:
-- `user_identities`가 3단계에서 명시적 삭제됨 → `GetUserByProviderIdentity` → `ErrNotFound`
-- `ErrNotFound`이므로 **Spec 001 신규 가입 서브플로우로 진입** (기존 deleted user row와 무관)
+- 삭제 완료 후 같은 IdP identity 는 기존 계정과 매칭되지 않음
+- 기존 계정과 매칭되지 않으므로 **Spec 001 신규 가입 서브플로우로 진입** (기존 deleted user row와 무관)
 - 새 user_id 발급, 이전 데이터와 연결 없음
 
 deleted user의 scrub된 row는 DB에 남지만, 새 가입과는 어떤 관계도 맺지 않는다.
@@ -155,8 +127,8 @@ authgate는 2종의 account cleanup을 별도 lifecycle로 관리한다:
 | 비로그인 상태 삭제 요청 | `unauthorized` | 401 | 세션 쿠키 필요 |
 | 이미 pending_deletion | — | 200 | 멱등 (재요청 무시) |
 | disabled 계정 로그인 | `account_inactive` | 403 | |
-| deleted 계정 로그인 (브라우저) | — | — | `user_identities` 삭제됨 → `ErrNotFound` → 신규 가입으로 처리 (Spec 001) |
-| deleted 계정 로그인 (Device/MCP) | `account_not_found` | 403 | `user_identities` 삭제됨 → `ErrNotFound` → 브라우저 가입 필요 |
+| deleted 계정 로그인 (브라우저) | — | — | 기존 계정과 매칭되지 않음 → 신규 가입으로 처리 (Spec 001) |
+| deleted 계정 로그인 (Device/MCP) | `account_not_found` | 403 | 기존 계정과 매칭되지 않음 → 브라우저 가입 필요 |
 | pending_deletion + CLI/MCP 로그인 | `account_inactive` | 403 | 브라우저 복구만 가능 |
 
 ## 감사 로그

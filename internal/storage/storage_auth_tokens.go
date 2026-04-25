@@ -415,6 +415,7 @@ func (s *Storage) auditRefreshReuseDetection(ctx context.Context, userID, family
 	s.AuditLog(ctx, &userID, "auth.refresh_family_revoked", "", "", map[string]any{"family_id": familyID})
 }
 
+// Caller owns the refresh-token transaction; deferred rollback handles cleanup when validation rejects the request.
 func (s *Storage) validateRefreshTokenRequest(ctx context.Context, tx *sql.Tx, rt *RefreshTokenModel, now time.Time) error {
 	if now.After(rt.ExpiresAt) {
 		return op.ErrInvalidRefreshToken
@@ -446,7 +447,6 @@ func tryRevokeRefreshByHash(ctx context.Context, q *storeq.Queries, tokenOrToken
 	return rows > 0
 }
 
-// tryRevokeRefreshByIDReturning attempts to revoke a refresh token by UUID ID and returns true if a row was affected.
 func tryRevokeRefreshByIDReturning(ctx context.Context, q *storeq.Queries, tokenOrTokenID string, now time.Time) bool {
 	if _, err := uuid.Parse(tokenOrTokenID); err != nil {
 		return false
@@ -458,6 +458,7 @@ func tryRevokeRefreshByIDReturning(ctx context.Context, q *storeq.Queries, token
 	if err != nil {
 		return false
 	}
+	// Only a real row update should emit auth.token_revoked; unknown or already-revoked IDs must stay audit-silent per RFC 7009.
 	return rows > 0
 }
 

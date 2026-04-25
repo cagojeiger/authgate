@@ -340,7 +340,7 @@ internal/
     resource_context.go
 
   db/                       # DB 접근 계층
-    storeq/                 # sqlc 생성 코드
+    storeq/                 # db access / generated queries
     queries/                # SQL 원본
 
   adapter/                  # optional adapter

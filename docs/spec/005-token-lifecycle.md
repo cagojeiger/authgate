@@ -40,7 +40,7 @@ sequenceDiagram
     App->>AG: POST /oauth/token
     Note right of App: grant_type=refresh_token<br/>refresh_token=old_token<br/>client_id=my-app
 
-    AG->>AG: [zitadel] TokenRequestByRefreshToken(refresh_token)
+    AG->>AG: refresh_token 갱신 요청 처리
     AG->>AG: [storage] token_hash 조회 + user 조회
     AG->>AG: [storage] user.Status 기반 상태 검증
 
@@ -75,10 +75,7 @@ family_id: 최초 로그인에서 생성된 UUID
 동일 refresh_token 동시 사용을 막기 위해, 현재 구현은 다음 2단계로 처리한다:
 
 ```
-1) TokenRequestByRefreshToken TX
-   - SELECT ... FOR UPDATE
-   - revoked_at / used_at / expires_at / 상태 검증
-   - used_at, revoked_at 갱신 후 COMMIT
+1) 같은 refresh_token 은 한 번만 성공, 재사용은 family revoke
 
 2) CreateAccessAndRefreshTokens TX
    - 새 refresh_token INSERT (같은 family_id)
@@ -206,8 +203,7 @@ sequenceDiagram
     App->>AG: POST /oauth/revoke
     Note right of App: token=refresh_token
 
-    AG->>AG: hashToken(token)
-    AG->>AG: UPDATE refresh_tokens SET revoked_at = NOW
+    AG->>AG: 실제 row 폐기 시에만 audit 준비
     AG-->>App: 200 OK
 ```
 

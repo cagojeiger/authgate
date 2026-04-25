@@ -63,7 +63,7 @@ authgate의 핵심 철학인 "가입 → 사용 → 탈퇴 → 복구/삭제 →
 |------|------|----------|-------------|
 | 1 | `active` 사용자 | `DELETE /account` | `pending_deletion` |
 | 2 | 30일 경과 + deletion cleanup | `user_identities/sessions/refresh_tokens` 삭제 + `users.status='deleted'` | 명시적 cleanup |
-| 3 | 같은 IdP 계정으로 Browser 로그인 | `GetUserByProviderIdentity -> ErrNotFound` | 기존 계정 아님 |
+| 3 | 같은 IdP 계정으로 Browser 로그인 | 기존 계정과 매칭되지 않음 | 기존 계정 아님 |
 | 4 | Spec 001 신규 가입 서브플로우 진입 | 새 `user_id` 발급 | deleted row와 분리 |
 | 5 | 가입 완료 | `active` | 새 계정 |
 

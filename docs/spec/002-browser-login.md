@@ -83,10 +83,10 @@ sequenceDiagram
     AG->>G: GET /userinfo (또는 id_token 디코딩)
     G-->>AG: {sub, email, email_verified, name}
 
-    AG->>AG: GetUserByProviderIdentity(google, sub)
-    alt ErrNotFound (신규)
+    AG->>AG: IdP identity 매칭 시도
+    alt IdP identity 매칭 결과에 따라 신규 분기
         Note over AG: → Spec 001 가입 서브플로우 진입
-        AG->>AG: CreateUserWithIdentity (트랜잭션)
+        AG->>AG: 신규 user 와 identity 원자적 생성
         AG->>AG: audit: auth.signup
     else DB 오류
         AG-->>U: 500 internal_error
@@ -104,9 +104,9 @@ sequenceDiagram
     end
 
     Note over U,G: 6. auth_request 완료 + 세션 생성 → 토큰 발급 준비
-    AG->>AG: CompleteLogin 트랜잭션: auth_request 완료 후 session 생성
+    AG->>AG: 로그인 완료 후 앱 redirect 용 code 발급 준비
     AG->>U: 302 → /authorize/callback?id=authRequestID
-    AG->>AG: [zitadel] AuthRequestByID / SaveAuthCode
+    AG->>AG: 앱 redirect 용 auth code 저장
     AG->>U: 302 → App redirect_uri?code=auth_code&state=...
 
     Note over U,G: 7. 코드 → 토큰 교환 (앱 서버 ↔ authgate)
@@ -171,17 +171,9 @@ sequenceDiagram
 
 ## pending_deletion 복구
 
-pending_deletion 복구는 로그인 완료 절차의 일부로, 다음 순서로 수행한다:
-
-```
-1. RecoverUser: `UPDATE ... WHERE status='pending_deletion'`로 active 복구 + deletion 필드 NULL 처리
-2. CompleteLogin: 단일 트랜잭션에서 auth_request에 subject 연결 후 새 세션 생성
-```
-
-RecoverUser 자체는 원자적이다 (단일 UPDATE).
-callback 기반 세션 생성과 auth_request 완료는 단일 트랜잭션이다:
-- RecoverUser 성공 후 CompleteLogin 실패 → 복구는 유지되지만 session/auth_request 변경은 롤백됨
-- 이미 완료되었거나 만료된 auth_request로 callback이 재호출되면 CompleteLogin이 실패하고 새 session은 생성되지 않음
+pending_deletion 복구는 로그인 완료 절차의 일부다.
+브라우저 로그인은 pending_deletion 을 active 로 복구하고 새 세션을 만든다.
+복구가 끝난 뒤 로그인 완료 단계가 실패해도 복구 상태는 유지되고, 새 세션은 발급되지 않는다.
 
 채널별 상태 검사 규칙은 [ADR-000](../adr/000-authgate-identity.md#채널별-상태-검사-규칙)을 참조한다.
 

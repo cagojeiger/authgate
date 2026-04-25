@@ -174,7 +174,6 @@ func (s *Storage) ApproveDeviceCode(ctx context.Context, userCode, subject strin
 	return ensureDeviceCodeApproved(rows)
 }
 
-// DenyDeviceCode sets a device code to denied state.
 func (s *Storage) DenyDeviceCode(ctx context.Context, userCode string) error {
 	rows, err := storeq.New(s.db).DenyDeviceCodeByUserCode(ctx, storeq.DenyDeviceCodeByUserCodeParams{
 		UserCode: userCode,
@@ -183,6 +182,7 @@ func (s *Storage) DenyDeviceCode(ctx context.Context, userCode string) error {
 	if err != nil {
 		return err
 	}
+	// No row means the user_code is expired, invalid, or already processed; service maps it to the same user-facing denial failure.
 	if rows == 0 {
 		return ErrNotFound
 	}

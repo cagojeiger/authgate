@@ -78,6 +78,7 @@ func (s *LoginService) handleSessionLogin(ctx context.Context, authRequestID, se
 	}
 
 	user, err := s.store.GetValidSession(ctx, sessionID)
+	// Missing session is just an unauthenticated browser request; storage failures must not be swallowed into an IdP redirect.
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil
 	}
@@ -179,6 +180,7 @@ func (s *LoginService) recoverUser(ctx context.Context, userID, ipAddress, userA
 func (s *LoginService) findOrCreateBrowserUser(ctx context.Context, userInfo *upstream.UserInfo, ipAddress, userAgent string) (*storage.User, bool, *CallbackResult) {
 	providerName := s.browserProvider.Name()
 	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
+	// Only a true missing identity starts signup; DB errors stay 500 so outages do not create accounts.
 	if errors.Is(err, storage.ErrNotFound) {
 		user, result := s.signupBrowserUser(ctx, providerName, userInfo, ipAddress, userAgent)
 		return user, true, result

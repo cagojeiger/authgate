@@ -61,8 +61,8 @@ sequenceDiagram
     IdP-->>AG: {sub, email, email_verified, name, picture}
 
     Note over U,DB: 2. 신규/기존 판별
-    AG->>DB: SELECT FROM user_identities WHERE provider='google' AND provider_user_id=$sub
-    alt ErrNotFound (신규 유저)
+    AG->>AG: 기존 identity 매칭 시도
+    alt 기존 identity가 없으면 신규 가입 플로우
         Note over AG,DB: → 이 스펙의 가입 플로우 진입
     else 유저 있음
         Note over AG: → Spec 002 브라우저 로그인 계속
@@ -71,10 +71,7 @@ sequenceDiagram
     end
 
     Note over U,DB: 3. 계정 생성 (단일 트랜잭션)
-    AG->>DB: BEGIN
-    AG->>DB: INSERT users (status='active')
-    AG->>DB: INSERT user_identities (provider='google', provider_user_id=$sub)
-    AG->>DB: COMMIT
+    AG->>DB: user 와 identity 는 원자적으로 생성
     Note right of DB: 실패 시 둘 다 ROLLBACK. 고아 레코드 없음.
 
     Note over U,DB: 4. 세션 생성 + 상위 플로우 복귀

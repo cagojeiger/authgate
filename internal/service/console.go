@@ -119,7 +119,6 @@ func consoleAuthErrorCode(err error) int {
 	return http.StatusUnauthorized
 }
 
-// resolveUser tries session cookie first, then Bearer token.
 func (s *ConsoleService) resolveUser(ctx context.Context, sessionID, authHeader string) (*storage.User, error) {
 	auth, err := s.resolveAuth(ctx, sessionID, authHeader)
 	if err != nil {
@@ -134,6 +133,7 @@ func (s *ConsoleService) resolveAuth(ctx context.Context, sessionID, authHeader 
 		if err == nil {
 			return &consoleAuth{user: user, sessionID: sessionID}, nil
 		}
+		// Cookie auth treats storage failures as 500; only a missing session may fall through to Bearer auth or 401.
 		if !errors.Is(err, storage.ErrNotFound) {
 			return nil, &consoleAuthError{statusCode: http.StatusInternalServerError, err: err}
 		}

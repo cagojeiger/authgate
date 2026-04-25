@@ -100,6 +100,7 @@ func (s *Storage) GetActiveConnections(ctx context.Context, userID string) ([]Co
 	return connections, nil
 }
 
+// The affected row count lets service return 404 and skip audit when no active connection was revoked.
 func (s *Storage) RevokeConnection(ctx context.Context, userID, clientID string) (int64, error) {
 	return storeq.New(s.db).RevokeActiveRefreshTokensByUserIDAndClientID(ctx, storeq.RevokeActiveRefreshTokensByUserIDAndClientIDParams{
 		RevokedAt: sql.NullTime{Time: s.clock.Now(), Valid: true},
@@ -133,6 +134,7 @@ func (s *Storage) GetActiveSessions(ctx context.Context, userID string) ([]Sessi
 	return sessions, nil
 }
 
+// The affected row count lets service return 404 and skip audit when the target session is absent or not owned by the user.
 func (s *Storage) RevokeSession(ctx context.Context, userID, sessionID string) (int64, error) {
 	return storeq.New(s.db).RevokeSessionByUserIDAndID(ctx, storeq.RevokeSessionByUserIDAndIDParams{
 		RevokedAt: sql.NullTime{Time: s.clock.Now(), Valid: true},

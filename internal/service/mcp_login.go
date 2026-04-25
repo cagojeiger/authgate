@@ -34,6 +34,7 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 	if sessionID != "" {
 		user, err := s.store.GetValidSession(ctx, sessionID)
 		if err != nil {
+			// Missing session may continue to MCP provider login; storage failures must not be hidden as unauthenticated flow.
 			if !errors.Is(err, storage.ErrNotFound) {
 				return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 			}
@@ -87,6 +88,7 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 
 	providerName := s.mcpProvider.Name()
 	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
+	// Only an actual missing identity is account_not_found; DB failures remain 500 instead of being swallowed into policy denial.
 	if errors.Is(err, storage.ErrNotFound) {
 		return &CallbackResult{Action: ActionError, Error: "account_not_found", ErrorCode: http.StatusForbidden}
 	}
