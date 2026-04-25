@@ -31,7 +31,7 @@ func setupDeviceService(t *testing.T) (*DeviceService, *storage.Storage, clock.C
 		},
 	}
 
-	svc := NewDeviceService(store, fakeProvider, "http://localhost:8080", 24*time.Hour, clk)
+	svc := NewDeviceService(store, fakeProvider, 24*time.Hour, clk)
 	return svc, store, clk
 }
 

@@ -46,7 +46,7 @@ func setupE2ETest(t *testing.T) *e2eFixture {
 
 	loginSvc := NewLoginService(store, fakeProvider, 24*time.Hour)
 	mcpLoginSvc := NewMCPLoginService(store, fakeProvider, 24*time.Hour)
-	deviceSvc := NewDeviceService(store, fakeProvider, "http://localhost:8080", 24*time.Hour, clk)
+	deviceSvc := NewDeviceService(store, fakeProvider, 24*time.Hour, clk)
 	accountSvc := NewAccountService(store)
 	return &e2eFixture{
 		LoginSvc:    loginSvc,

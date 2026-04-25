@@ -59,7 +59,7 @@ func main() {
 	loginService := service.NewLoginService(store, browserProvider, cfg.SessionTTL)
 
 	// Device service
-	deviceService := service.NewDeviceService(store, deviceProvider, cfg.PublicURL, cfg.SessionTTL, clk)
+	deviceService := service.NewDeviceService(store, deviceProvider, cfg.SessionTTL, clk)
 
 	// Account service
 	accountService := service.NewAccountService(store)

@@ -15,7 +15,6 @@ type DeviceService struct {
 	store      DeviceStore
 	provider   upstream.Provider
 	sessionTTL time.Duration
-	publicURL  string
 	clock      clock.Clock
 }
 
@@ -29,11 +28,10 @@ type DeviceStore interface {
 	ApproveDeviceCode(ctx context.Context, userCode, subject string) error
 }
 
-func NewDeviceService(store DeviceStore, provider upstream.Provider, publicURL string, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
+func NewDeviceService(store DeviceStore, provider upstream.Provider, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
 	return &DeviceService{
 		store:      store,
 		provider:   provider,
-		publicURL:  publicURL,
 		sessionTTL: sessionTTL,
 		clock:      clk,
 	}

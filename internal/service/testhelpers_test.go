@@ -47,7 +47,7 @@ func setupDeviceExtTest(t *testing.T, sub string) (*DeviceService, *storage.Stor
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: sub, Email: sub + "@test.com", EmailVerified: true, Name: "Device Ext"},
 	}
-	svc := NewDeviceService(store, fakeProvider, "http://localhost:8080", 24*time.Hour, clk)
+	svc := NewDeviceService(store, fakeProvider, 24*time.Hour, clk)
 	return svc, store, clk
 }
 
@@ -76,7 +76,7 @@ func setupGapTest(t *testing.T) *gapFixture {
 	}
 	loginSvc := NewLoginService(store, fakeProvider, 24*time.Hour)
 	mcpLoginSvc := NewMCPLoginService(store, fakeProvider, 24*time.Hour)
-	deviceSvc := NewDeviceService(store, fakeProvider, "http://localhost:8080", 24*time.Hour, clk)
+	deviceSvc := NewDeviceService(store, fakeProvider, 24*time.Hour, clk)
 	accountSvc := NewAccountService(store)
 	return &gapFixture{
 		LoginSvc:    loginSvc,
