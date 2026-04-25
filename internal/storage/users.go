@@ -142,6 +142,45 @@ func (s *Storage) CompleteAuthRequest(ctx context.Context, authRequestID, userID
 	return nil
 }
 
+func (s *Storage) CompleteLogin(ctx context.Context, authRequestID, userID string, sessionTTL time.Duration) (string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	now := s.clock.Now()
+	qtx := storeq.New(tx)
+
+	rows, err := qtx.CompleteAuthRequestOnceByID(ctx, storeq.CompleteAuthRequestOnceByIDParams{
+		Subject:  sql.NullString{String: userID, Valid: true},
+		AuthTime: sql.NullTime{Time: now, Valid: true},
+		ID:       authRequestID,
+	})
+	if err != nil {
+		return "", err
+	}
+	if rows == 0 {
+		return "", ErrNotFound
+	}
+
+	sessionID := s.idgen.NewUUID()
+	if err := qtx.InsertSession(ctx, storeq.InsertSessionParams{
+		ID:        sessionID,
+		UserID:    userID,
+		ExpiresAt: now.Add(sessionTTL),
+		CreatedAt: now,
+	}); err != nil {
+		return "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+
+	return sessionID, nil
+}
+
 func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, userID string, scopes []string) error {
 	row, err := storeq.New(s.db).GetUserInfoFieldsByID(ctx, userID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -253,12 +292,11 @@ func (s *Storage) CreateTestAuthRequestWithResource(ctx context.Context, label, 
 	now := s.clock.Now()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO auth_requests (id, client_id, redirect_uri, scopes, state, nonce, code_challenge, code_challenge_method, resource, expires_at, created_at)`+
-		` VALUES ($1, 'test-app', 'http://localhost/callback', '{openid}', $2, 'test-nonce', 'E9Melhoa2OwvFrEMT', 'S256', $3, $4, $5)`,
+			` VALUES ($1, 'test-app', 'http://localhost/callback', '{openid}', $2, 'test-nonce', 'E9Melhoa2OwvFrEMT', 'S256', $3, $4, $5)`,
 		id, label, resource, now.Add(10*time.Minute), now,
 	)
 	return id, err
 }
-
 
 // Session management
 

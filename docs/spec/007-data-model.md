@@ -131,6 +131,8 @@ erDiagram
 | **auth_requests** | 로그인 진행 중 상태 | 10분 | 만료 후 1시간 뒤 cleanup |
 | **device_codes** | CLI 로그인 진행 중 상태 | 5분 | 만료 후 1시간 뒤 cleanup |
 
+Browser/MCP callback의 원자적 완료 경로에서는 `auth_requests.done=false`인 행만 처리한다. 해당 경로는 `auth_requests` 완료와 `sessions` 생성을 단일 트랜잭션으로 처리하며, 만료/미존재/이미완료 auth_request이면 전체 작업이 실패하고 session도 생성되지 않는다. 재시도 가능한 기존 완료 경로는 이미 완료된 `auth_requests`도 만료 전이면 멱등적으로 갱신할 수 있다.
+
 ### 감사 데이터
 
 | 테이블 | 목적 | 수명 | 삭제 정책 |

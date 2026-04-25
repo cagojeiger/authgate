@@ -31,6 +31,26 @@ func (q *Queries) CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthR
 	return result.RowsAffected()
 }
 
+const completeAuthRequestOnceByID = `-- name: CompleteAuthRequestOnceByID :execrows
+UPDATE auth_requests
+SET subject = $1, auth_time = $2, done = true
+WHERE id = $3 AND expires_at > $2 AND done = false
+`
+
+type CompleteAuthRequestOnceByIDParams struct {
+	Subject  sql.NullString
+	AuthTime sql.NullTime
+	ID       string
+}
+
+func (q *Queries) CompleteAuthRequestOnceByID(ctx context.Context, arg CompleteAuthRequestOnceByIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, completeAuthRequestOnceByID, arg.Subject, arg.AuthTime, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, email, email_verified, name, avatar_url, status,
        created_at, updated_at

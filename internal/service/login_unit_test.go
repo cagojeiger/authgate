@@ -19,6 +19,7 @@ type fakeLoginStore struct {
 	createUserWithIdentityFn  func(ctx context.Context, input storage.CreateUserWithIdentityInput) (*storage.User, error)
 	getUserByIDFn             func(ctx context.Context, userID string) (*storage.User, error)
 	createSessionFn           func(ctx context.Context, userID string, ttl time.Duration) (string, error)
+	completeLoginFn           func(ctx context.Context, authRequestID, userID string, sessionTTL time.Duration) (string, error)
 	getAuthRequestModelFn     func(ctx context.Context, id string) (*storage.AuthRequestModel, error)
 }
 
@@ -55,6 +56,16 @@ func (f *fakeLoginStore) GetUserByID(ctx context.Context, userID string) (*stora
 
 func (f *fakeLoginStore) CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error) {
 	return f.createSessionFn(ctx, userID, ttl)
+}
+
+func (f *fakeLoginStore) CompleteLogin(ctx context.Context, authRequestID, userID string, sessionTTL time.Duration) (string, error) {
+	if f.completeLoginFn != nil {
+		return f.completeLoginFn(ctx, authRequestID, userID, sessionTTL)
+	}
+	if err := f.completeAuthRequestFn(ctx, authRequestID, userID); err != nil {
+		return "", err
+	}
+	return f.createSessionFn(ctx, userID, sessionTTL)
 }
 
 func TestLogin_HandleLogin_RecoversPendingDeletionSession(t *testing.T) {
