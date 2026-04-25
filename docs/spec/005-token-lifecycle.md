@@ -213,6 +213,7 @@ sequenceDiagram
 
 **RFC 7009 준수**: 토큰이 존재하지 않거나 이미 폐기된 경우에도 200 OK 반환.
 토큰 존재 여부를 외부에 노출하지 않는다.
+단, `auth.token_revoked` audit log는 실제 refresh token row가 폐기된 경우에만 기록한다.
 
 ## 토큰 저장 보안
 

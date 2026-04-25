@@ -60,7 +60,7 @@ type Querier interface {
 	RevokeOtherActiveSessionsByUserID(ctx context.Context, arg RevokeOtherActiveSessionsByUserIDParams) error
 	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
-	RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error
+	RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) (int64, error)
 	RevokeSessionByUserIDAndID(ctx context.Context, arg RevokeSessionByUserIDAndIDParams) error
 	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error
 	SetUserStatusByID(ctx context.Context, arg SetUserStatusByIDParams) error
