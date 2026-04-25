@@ -153,8 +153,7 @@ func (s *DeviceService) HandleDeviceApprove(ctx context.Context, userCode, actio
 	}
 
 	if action == "deny" {
-		s.denyDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
-		return &DeviceApproveResult{Success: false, Message: "You denied the authorization request. You can close this window."}
+		return s.denyDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
 	}
 
 	return s.approveDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
@@ -213,9 +212,13 @@ func (s *DeviceService) ensureDeviceCallbackAccess(ctx context.Context, user *st
 	return &DevicePageResult{Action: DeviceError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 }
 
-func (s *DeviceService) denyDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) {
-	s.store.DenyDeviceCode(ctx, userCode)
+func (s *DeviceService) denyDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) *DeviceApproveResult {
+	if err := s.store.DenyDeviceCode(ctx, userCode); err != nil {
+		return &DeviceApproveResult{Success: false, Message: "Device code expired or already processed.", ErrorCode: http.StatusBadRequest}
+	}
+
 	s.store.AuditLog(ctx, &userID, "auth.device_denied", ipAddress, userAgent, nil)
+	return &DeviceApproveResult{Success: false, Message: "You denied the authorization request. You can close this window."}
 }
 
 func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) *DeviceApproveResult {
