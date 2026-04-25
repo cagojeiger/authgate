@@ -276,9 +276,12 @@ func registerRoutes(
 	httpMetrics *observability.HTTPMetrics,
 	isShuttingDown *atomic.Bool,
 ) {
+	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
+	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
+
 	registerOAuthMetadataRoute(mux, cfg)
-	registerProviderRoutes(mux, cfg, store, provider)
-	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler)
+	registerProviderRoutes(mux, cfg, store, provider, tokenLimiter, authLimiter)
+	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, tokenLimiter, authLimiter)
 	registerHealthRoutes(mux, db, isShuttingDown, httpMetrics)
 }
 
@@ -305,11 +308,14 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 	})
 }
 
-func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *storage.Storage, provider http.Handler) {
-	// Rate limiters: strict for token endpoints, moderate for auth/login
-	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
-	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
-
+func registerProviderRoutes(
+	mux *http.ServeMux,
+	cfg *config.Config,
+	store *storage.Storage,
+	provider http.Handler,
+	tokenLimiter func(http.Handler) http.Handler,
+	authLimiter func(http.Handler) http.Handler,
+) {
 	mux.Handle("/authorize", authLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
@@ -318,7 +324,7 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
-	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/oauth/revoke", tokenLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !cfg.EnableMCP {
 			provider.ServeHTTP(w, r)
 			return
@@ -333,11 +339,16 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 			}
 		}
 		provider.ServeHTTP(w, r)
-	}))
+	})))
 	mux.Handle("/oauth/device/authorize", tokenLimiter(provider))
 	mux.Handle("/", provider)
 }
 
+// Rate limiter policy:
+//
+//	authLimiter: /authorize, /login, /login/callback, /mcp/login, /mcp/callback, /account, /console/*
+//	tokenLimiter: /oauth/token, /oauth/revoke, /oauth/device/authorize, /device/approve, /device/auth/callback, /device
+//	none: /health, /ready, /metrics, OIDC discovery, /keys
 func registerAuthgateRoutes(
 	mux *http.ServeMux,
 	cfg *config.Config,
@@ -346,27 +357,26 @@ func registerAuthgateRoutes(
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
 	consoleHandler *handler.ConsoleHandler,
+	tokenLimiter func(http.Handler) http.Handler,
+	authLimiter func(http.Handler) http.Handler,
 ) {
-	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
-	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
-
 	mux.Handle("/login", authLimiter(http.HandlerFunc(loginHandler.HandleLogin)))
-	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
+	mux.Handle("/login/callback", authLimiter(http.HandlerFunc(loginHandler.HandleCallback)))
 	if cfg.EnableMCP {
-		mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
-		mux.HandleFunc("/mcp/callback", mcpLoginHandler.HandleCallback)
+		mux.Handle("/mcp/login", authLimiter(http.HandlerFunc(mcpLoginHandler.HandleLogin)))
+		mux.Handle("/mcp/callback", authLimiter(http.HandlerFunc(mcpLoginHandler.HandleCallback)))
 	}
-	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
-	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
+	mux.Handle("/account", authLimiter(http.HandlerFunc(accountHandler.HandleDeleteAccount)))
+	mux.Handle("/device", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDevicePage)))
 	mux.Handle("/device/approve", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
-	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
-	mux.HandleFunc("/console/clients", consoleHandler.HandleListClients)
-	mux.HandleFunc("/console/me/connections", consoleHandler.HandleListConnections)
-	mux.HandleFunc("/console/me/connections/{client_id}", consoleHandler.HandleRevokeConnection)
-	mux.HandleFunc("/console/me/sessions", consoleHandler.HandleListSessions)
-	mux.HandleFunc("/console/me/sessions/{id}", consoleHandler.HandleRevokeSession)
-	mux.HandleFunc("/console/me/sessions/revoke-others", consoleHandler.HandleRevokeOtherSessions)
-	mux.HandleFunc("/console/me/audit-log", consoleHandler.HandleGetAuditLog)
+	mux.Handle("/device/auth/callback", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDeviceCallback)))
+	mux.Handle("/console/clients", authLimiter(http.HandlerFunc(consoleHandler.HandleListClients)))
+	mux.Handle("/console/me/connections", authLimiter(http.HandlerFunc(consoleHandler.HandleListConnections)))
+	mux.Handle("/console/me/connections/{client_id}", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeConnection)))
+	mux.Handle("/console/me/sessions", authLimiter(http.HandlerFunc(consoleHandler.HandleListSessions)))
+	mux.Handle("/console/me/sessions/{id}", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeSession)))
+	mux.Handle("/console/me/sessions/revoke-others", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeOtherSessions)))
+	mux.Handle("/console/me/audit-log", authLimiter(http.HandlerFunc(consoleHandler.HandleGetAuditLog)))
 }
 
 func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool, httpMetrics *observability.HTTPMetrics) {

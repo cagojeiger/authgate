@@ -41,12 +41,29 @@ func SetupTestServer(t *testing.T) *TestServer {
 }
 
 type SetupOptions struct {
-	EnableMCP bool
+	EnableMCP           bool
+	RateLimitAuthRPS    float64
+	RateLimitAuthBurst  int
+	RateLimitTokenRPS   float64
+	RateLimitTokenBurst int
 }
 
 // SetupTestServerWithOptions creates a full authgate server with selectable optional adapters.
 func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	t.Helper()
+
+	if opts.RateLimitAuthRPS == 0 {
+		opts.RateLimitAuthRPS = 1000.0
+	}
+	if opts.RateLimitAuthBurst == 0 {
+		opts.RateLimitAuthBurst = 1000
+	}
+	if opts.RateLimitTokenRPS == 0 {
+		opts.RateLimitTokenRPS = 1000.0
+	}
+	if opts.RateLimitTokenBurst == 0 {
+		opts.RateLimitTokenBurst = 1000
+	}
 
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
@@ -139,11 +156,13 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	loginSvc := service.NewLoginService(store, fakeProvider, 24*time.Hour)
 	deviceSvc := service.NewDeviceService(store, fakeProvider, 24*time.Hour, clk)
 	accountSvc := service.NewAccountService(store)
+	consoleSvc := service.NewConsoleService(store)
 
 	// Handlers
 	loginHandler := handler.NewLoginHandler(loginSvc, true, "authgate")
 	deviceHandler := handler.NewDeviceHandler(deviceSvc, true, "authgate")
 	accountHandler := handler.NewAccountHandler(accountSvc, srv.URL)
+	consoleHandler := handler.NewConsoleHandler(consoleSvc)
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if opts.EnableMCP {
 		mcpLoginSvc := service.NewMCPLoginService(store, fakeProvider, 24*time.Hour)
@@ -171,16 +190,17 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)
 	})
-	mux.Handle("/authorize", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	authRateLimiter := middleware.NewRateLimiter(rate.Limit(opts.RateLimitAuthRPS), opts.RateLimitAuthBurst)
+	tokenRateLimiter := middleware.NewRateLimiter(rate.Limit(opts.RateLimitTokenRPS), opts.RateLimitTokenBurst)
+	mux.Handle("/authorize", authRateLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
-	}))
-	tokenRateLimiter := middleware.NewRateLimiter(rate.Limit(5), 5)
+	})))
 	mux.Handle("/oauth/token", tokenRateLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource := storage.ResourceFromRequest(r)
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
-	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/oauth/revoke", tokenRateLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !opts.EnableMCP {
 			provider.ServeHTTP(w, r)
 			return
@@ -195,18 +215,26 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 			}
 		}
 		provider.ServeHTTP(w, r)
-	}))
+	})))
+	mux.Handle("/oauth/device/authorize", tokenRateLimiter(provider))
 	mux.Handle("/", provider)
-	mux.HandleFunc("/login", loginHandler.HandleLogin)
-	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
+	mux.Handle("/login", authRateLimiter(http.HandlerFunc(loginHandler.HandleLogin)))
+	mux.Handle("/login/callback", authRateLimiter(http.HandlerFunc(loginHandler.HandleCallback)))
 	if opts.EnableMCP {
-		mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
-		mux.HandleFunc("/mcp/callback", mcpLoginHandler.HandleCallback)
+		mux.Handle("/mcp/login", authRateLimiter(http.HandlerFunc(mcpLoginHandler.HandleLogin)))
+		mux.Handle("/mcp/callback", authRateLimiter(http.HandlerFunc(mcpLoginHandler.HandleCallback)))
 	}
-	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
-	mux.HandleFunc("/device/approve", deviceHandler.HandleDeviceApprove)
-	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
-	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
+	mux.Handle("/device", tokenRateLimiter(http.HandlerFunc(deviceHandler.HandleDevicePage)))
+	mux.Handle("/device/approve", tokenRateLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
+	mux.Handle("/device/auth/callback", tokenRateLimiter(http.HandlerFunc(deviceHandler.HandleDeviceCallback)))
+	mux.Handle("/account", authRateLimiter(http.HandlerFunc(accountHandler.HandleDeleteAccount)))
+	mux.Handle("/console/clients", authRateLimiter(http.HandlerFunc(consoleHandler.HandleListClients)))
+	mux.Handle("/console/me/connections", authRateLimiter(http.HandlerFunc(consoleHandler.HandleListConnections)))
+	mux.Handle("/console/me/connections/{client_id}", authRateLimiter(http.HandlerFunc(consoleHandler.HandleRevokeConnection)))
+	mux.Handle("/console/me/sessions", authRateLimiter(http.HandlerFunc(consoleHandler.HandleListSessions)))
+	mux.Handle("/console/me/sessions/{id}", authRateLimiter(http.HandlerFunc(consoleHandler.HandleRevokeSession)))
+	mux.Handle("/console/me/sessions/revoke-others", authRateLimiter(http.HandlerFunc(consoleHandler.HandleRevokeOtherSessions)))
+	mux.Handle("/console/me/audit-log", authRateLimiter(http.HandlerFunc(consoleHandler.HandleGetAuditLog)))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"healthy"}`))
