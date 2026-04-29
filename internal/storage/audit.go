@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"net/netip"
 	"strings"
@@ -49,30 +50,48 @@ func normalizeIPAddress(addr string) string {
 	return ""
 }
 
-func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+// AuditLog records a security/audit event on a best-effort basis. Failures are
+// logged via slog.ErrorContext but never propagated: callers have already
+// committed the underlying business transaction (login, token issue, etc.) and
+// must not be failed by an audit-write error. The metadata payload is *not*
+// included in failure logs to avoid leaking session/family identifiers.
+func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 	ipAddress = normalizeIPAddress(ipAddress)
 	var metaJSON []byte
 	if metadata != nil {
-		var err error
-		metaJSON, err = json.Marshal(metadata)
+		marshaled, err := json.Marshal(metadata)
 		if err != nil {
-			return err
+			slog.ErrorContext(ctx, "audit log: marshal metadata",
+				"event_type", eventType,
+				"user_id", userIDLogValue(userID),
+				"error", err,
+			)
+			return
 		}
+		metaJSON = marshaled
 	}
 
-	userIDValue := ""
-	if userID != nil {
-		userIDValue = *userID
-	}
-
-	return storeq.New(s.db).InsertAuditLog(ctx, storeq.InsertAuditLogParams{
-		UserID:    userIDValue,
+	if err := storeq.New(s.db).InsertAuditLog(ctx, storeq.InsertAuditLogParams{
+		UserID:    userIDLogValue(userID),
 		EventType: eventType,
 		IpAddress: nilIfEmpty(ipAddress),
 		UserAgent: nilIfEmpty(userAgent),
 		Metadata:  nilIfEmptyBytes(metaJSON),
 		CreatedAt: s.clock.Now(),
-	})
+	}); err != nil {
+		slog.ErrorContext(ctx, "audit log: insert",
+			"event_type", eventType,
+			"user_id", userIDLogValue(userID),
+			"error", err,
+		)
+	}
+}
+
+func userIDLogValue(userID *string) string {
+	if userID == nil {
+		return ""
+	}
+	return *userID
 }
 
 func nilIfEmpty(s string) *string {

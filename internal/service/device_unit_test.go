@@ -14,7 +14,7 @@ import (
 type fakeDeviceStore struct {
 	getDeviceCodeByUserCodeFn func(ctx context.Context, userCode string) (*storage.DeviceCodeModel, error)
 	getValidSessionFn         func(ctx context.Context, sessionID string) (*storage.User, error)
-	auditLogFn                func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+	auditLogFn                func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 	getUserByProviderIdentity func(ctx context.Context, provider, providerUserID string) (*storage.User, error)
 	createSessionFn           func(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	denyDeviceCodeFn          func(ctx context.Context, userCode string) error
@@ -29,11 +29,11 @@ func (f *fakeDeviceStore) GetValidSession(ctx context.Context, sessionID string)
 	return f.getValidSessionFn(ctx, sessionID)
 }
 
-func (f *fakeDeviceStore) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+func (f *fakeDeviceStore) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 	if f.auditLogFn == nil {
-		return nil
+		return
 	}
-	return f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
+	f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
 }
 
 func (f *fakeDeviceStore) GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*storage.User, error) {
@@ -138,10 +138,9 @@ func TestDevice_HandleDeviceCallback_AuditLogIncludesSessionAndClient(t *testing
 		createSessionFn: func(context.Context, string, time.Duration) (string, error) {
 			return "sess-1", nil
 		},
-		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 			gotEventType = eventType
 			gotMetadata = metadata
-			return nil
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}

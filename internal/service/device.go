@@ -22,7 +22,7 @@ type DeviceService struct {
 type DeviceStore interface {
 	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*storage.DeviceCodeModel, error)
 	GetValidSession(ctx context.Context, sessionID string) (*storage.User, error)
-	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 	GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*storage.User, error)
 	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	DenyDeviceCode(ctx context.Context, userCode string) error

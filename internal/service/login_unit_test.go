@@ -12,7 +12,7 @@ import (
 
 type fakeLoginStore struct {
 	getValidSessionFn         func(ctx context.Context, sessionID string) (*storage.User, error)
-	auditLogFn                func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+	auditLogFn                func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 	recoverUserFn             func(ctx context.Context, userID string) error
 	completeAuthRequestFn     func(ctx context.Context, authRequestID, userID string) error
 	getUserByProviderIdentity func(ctx context.Context, provider, providerUserID string) (*storage.User, error)
@@ -26,11 +26,11 @@ func (f *fakeLoginStore) GetValidSession(ctx context.Context, sessionID string) 
 	return f.getValidSessionFn(ctx, sessionID)
 }
 
-func (f *fakeLoginStore) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+func (f *fakeLoginStore) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 	if f.auditLogFn == nil {
-		return nil
+		return
 	}
-	return f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
+	f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
 }
 
 func (f *fakeLoginStore) RecoverUser(ctx context.Context, userID string) error {
@@ -139,10 +139,9 @@ func TestLogin_HandleCallback_ExistingUser_AuditLogIncludesSessionAndClient(t *t
 		completeAuthRequestFn: func(context.Context, string, string) error {
 			return nil
 		},
-		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 			gotEventType = eventType
 			gotMetadata = metadata
-			return nil
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
@@ -183,9 +182,8 @@ func TestLogin_HandleCallback_SignupAuditLogIncludesChannel(t *testing.T) {
 		completeAuthRequestFn: func(context.Context, string, string) error {
 			return nil
 		},
-		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 			gotEvents = append(gotEvents, auditEntry{eventType: eventType, metadata: metadata})
-			return nil
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
@@ -227,10 +225,9 @@ func TestMCPLogin_HandleCallback_AuditLogIncludesSessionAndClient(t *testing.T) 
 		completeAuthRequestFn: func(context.Context, string, string) error {
 			return nil
 		},
-		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 			gotEventType = eventType
 			gotMetadata = metadata
-			return nil
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}

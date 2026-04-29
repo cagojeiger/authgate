@@ -22,7 +22,7 @@ type fakeConsoleStore struct {
 	revokeSessionFn            func(ctx context.Context, userID, sessionID string) error
 	revokeOtherSessionsFn      func(ctx context.Context, userID, currentSessionID string) error
 	getAuditLogFn              func(ctx context.Context, userID string, limit, offset int) (*storage.AuditLogPage, error)
-	auditLogFn                 func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+	auditLogFn                 func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 }
 
 func (f *fakeConsoleStore) GetValidSession(ctx context.Context, sessionID string) (*storage.User, error) {
@@ -62,11 +62,11 @@ func (f *fakeConsoleStore) RevokeOtherSessions(ctx context.Context, userID, curr
 func (f *fakeConsoleStore) GetAuditLog(ctx context.Context, userID string, limit, offset int) (*storage.AuditLogPage, error) {
 	return f.getAuditLogFn(ctx, userID, limit, offset)
 }
-func (f *fakeConsoleStore) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+func (f *fakeConsoleStore) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 	if f.auditLogFn == nil {
-		return nil
+		return
 	}
-	return f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
+	f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
 }
 
 func activeUserStore(clients []storage.ClientView, connIDs []string) *fakeConsoleStore {
@@ -406,13 +406,12 @@ func TestConsole_RevokeConnection_ValidAuth_AuditLogsConnectionRevoked(t *testin
 	var gotUserID, gotEventType string
 	var gotMetadata map[string]any
 	store := activeUserStore(nil, nil)
-	store.auditLogFn = func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+	store.auditLogFn = func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 		if userID != nil {
 			gotUserID = *userID
 		}
 		gotEventType = eventType
 		gotMetadata = metadata
-		return nil
 	}
 	svc := NewConsoleService(store)
 
@@ -513,10 +512,9 @@ func TestConsole_RevokeSession_ValidAuth_RevokesAndAudits(t *testing.T) {
 		gotSessionID = sessionID
 		return nil
 	}
-	store.auditLogFn = func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+	store.auditLogFn = func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 		gotEventType = eventType
 		gotMetadata = metadata
-		return nil
 	}
 	svc := NewConsoleService(store)
 	r := svc.RevokeSession(context.Background(), "sess-1", "", "sess-2")
