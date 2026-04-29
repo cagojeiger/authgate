@@ -143,6 +143,44 @@ func TestAudit002_LoginChannels(t *testing.T) {
 	})
 }
 
+// Issue #131: auth.login was missing when login reused an existing session and
+// skipped the upstream IdP round-trip. The audit row must be written in the
+// skip-IdP path with reused_session=true to keep audit history symmetric with
+// the auth.token_revoked rows that follow.
+func TestAudit_ReusedSession_AuthLoginRecorded(t *testing.T) {
+	svc, store := setupBrowserExtTest(t)
+	ctx := context.Background()
+
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-reuse@test.com", EmailVerified: true, Name: "Reuse", AvatarURL: "", Provider: "google", ProviderUserID: "browser-ext-sub", ProviderEmail: "audit-reuse@test.com"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sessionID, err := store.CreateSession(ctx, user.ID, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	arID, err := store.CreateTestAuthRequest(ctx, "audit-reuse")
+	if err != nil {
+		t.Fatalf("create auth request: %v", err)
+	}
+
+	result := svc.HandleLogin(ctx, arID, sessionID, "127.0.0.1", "reuse-agent")
+	if result.Action != ActionAutoApprove {
+		t.Fatalf("action = %v, want AutoApprove", result.Action)
+	}
+
+	event := requireSingleAuditEvent(t, store.DB(), user.ID, "auth.login")
+	if event.Metadata["channel"] != "browser" {
+		t.Fatalf("channel = %v, want browser", event.Metadata["channel"])
+	}
+	if event.Metadata["reused_session"] != true {
+		t.Fatalf("reused_session = %v, want true", event.Metadata["reused_session"])
+	}
+	if event.Metadata["session_id"] != sessionID {
+		t.Fatalf("session_id = %v, want %s", event.Metadata["session_id"], sessionID)
+	}
+}
+
 func TestAudit004_DeviceApproved(t *testing.T) {
 	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
