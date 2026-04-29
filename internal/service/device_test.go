@@ -166,10 +166,11 @@ func TestDeviceCallback_NewUser_SignupRequired(t *testing.T) {
 }
 
 func TestDeviceCallback_ExistingUser_RedirectBack(t *testing.T) {
-	svc, store, _ := setupDeviceService(t)
+	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
 	store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-cb@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "device-sub-123", ProviderEmail: "dc@test.com"})
+	insertDeviceCode(t, store, "RDIR-CODE", clk)
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "RDIR-CODE", "127.0.0.1", "test")
 	if result.Action != DeviceRedirectBack {

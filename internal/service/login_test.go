@@ -141,8 +141,12 @@ func TestHandleCallback_InactiveUser_Error(t *testing.T) {
 	// Create disabled user
 	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "disabled@example.com", EmailVerified: true, Name: "Disabled", AvatarURL: "", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "disabled@example.com"})
 	store.DisableUser(ctx, user.ID)
+	arID, err := store.CreateTestAuthRequest(ctx, "req-disabled")
+	if err != nil {
+		t.Fatalf("create auth request: %v", err)
+	}
 
-	result := svc.HandleCallback(ctx, "fake-code", "req-disabled", "127.0.0.1", "test-agent")
+	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test-agent")
 
 	if result.Action != ActionError {
 		t.Errorf("action = %v, want Error", result.Action)
