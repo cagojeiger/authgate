@@ -69,6 +69,9 @@ func TestLogin_HandleLogin_RecoversPendingDeletionSession(t *testing.T) {
 			calledRecover = true
 			return nil
 		},
+		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
+			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "client-a"}, nil
+		},
 		completeAuthRequestFn: func(context.Context, string, string) error {
 			calledComplete = true
 			return nil

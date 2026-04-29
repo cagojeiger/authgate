@@ -81,10 +81,10 @@ func (s *LoginService) handleSessionLogin(ctx context.Context, authRequestID, se
 		return nil
 	}
 
-	return s.handleExistingSession(ctx, user, authRequestID, ipAddress, userAgent)
+	return s.handleExistingSession(ctx, user, authRequestID, sessionID, ipAddress, userAgent)
 }
 
-func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authRequestID, ipAddress, userAgent string) *LoginResult {
+func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authRequestID, sessionID, ipAddress, userAgent string) *LoginResult {
 	switch CheckAccess(user.Status, "browser") {
 	case AccessDeny:
 		s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
@@ -96,9 +96,23 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 		}
 	}
 
+	authReq, err := s.store.GetAuthRequestModel(ctx, authRequestID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return &LoginResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
+	}
+	if err != nil {
+		return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+	}
+
 	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
 		return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
+	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
+		"channel":        "browser",
+		"session_id":     sessionID,
+		"client_id":      authReq.ClientID,
+		"reused_session": true,
+	})
 	return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
 }
 
