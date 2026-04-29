@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/db/storeq"
@@ -119,9 +120,15 @@ func (r *CleanupRunner) DeleteUser(
 		return err
 	}
 
-	_ = storeq.New(r.db).InsertDeletionCompletedAudit(ctx, storeq.InsertDeletionCompletedAuditParams{
+	if err := storeq.New(r.db).InsertDeletionCompletedAudit(ctx, storeq.InsertDeletionCompletedAuditParams{
 		UserID:    userID,
 		CreatedAt: now,
-	})
+	}); err != nil {
+		slog.ErrorContext(ctx, "audit log: insert deletion_completed",
+			"event_type", EventAuthDeletionCompleted,
+			"user_id", userID,
+			"error", err,
+		)
+	}
 	return nil
 }

@@ -12,7 +12,7 @@ import (
 type fakeAccountStore struct {
 	getValidSessionFn func(ctx context.Context, sessionID string) (*storage.User, error)
 	requestDeletionFn func(ctx context.Context, userID string) error
-	auditLogFn        func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+	auditLogFn        func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 }
 
 func (f *fakeAccountStore) GetValidSession(ctx context.Context, sessionID string) (*storage.User, error) {
@@ -23,11 +23,11 @@ func (f *fakeAccountStore) RequestDeletion(ctx context.Context, userID string) e
 	return f.requestDeletionFn(ctx, userID)
 }
 
-func (f *fakeAccountStore) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+func (f *fakeAccountStore) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 	if f.auditLogFn == nil {
-		return nil
+		return
 	}
-	return f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
+	f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
 }
 
 func TestAccount_RequestDeletion_PendingDeletion_IsIdempotent(t *testing.T) {
@@ -67,9 +67,8 @@ func TestAccount_RequestDeletion_ActiveUser_Success(t *testing.T) {
 			calledDelete = true
 			return nil
 		},
-		auditLogFn: func(context.Context, *string, string, string, string, map[string]any) error {
+		auditLogFn: func(context.Context, *string, string, string, string, map[string]any) {
 			calledAudit = true
-			return nil
 		},
 	}
 	svc := NewAccountService(store)

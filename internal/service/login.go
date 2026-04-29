@@ -19,7 +19,7 @@ type LoginService struct {
 
 type LoginStore interface {
 	GetValidSession(ctx context.Context, sessionID string) (*storage.User, error)
-	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 	RecoverUser(ctx context.Context, userID string) error
 	CompleteAuthRequest(ctx context.Context, authRequestID, userID string) error
 	GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*storage.User, error)

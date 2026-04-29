@@ -14,7 +14,7 @@ type AccountService struct {
 type AccountStore interface {
 	GetValidSession(ctx context.Context, sessionID string) (*storage.User, error)
 	RequestDeletion(ctx context.Context, userID string) error
-	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 }
 
 func NewAccountService(store AccountStore) *AccountService {

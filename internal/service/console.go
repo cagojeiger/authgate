@@ -24,7 +24,7 @@ type ConsoleStore interface {
 	RevokeSession(ctx context.Context, userID, sessionID string) error
 	RevokeOtherSessions(ctx context.Context, userID, currentSessionID string) error
 	GetAuditLog(ctx context.Context, userID string, limit, offset int) (*storage.AuditLogPage, error)
-	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error
+	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 }
 
 func NewConsoleService(store ConsoleStore) *ConsoleService {
