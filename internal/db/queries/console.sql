@@ -4,18 +4,18 @@ WITH active_tokens AS (
          client_id,
          scopes
   FROM refresh_tokens
-  WHERE user_id = $1
-    AND revoked_at IS NULL
-    AND expires_at > $2
-  ORDER BY client_id, created_at DESC
+  WHERE refresh_tokens.user_id = $1
+    AND refresh_tokens.revoked_at IS NULL
+    AND refresh_tokens.expires_at > $2
+  ORDER BY refresh_tokens.client_id, refresh_tokens.created_at DESC
 ),
 last_used_tokens AS (
   SELECT client_id,
-         MAX(used_at) AS last_used
+         MAX(used_at)::timestamptz AS last_used
   FROM refresh_tokens
-  WHERE user_id = $1
-    AND used_at IS NOT NULL
-  GROUP BY client_id
+  WHERE refresh_tokens.user_id = $1
+    AND refresh_tokens.used_at IS NOT NULL
+  GROUP BY refresh_tokens.client_id
 )
 SELECT active_tokens.client_id,
        active_tokens.scopes,
@@ -27,16 +27,16 @@ ORDER BY active_tokens.client_id;
 -- name: RevokeActiveRefreshTokensByUserIDAndClientID :exec
 UPDATE refresh_tokens
 SET revoked_at = $1
-WHERE user_id = $2
-  AND client_id = $3
-  AND revoked_at IS NULL;
+WHERE refresh_tokens.user_id = $2
+  AND refresh_tokens.client_id = $3
+  AND refresh_tokens.revoked_at IS NULL;
 
 -- name: GetActiveSessionsByUserID :many
 SELECT s.id,
        s.expires_at,
-       COALESCE(login.ip_address::text, '') AS ip_address,
-       COALESCE(login.user_agent, '') AS user_agent,
-       login.created_at
+       COALESCE(login.ip_address::text, '')::text AS ip_address,
+       COALESCE(login.user_agent, '')::text AS user_agent,
+       COALESCE(login.created_at, s.created_at) AS created_at
 FROM sessions s
 LEFT JOIN LATERAL (
   SELECT audit_log.ip_address,
@@ -57,32 +57,32 @@ ORDER BY s.created_at DESC;
 -- name: RevokeSessionByUserIDAndID :exec
 UPDATE sessions
 SET revoked_at = $1
-WHERE user_id = $2
-  AND id = $3
-  AND revoked_at IS NULL;
+WHERE sessions.user_id = $2
+  AND sessions.id = $3
+  AND sessions.revoked_at IS NULL;
 
 -- name: RevokeOtherActiveSessionsByUserID :exec
 UPDATE sessions
 SET revoked_at = $1
-WHERE user_id = $2
-  AND id <> $3
-  AND expires_at > $4
-  AND revoked_at IS NULL;
+WHERE sessions.user_id = $2
+  AND sessions.id <> $3
+  AND sessions.expires_at > $4
+  AND sessions.revoked_at IS NULL;
 
 -- name: GetAuditLogByUserID :many
 SELECT id,
        event_type,
-       COALESCE(ip_address::text, '') AS ip_address,
-       COALESCE(user_agent, '') AS user_agent,
-       COALESCE(metadata, '{}'::jsonb) AS metadata,
+       COALESCE(ip_address::text, '')::text AS ip_address,
+       COALESCE(user_agent, '')::text AS user_agent,
+       COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata,
        created_at,
        COUNT(*) OVER() AS total
 FROM audit_log
-WHERE user_id = $1
+WHERE audit_log.user_id = NULLIF(sqlc.arg(user_id)::text, '')::uuid
 ORDER BY created_at DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountAuditLogByUserID :one
 SELECT COUNT(*)
 FROM audit_log
-WHERE user_id = $1;
+WHERE audit_log.user_id = NULLIF(sqlc.arg(user_id)::text, '')::uuid;

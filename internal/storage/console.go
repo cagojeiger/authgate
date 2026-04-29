@@ -124,10 +124,8 @@ func (s *Storage) GetActiveSessions(ctx context.Context, userID string) ([]Sessi
 			IPAddress: row.IpAddress,
 			UserAgent: row.UserAgent,
 		}
-		if row.CreatedAt.Valid {
-			createdAt := row.CreatedAt.Time
-			info.CreatedAt = &createdAt
-		}
+		createdAt := row.CreatedAt
+		info.CreatedAt = &createdAt
 		sessions = append(sessions, info)
 	}
 	return sessions, nil
@@ -154,9 +152,9 @@ func (s *Storage) RevokeOtherSessions(ctx context.Context, userID, currentSessio
 func (s *Storage) GetAuditLog(ctx context.Context, userID string, limit, offset int) (*AuditLogPage, error) {
 	q := storeq.New(s.db)
 	rows, err := q.GetAuditLogByUserID(ctx, storeq.GetAuditLogByUserIDParams{
-		UserID: userID,
-		Limit:  int32(limit),
-		Offset: int32(offset),
+		UserID:     userID,
+		PageLimit:  int32(limit),
+		PageOffset: int32(offset),
 	})
 	if err != nil {
 		return nil, err

@@ -14,24 +14,37 @@ import (
 	"github.com/lib/pq"
 )
 
+const countAuditLogByUserID = `-- name: CountAuditLogByUserID :one
+SELECT COUNT(*)
+FROM audit_log
+WHERE audit_log.user_id = NULLIF($1::text, '')::uuid
+`
+
+func (q *Queries) CountAuditLogByUserID(ctx context.Context, userID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAuditLogByUserID, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getActiveConnectionsByUserID = `-- name: GetActiveConnectionsByUserID :many
 WITH active_tokens AS (
   SELECT DISTINCT ON (client_id)
          client_id,
          scopes
   FROM refresh_tokens
-  WHERE user_id = $1
-    AND revoked_at IS NULL
-    AND expires_at > $2
-  ORDER BY client_id, created_at DESC
+  WHERE refresh_tokens.user_id = $1
+    AND refresh_tokens.revoked_at IS NULL
+    AND refresh_tokens.expires_at > $2
+  ORDER BY refresh_tokens.client_id, refresh_tokens.created_at DESC
 ),
 last_used_tokens AS (
   SELECT client_id,
-         MAX(used_at) AS last_used
+         MAX(used_at)::timestamptz AS last_used
   FROM refresh_tokens
-  WHERE user_id = $1
-    AND used_at IS NOT NULL
-  GROUP BY client_id
+  WHERE refresh_tokens.user_id = $1
+    AND refresh_tokens.used_at IS NOT NULL
+  GROUP BY refresh_tokens.client_id
 )
 SELECT active_tokens.client_id,
        active_tokens.scopes,
@@ -66,34 +79,21 @@ func (q *Queries) GetActiveConnectionsByUserID(ctx context.Context, arg GetActiv
 		}
 		items = append(items, i)
 	}
-	return items, rows.Err()
-}
-
-const revokeActiveRefreshTokensByUserIDAndClientID = `-- name: RevokeActiveRefreshTokensByUserIDAndClientID :exec
-UPDATE refresh_tokens
-SET revoked_at = $1
-WHERE user_id = $2
-  AND client_id = $3
-  AND revoked_at IS NULL
-`
-
-type RevokeActiveRefreshTokensByUserIDAndClientIDParams struct {
-	RevokedAt sql.NullTime
-	UserID    string
-	ClientID  string
-}
-
-func (q *Queries) RevokeActiveRefreshTokensByUserIDAndClientID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDAndClientIDParams) error {
-	_, err := q.db.ExecContext(ctx, revokeActiveRefreshTokensByUserIDAndClientID, arg.RevokedAt, arg.UserID, arg.ClientID)
-	return err
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getActiveSessionsByUserID = `-- name: GetActiveSessionsByUserID :many
 SELECT s.id,
        s.expires_at,
-       COALESCE(login.ip_address::text, '') AS ip_address,
-       COALESCE(login.user_agent, '') AS user_agent,
-       login.created_at
+       COALESCE(login.ip_address::text, '')::text AS ip_address,
+       COALESCE(login.user_agent, '')::text AS user_agent,
+       COALESCE(login.created_at, s.created_at) AS created_at
 FROM sessions s
 LEFT JOIN LATERAL (
   SELECT audit_log.ip_address,
@@ -122,7 +122,7 @@ type GetActiveSessionsByUserIDRow struct {
 	ExpiresAt time.Time
 	IpAddress string
 	UserAgent string
-	CreatedAt sql.NullTime
+	CreatedAt time.Time
 }
 
 func (q *Queries) GetActiveSessionsByUserID(ctx context.Context, arg GetActiveSessionsByUserIDParams) ([]GetActiveSessionsByUserIDRow, error) {
@@ -145,67 +145,33 @@ func (q *Queries) GetActiveSessionsByUserID(ctx context.Context, arg GetActiveSe
 		}
 		items = append(items, i)
 	}
-	return items, rows.Err()
-}
-
-const revokeSessionByUserIDAndID = `-- name: RevokeSessionByUserIDAndID :exec
-UPDATE sessions
-SET revoked_at = $1
-WHERE user_id = $2
-  AND id = $3
-  AND revoked_at IS NULL
-`
-
-type RevokeSessionByUserIDAndIDParams struct {
-	RevokedAt sql.NullTime
-	UserID    string
-	ID        string
-}
-
-func (q *Queries) RevokeSessionByUserIDAndID(ctx context.Context, arg RevokeSessionByUserIDAndIDParams) error {
-	_, err := q.db.ExecContext(ctx, revokeSessionByUserIDAndID, arg.RevokedAt, arg.UserID, arg.ID)
-	return err
-}
-
-const revokeOtherActiveSessionsByUserID = `-- name: RevokeOtherActiveSessionsByUserID :exec
-UPDATE sessions
-SET revoked_at = $1
-WHERE user_id = $2
-  AND id <> $3
-  AND expires_at > $4
-  AND revoked_at IS NULL
-`
-
-type RevokeOtherActiveSessionsByUserIDParams struct {
-	RevokedAt sql.NullTime
-	UserID    string
-	ID        string
-	ExpiresAt time.Time
-}
-
-func (q *Queries) RevokeOtherActiveSessionsByUserID(ctx context.Context, arg RevokeOtherActiveSessionsByUserIDParams) error {
-	_, err := q.db.ExecContext(ctx, revokeOtherActiveSessionsByUserID, arg.RevokedAt, arg.UserID, arg.ID, arg.ExpiresAt)
-	return err
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getAuditLogByUserID = `-- name: GetAuditLogByUserID :many
 SELECT id,
        event_type,
-       COALESCE(ip_address::text, '') AS ip_address,
-       COALESCE(user_agent, '') AS user_agent,
-       COALESCE(metadata, '{}'::jsonb) AS metadata,
+       COALESCE(ip_address::text, '')::text AS ip_address,
+       COALESCE(user_agent, '')::text AS user_agent,
+       COALESCE(metadata, '{}'::jsonb)::jsonb AS metadata,
        created_at,
        COUNT(*) OVER() AS total
 FROM audit_log
-WHERE user_id = $1
+WHERE audit_log.user_id = NULLIF($1::text, '')::uuid
 ORDER BY created_at DESC
-LIMIT $2 OFFSET $3
+LIMIT $3 OFFSET $2
 `
 
 type GetAuditLogByUserIDParams struct {
-	UserID string
-	Limit  int32
-	Offset int32
+	UserID     string
+	PageOffset int32
+	PageLimit  int32
 }
 
 type GetAuditLogByUserIDRow struct {
@@ -219,7 +185,7 @@ type GetAuditLogByUserIDRow struct {
 }
 
 func (q *Queries) GetAuditLogByUserID(ctx context.Context, arg GetAuditLogByUserIDParams) ([]GetAuditLogByUserIDRow, error) {
-	rows, err := q.db.QueryContext(ctx, getAuditLogByUserID, arg.UserID, arg.Limit, arg.Offset)
+	rows, err := q.db.QueryContext(ctx, getAuditLogByUserID, arg.UserID, arg.PageOffset, arg.PageLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -240,18 +206,75 @@ func (q *Queries) GetAuditLogByUserID(ctx context.Context, arg GetAuditLogByUser
 		}
 		items = append(items, i)
 	}
-	return items, rows.Err()
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-const countAuditLogByUserID = `-- name: CountAuditLogByUserID :one
-SELECT COUNT(*)
-FROM audit_log
-WHERE user_id = $1
+const revokeActiveRefreshTokensByUserIDAndClientID = `-- name: RevokeActiveRefreshTokensByUserIDAndClientID :exec
+UPDATE refresh_tokens
+SET revoked_at = $1
+WHERE refresh_tokens.user_id = $2
+  AND refresh_tokens.client_id = $3
+  AND refresh_tokens.revoked_at IS NULL
 `
 
-func (q *Queries) CountAuditLogByUserID(ctx context.Context, userID string) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countAuditLogByUserID, userID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
+type RevokeActiveRefreshTokensByUserIDAndClientIDParams struct {
+	RevokedAt sql.NullTime
+	UserID    string
+	ClientID  string
+}
+
+func (q *Queries) RevokeActiveRefreshTokensByUserIDAndClientID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDAndClientIDParams) error {
+	_, err := q.db.ExecContext(ctx, revokeActiveRefreshTokensByUserIDAndClientID, arg.RevokedAt, arg.UserID, arg.ClientID)
+	return err
+}
+
+const revokeOtherActiveSessionsByUserID = `-- name: RevokeOtherActiveSessionsByUserID :exec
+UPDATE sessions
+SET revoked_at = $1
+WHERE sessions.user_id = $2
+  AND sessions.id <> $3
+  AND sessions.expires_at > $4
+  AND sessions.revoked_at IS NULL
+`
+
+type RevokeOtherActiveSessionsByUserIDParams struct {
+	RevokedAt sql.NullTime
+	UserID    string
+	ID        string
+	ExpiresAt time.Time
+}
+
+func (q *Queries) RevokeOtherActiveSessionsByUserID(ctx context.Context, arg RevokeOtherActiveSessionsByUserIDParams) error {
+	_, err := q.db.ExecContext(ctx, revokeOtherActiveSessionsByUserID,
+		arg.RevokedAt,
+		arg.UserID,
+		arg.ID,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
+const revokeSessionByUserIDAndID = `-- name: RevokeSessionByUserIDAndID :exec
+UPDATE sessions
+SET revoked_at = $1
+WHERE sessions.user_id = $2
+  AND sessions.id = $3
+  AND sessions.revoked_at IS NULL
+`
+
+type RevokeSessionByUserIDAndIDParams struct {
+	RevokedAt sql.NullTime
+	UserID    string
+	ID        string
+}
+
+func (q *Queries) RevokeSessionByUserIDAndID(ctx context.Context, arg RevokeSessionByUserIDAndIDParams) error {
+	_, err := q.db.ExecContext(ctx, revokeSessionByUserIDAndID, arg.RevokedAt, arg.UserID, arg.ID)
+	return err
 }

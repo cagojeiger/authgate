@@ -166,10 +166,11 @@ func TestDeviceCallback_NewUser_SignupRequired(t *testing.T) {
 }
 
 func TestDeviceCallback_ExistingUser_RedirectBack(t *testing.T) {
-	svc, store, _ := setupDeviceService(t)
+	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
 	store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "device-cb@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "device-sub-123", ProviderEmail: "dc@test.com"})
+	insertDeviceCode(t, store, "RDIR-CODE", clk)
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "RDIR-CODE", "127.0.0.1", "test")
 	if result.Action != DeviceRedirectBack {
@@ -270,7 +271,7 @@ func TestDeviceApprove_AfterStatusTransition_Rejected(t *testing.T) {
 			svc, store, clk := setupDeviceExtTest(t, "dev-approve-"+tt.status)
 			ctx := context.Background()
 
-			user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-approve-"+tt.status+"@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "dev-approve-"+tt.status, ProviderEmail: "dev-approve-"+tt.status+"@test.com"})
+			user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-approve-" + tt.status + "@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "dev-approve-" + tt.status, ProviderEmail: "dev-approve-" + tt.status + "@test.com"})
 			sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 			insertDeviceCode(t, store, "ASTA-"+tt.status, clk)
 

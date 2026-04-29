@@ -26,9 +26,10 @@ func (r *CleanupRunner) WithExclusiveLock(ctx context.Context, fn func(context.C
 		return false, err
 	}
 	defer conn.Close()
+	qconn := storeq.New(conn)
 
-	var acquired bool
-	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, cleanupAdvisoryLockKey).Scan(&acquired); err != nil {
+	acquired, err := qconn.TryCleanupAdvisoryLock(ctx, cleanupAdvisoryLockKey)
+	if err != nil {
 		return false, err
 	}
 	if !acquired {
@@ -37,8 +38,7 @@ func (r *CleanupRunner) WithExclusiveLock(ctx context.Context, fn func(context.C
 
 	runErr := fn(ctx)
 
-	var released bool
-	unlockErr := conn.QueryRowContext(ctx, `SELECT pg_advisory_unlock($1)`, cleanupAdvisoryLockKey).Scan(&released)
+	released, unlockErr := qconn.UnlockCleanupAdvisoryLock(ctx, cleanupAdvisoryLockKey)
 
 	if runErr != nil {
 		return true, runErr

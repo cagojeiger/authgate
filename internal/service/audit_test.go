@@ -101,13 +101,14 @@ func TestAudit002_LoginChannels(t *testing.T) {
 	})
 
 	t.Run("device", func(t *testing.T) {
-		svc, store, _ := setupDeviceExtTest(t, "audit-device-sub")
+		svc, store, clk := setupDeviceExtTest(t, "audit-device-sub")
 		ctx := context.Background()
 
 		user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device@test.com", EmailVerified: true, Name: "Device", AvatarURL: "", Provider: "google", ProviderUserID: "audit-device-sub", ProviderEmail: "audit-device@test.com"})
 		if err != nil {
 			t.Fatalf("create user: %v", err)
 		}
+		insertDeviceCode(t, store, "AUDT-DEV", clk)
 
 		result := svc.HandleDeviceCallback(ctx, "fake-code", "AUDT-DEV", "127.0.0.1", "device-agent")
 		if result.Action != DeviceRedirectBack {
@@ -243,8 +244,12 @@ func TestAudit009_InactiveUser(t *testing.T) {
 			if err := store.SetUserStatus(ctx, user.ID, tt.status); err != nil {
 				t.Fatalf("set user status: %v", err)
 			}
+			arID, err := store.CreateTestAuthRequest(ctx, "audit-inactive-"+tt.name)
+			if err != nil {
+				t.Fatalf("create auth request: %v", err)
+			}
 
-			result := svc.HandleCallback(ctx, "fake-code", "audit-inactive", "127.0.0.1", "inactive-agent")
+			result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "inactive-agent")
 			if result.Action != ActionError {
 				t.Fatalf("action = %v, want Error", result.Action)
 			}

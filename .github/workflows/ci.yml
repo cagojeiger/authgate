@@ -51,14 +51,14 @@ jobs:
 
       - name: Enforce sqlc-only runtime DB access
         run: |
-          if rg -n 'ExecContext\(|QueryRowContext\(|QueryContext\(|PrepareContext\(' \
+          if git grep -nE 'ExecContext\(|QueryRowContext\(|QueryContext\(|PrepareContext\(' -- \
             internal/storage \
-            --glob '!**/storeq/**' \
-            --glob '!**/*_test.go'; then
+            ':(exclude)internal/storage/**/storeq/**' \
+            ':(exclude)**/*_test.go'; then
             echo "Direct SQL calls are not allowed in runtime storage code. Use sqlc queries in internal/db/queries and generated storeq."
             exit 1
           fi
-          if rg -n 'parsePostgresArray|func \(a \*?StringArray\) (Scan|Value)\(' internal/storage; then
+          if git grep -nE 'parsePostgresArray|func \(a [^)]*StringArray\) (Scan|Value)\(' -- internal/storage; then
             echo "Manual postgres array parsers/scanners are not allowed. Use sqlc/driver array handling."
             exit 1
           fi

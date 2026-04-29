@@ -18,6 +18,12 @@ WHERE expires_at < sqlc.arg(cutoff);
 DELETE FROM device_codes
 WHERE expires_at < sqlc.arg(cutoff);
 
+-- name: TryCleanupAdvisoryLock :one
+SELECT pg_try_advisory_lock(sqlc.arg(lock_key)::bigint);
+
+-- name: UnlockCleanupAdvisoryLock :one
+SELECT pg_advisory_unlock(sqlc.arg(lock_key)::bigint);
+
 -- name: ListPendingDeletionUserIDsBefore :many
 SELECT id
 FROM users
