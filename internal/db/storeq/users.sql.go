@@ -201,6 +201,54 @@ func (q *Queries) InsertTestAuthRequest(ctx context.Context, arg InsertTestAuthR
 	return err
 }
 
+const insertTestAuthRequestWithResource = `-- name: InsertTestAuthRequestWithResource :exec
+INSERT INTO auth_requests (
+  id,
+  client_id,
+  redirect_uri,
+  scopes,
+  state,
+  nonce,
+  code_challenge,
+  code_challenge_method,
+  resource,
+  expires_at,
+  created_at
+)
+VALUES (
+  $1,
+  'test-app',
+  'http://localhost/callback',
+  '{openid}',
+  $2,
+  'test-nonce',
+  'E9Melhoa2OwvFrEMT',
+  'S256',
+  $3,
+  $4,
+  $5
+)
+`
+
+type InsertTestAuthRequestWithResourceParams struct {
+	ID        string
+	State     sql.NullString
+	Resource  sql.NullString
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+func (q *Queries) InsertTestAuthRequestWithResource(ctx context.Context, arg InsertTestAuthRequestWithResourceParams) error {
+	_, err := q.db.ExecContext(ctx, insertTestAuthRequestWithResource,
+		arg.ID,
+		arg.State,
+		arg.Resource,
+		arg.ExpiresAt,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const insertUser = `-- name: InsertUser :exec
 INSERT INTO users (id, email, email_verified, name, avatar_url, status, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, 'active', $6, $6)

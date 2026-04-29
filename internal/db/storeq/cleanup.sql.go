@@ -185,3 +185,25 @@ func (q *Queries) MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedBy
 	_, err := q.db.ExecContext(ctx, markUserDeletedByID, arg.DeletedAt, arg.UserID)
 	return err
 }
+
+const tryCleanupAdvisoryLock = `-- name: TryCleanupAdvisoryLock :one
+SELECT pg_try_advisory_lock($1::bigint)
+`
+
+func (q *Queries) TryCleanupAdvisoryLock(ctx context.Context, lockKey int64) (bool, error) {
+	row := q.db.QueryRowContext(ctx, tryCleanupAdvisoryLock, lockKey)
+	var pg_try_advisory_lock bool
+	err := row.Scan(&pg_try_advisory_lock)
+	return pg_try_advisory_lock, err
+}
+
+const unlockCleanupAdvisoryLock = `-- name: UnlockCleanupAdvisoryLock :one
+SELECT pg_advisory_unlock($1::bigint)
+`
+
+func (q *Queries) UnlockCleanupAdvisoryLock(ctx context.Context, lockKey int64) (bool, error) {
+	row := q.db.QueryRowContext(ctx, unlockCleanupAdvisoryLock, lockKey)
+	var pg_advisory_unlock bool
+	err := row.Scan(&pg_advisory_unlock)
+	return pg_advisory_unlock, err
+}

@@ -85,3 +85,31 @@ VALUES (
   $3,
   $4
 );
+
+-- name: InsertTestAuthRequestWithResource :exec
+INSERT INTO auth_requests (
+  id,
+  client_id,
+  redirect_uri,
+  scopes,
+  state,
+  nonce,
+  code_challenge,
+  code_challenge_method,
+  resource,
+  expires_at,
+  created_at
+)
+VALUES (
+  $1,
+  'test-app',
+  'http://localhost/callback',
+  '{openid}',
+  $2,
+  'test-nonce',
+  'E9Melhoa2OwvFrEMT',
+  'S256',
+  $3,
+  $4,
+  $5
+);

@@ -25,11 +25,11 @@ type Querier interface {
 	DeleteSessionsByUserID(ctx context.Context, userID string) error
 	DeleteUserIdentitiesByUserID(ctx context.Context, userID string) error
 	DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error
-	GetAuthRequestByCode(ctx context.Context, code sql.NullString) (GetAuthRequestByCodeRow, error)
-	GetAuthRequestByID(ctx context.Context, id string) (GetAuthRequestByIDRow, error)
 	GetActiveConnectionsByUserID(ctx context.Context, arg GetActiveConnectionsByUserIDParams) ([]GetActiveConnectionsByUserIDRow, error)
 	GetActiveSessionsByUserID(ctx context.Context, arg GetActiveSessionsByUserIDParams) ([]GetActiveSessionsByUserIDRow, error)
 	GetAuditLogByUserID(ctx context.Context, arg GetAuditLogByUserIDParams) ([]GetAuditLogByUserIDRow, error)
+	GetAuthRequestByCode(ctx context.Context, code sql.NullString) (GetAuthRequestByCodeRow, error)
+	GetAuthRequestByID(ctx context.Context, id string) (GetAuthRequestByIDRow, error)
 	GetDeviceAuthorizationForUpdate(ctx context.Context, arg GetDeviceAuthorizationForUpdateParams) (GetDeviceAuthorizationForUpdateRow, error)
 	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (GetDeviceCodeByUserCodeRow, error)
 	GetRefreshFamilyIDByTokenHash(ctx context.Context, tokenHash string) (string, error)
@@ -47,6 +47,7 @@ type Querier interface {
 	InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) error
 	InsertSession(ctx context.Context, arg InsertSessionParams) error
 	InsertTestAuthRequest(ctx context.Context, arg InsertTestAuthRequestParams) error
+	InsertTestAuthRequestWithResource(ctx context.Context, arg InsertTestAuthRequestWithResourceParams) error
 	InsertUser(ctx context.Context, arg InsertUserParams) error
 	InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error
 	ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff sql.NullTime) ([]string, error)
@@ -63,6 +64,8 @@ type Querier interface {
 	RevokeSessionByUserIDAndID(ctx context.Context, arg RevokeSessionByUserIDAndIDParams) error
 	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error
 	SetUserStatusByID(ctx context.Context, arg SetUserStatusByIDParams) error
+	TryCleanupAdvisoryLock(ctx context.Context, lockKey int64) (bool, error)
+	UnlockCleanupAdvisoryLock(ctx context.Context, lockKey int64) (bool, error)
 	UpdateAuthRequestCode(ctx context.Context, arg UpdateAuthRequestCodeParams) error
 	UpdateDeviceCodeStateConsumedByID(ctx context.Context, id string) error
 }
