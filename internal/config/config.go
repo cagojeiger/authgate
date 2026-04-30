@@ -39,6 +39,10 @@ type Config struct {
 	RateLimitTokenBurst   int
 	RateLimitAuthRPS      float64
 	RateLimitAuthBurst    int
+	// TrustedProxies is a comma-separated list of CIDRs whose source addresses
+	// are allowed to set X-Forwarded-For. Empty means no proxy is trusted —
+	// the safe default for a deployment without an explicitly configured edge.
+	TrustedProxies        string
 }
 
 func Load() (*Config, error) {
@@ -73,6 +77,7 @@ func Load() (*Config, error) {
 		RateLimitTokenBurst:   envInt("RATE_LIMIT_TOKEN_BURST", 60),
 		RateLimitAuthRPS:      envFloat("RATE_LIMIT_AUTH_RPS", 10),
 		RateLimitAuthBurst:    envInt("RATE_LIMIT_AUTH_BURST", 20),
+		TrustedProxies:        os.Getenv("TRUSTED_PROXIES"),
 	}
 
 	if c.DatabaseURL == "" {

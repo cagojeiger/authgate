@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/service"
 )
 
@@ -33,8 +34,9 @@ func (h *AccountHandler) HandleDeleteAccount(w http.ResponseWriter, r *http.Requ
 	}
 
 	sessionID := getSessionCookie(r)
+	info := clientinfo.FromContext(r.Context())
 
-	result := h.accountService.RequestDeletion(r.Context(), sessionID, r.RemoteAddr, r.UserAgent())
+	result := h.accountService.RequestDeletion(r.Context(), sessionID, info.IP, info.UserAgent)
 
 	w.Header().Set("Content-Type", "application/json")
 	if result.Success {

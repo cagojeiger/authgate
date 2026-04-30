@@ -22,6 +22,7 @@ import (
 	"golang.org/x/time/rate"
 
 	mcpadapter "github.com/kangheeyong/authgate/internal/adapter/mcp"
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/config"
 	"github.com/kangheeyong/authgate/internal/db/migrator"
@@ -88,8 +89,16 @@ func main() {
 	httpMetrics := observability.NewHTTPMetrics()
 	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, httpMetrics, &isShuttingDown)
 
-	// Wrap the mux with CORS middleware so all endpoints benefit.
-	corsHandler := middleware.NewCORSMiddleware(allowedOrigins)(mux)
+	trustedProxies, err := clientinfo.ParseTrustedProxies(cfg.TrustedProxies)
+	if err != nil {
+		log.Fatalf("config: TRUSTED_PROXIES: %v", err)
+	}
+
+	// clientinfo wraps the mux so every handler/middleware downstream reads
+	// IP/UA from request context instead of r.RemoteAddr/r.UserAgent() directly.
+	clientInfoHandler := clientinfo.Middleware(trustedProxies)(mux)
+	// CORS sits outside clientinfo because it inspects only the Origin header.
+	corsHandler := middleware.NewCORSMiddleware(allowedOrigins)(clientInfoHandler)
 	// RequestIDMiddleware runs first so every handler has a request ID in context.
 	requestIDHandler := middleware.RequestIDMiddleware(corsHandler)
 
