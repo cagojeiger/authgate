@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/pages"
 	"github.com/kangheeyong/authgate/internal/service"
 )
@@ -25,8 +26,9 @@ func NewLoginHandler(loginService *service.LoginService, devMode bool, brandName
 func (h *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	authRequestID := r.URL.Query().Get("authRequestID")
 	sessionID := getSessionCookie(r)
+	info := clientinfo.FromContext(r.Context())
 
-	result := h.loginService.HandleLogin(r.Context(), authRequestID, sessionID, r.RemoteAddr, r.UserAgent())
+	result := h.loginService.HandleLogin(r.Context(), authRequestID, sessionID, info.IP, info.UserAgent)
 
 	switch result.Action {
 	case service.ActionRedirectToIdP:
@@ -45,10 +47,9 @@ func (h *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 func (h *LoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	authRequestID := r.URL.Query().Get("state")
-	ipAddress := r.RemoteAddr
-	userAgent := r.UserAgent()
+	info := clientinfo.FromContext(r.Context())
 
-	result := h.loginService.HandleCallback(r.Context(), code, authRequestID, ipAddress, userAgent)
+	result := h.loginService.HandleCallback(r.Context(), code, authRequestID, info.IP, info.UserAgent)
 
 	if result.SessionID != "" {
 		setSessionCookie(w, result.SessionID, h.devMode)

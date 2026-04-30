@@ -2,12 +2,13 @@ package middleware
 
 import (
 	"encoding/json"
-	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 )
 
 type ipLimiter struct {
@@ -39,7 +40,13 @@ func NewRateLimiter(r rate.Limit, b int) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ip := extractIP(req)
+			ip := clientinfo.FromContext(req.Context()).IP
+			if ip == "" {
+				// Fall back to RemoteAddr host if clientinfo middleware was not
+				// installed (test or partially-configured deployment). This
+				// preserves limit behavior at the cost of one parse on miss.
+				ip = req.RemoteAddr
+			}
 			if !rl.allow(ip) {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "1")
@@ -90,38 +97,3 @@ func (rl *RateLimiter) evict(maxAge time.Duration) {
 	}
 }
 
-// extractIP returns the client IP, preferring X-Forwarded-For over RemoteAddr.
-func extractIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take first (leftmost) address which is the original client.
-		if idx := len(xff); idx > 0 {
-			first := xff
-			for i, c := range xff {
-				if c == ',' {
-					first = xff[:i]
-					break
-				}
-			}
-			ip := net.ParseIP(trimSpace(first))
-			if ip != nil {
-				return ip.String()
-			}
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
-func trimSpace(s string) string {
-	start, end := 0, len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
-		end--
-	}
-	return s[start:end]
-}

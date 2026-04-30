@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/pages"
 	"github.com/kangheeyong/authgate/internal/service"
 )
@@ -70,8 +71,9 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 func (h *DeviceHandler) HandleDeviceCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	userCode := r.URL.Query().Get("state")
+	info := clientinfo.FromContext(r.Context())
 
-	result := h.deviceService.HandleDeviceCallback(r.Context(), code, userCode, r.RemoteAddr, r.UserAgent())
+	result := h.deviceService.HandleDeviceCallback(r.Context(), code, userCode, info.IP, info.UserAgent)
 
 	switch result.Action {
 	case service.DeviceRedirectBack:
@@ -114,8 +116,9 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	userCode := r.FormValue("user_code")
 	action := r.FormValue("action")
 	sessionID := getSessionCookie(r)
+	info := clientinfo.FromContext(r.Context())
 
-	result := h.deviceService.HandleDeviceApprove(r.Context(), userCode, action, sessionID, r.RemoteAddr, r.UserAgent())
+	result := h.deviceService.HandleDeviceApprove(r.Context(), userCode, action, sessionID, info.IP, info.UserAgent)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if !result.Success && result.ErrorCode != 0 {
