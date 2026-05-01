@@ -10,6 +10,7 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/db/storeq"
 )
 
@@ -176,7 +177,8 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 
 	// Audit token.refresh only when this is a refresh-token grant (not the initial code exchange).
 	if currentRefreshToken != "" {
-		s.AuditLog(ctx, &derived.userID, EventTokenRefresh, "", "", map[string]any{
+		info := clientinfo.FromContext(ctx)
+		s.AuditLog(ctx, &derived.userID, EventTokenRefresh, info.IP, info.UserAgent, map[string]any{
 			"client_id": derived.clientID,
 			"family_id": derived.familyID,
 		})
@@ -243,21 +245,23 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 	if err != nil {
 		return err
 	}
-	s.AuditLog(ctx, &userID, EventAuthLogout, "", "", nil)
+	info := clientinfo.FromContext(ctx)
+	s.AuditLog(ctx, &userID, EventAuthLogout, info.IP, info.UserAgent, nil)
 	return nil
 }
 
 func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID string, clientID string) *oidc.Error {
 	now := s.clock.Now()
 	q := storeq.New(s.db)
+	info := clientinfo.FromContext(ctx)
 
 	if tryRevokeRefreshByHash(ctx, q, tokenOrTokenID, now) {
-		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, "", "", map[string]any{"client_id": clientID})
+		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, info.IP, info.UserAgent, map[string]any{"client_id": clientID})
 		return nil
 	}
 
 	if tryRevokeRefreshByIDReturning(ctx, q, tokenOrTokenID, now) {
-		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, "", "", map[string]any{"client_id": clientID})
+		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, info.IP, info.UserAgent, map[string]any{"client_id": clientID})
 	}
 
 	// RFC 7009: always return 200 regardless of whether anything was revoked
@@ -411,8 +415,9 @@ func revokeRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, family
 }
 
 func (s *Storage) auditRefreshReuseDetection(ctx context.Context, userID, familyID string) {
-	s.AuditLog(ctx, &userID, "auth.refresh_reuse_detected", "", "", map[string]any{"family_id": familyID})
-	s.AuditLog(ctx, &userID, "auth.refresh_family_revoked", "", "", map[string]any{"family_id": familyID})
+	info := clientinfo.FromContext(ctx)
+	s.AuditLog(ctx, &userID, "auth.refresh_reuse_detected", info.IP, info.UserAgent, map[string]any{"family_id": familyID})
+	s.AuditLog(ctx, &userID, "auth.refresh_family_revoked", info.IP, info.UserAgent, map[string]any{"family_id": familyID})
 }
 
 func (s *Storage) validateRefreshTokenRequest(ctx context.Context, tx *sql.Tx, rt *RefreshTokenModel, now time.Time) error {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/storage"
 )
 
@@ -230,7 +231,8 @@ func (s *ConsoleService) RevokeConnection(ctx context.Context, sessionID, authHe
 	if err := s.store.RevokeConnection(ctx, auth.user.ID, clientID); err != nil {
 		return &RevokeConnectionResult{ErrorCode: http.StatusInternalServerError}
 	}
-	s.store.AuditLog(ctx, &auth.user.ID, "auth.connection_revoked", "", "", map[string]any{"client_id": clientID})
+	info := clientinfo.FromContext(ctx)
+	s.store.AuditLog(ctx, &auth.user.ID, "auth.connection_revoked", info.IP, info.UserAgent, map[string]any{"client_id": clientID})
 	return &RevokeConnectionResult{}
 }
 
@@ -248,7 +250,8 @@ func (s *ConsoleService) RevokeSession(ctx context.Context, sessionID, authHeade
 	if err := s.store.RevokeSession(ctx, auth.user.ID, revokeSessionID); err != nil {
 		return &RevokeSessionResult{ErrorCode: http.StatusInternalServerError}
 	}
-	s.store.AuditLog(ctx, &auth.user.ID, "auth.session_revoked", "", "", map[string]any{"session_id": revokeSessionID})
+	info := clientinfo.FromContext(ctx)
+	s.store.AuditLog(ctx, &auth.user.ID, "auth.session_revoked", info.IP, info.UserAgent, map[string]any{"session_id": revokeSessionID})
 	return &RevokeSessionResult{}
 }
 
