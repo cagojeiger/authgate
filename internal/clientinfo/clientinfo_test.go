@@ -40,13 +40,16 @@ func TestExtract_NoTrust_IgnoresXFF(t *testing.T) {
 	}
 }
 
-func TestExtract_Trust_UsesXFFLeftmost(t *testing.T) {
+// Rightmost-untrusted walk: with no entries inside the trusted CIDR, the
+// rightmost entry is the immediate proxy upstream we trust by topology
+// (the IP appended by the closest proxy), which is the original client.
+func TestExtract_Trust_UsesXFFRightmostUntrusted(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "10.244.2.54:443"
 	r.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8")
 	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
-	if got.IP != "1.2.3.4" {
-		t.Fatalf("IP = %q, want 1.2.3.4", got.IP)
+	if got.IP != "5.6.7.8" {
+		t.Fatalf("IP = %q, want 5.6.7.8 (rightmost untrusted)", got.IP)
 	}
 }
 
@@ -103,23 +106,23 @@ func TestExtract_PortStripped_IPv6(t *testing.T) {
 	}
 }
 
-func TestExtract_XFFMultipleHops_TakesLeftmost(t *testing.T) {
+func TestExtract_XFFMultipleHops_TakesRightmostUntrusted(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "10.244.0.5:443"
 	r.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8, 9.0.1.2")
 	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
-	if got.IP != "1.2.3.4" {
-		t.Fatalf("IP = %q, want leftmost 1.2.3.4", got.IP)
+	if got.IP != "9.0.1.2" {
+		t.Fatalf("IP = %q, want rightmost untrusted 9.0.1.2", got.IP)
 	}
 }
 
 func TestExtract_XFFWhitespaceTrimmed(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "10.244.0.5:443"
-	r.Header.Set("X-Forwarded-For", "  1.2.3.4  , 5.6.7.8")
+	r.Header.Set("X-Forwarded-For", "1.2.3.4 ,  5.6.7.8  ")
 	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
-	if got.IP != "1.2.3.4" {
-		t.Fatalf("IP = %q, want 1.2.3.4", got.IP)
+	if got.IP != "5.6.7.8" {
+		t.Fatalf("IP = %q, want 5.6.7.8", got.IP)
 	}
 }
 
@@ -155,13 +158,26 @@ func TestExtract_Trust_GarbageXFF_FallsBackToRemoteAddr(t *testing.T) {
 	}
 }
 
-// IPv6 leftmost in XFF must round-trip correctly through normalization.
-// strings.Cut on the comma is safe because IPv6 addresses don't contain
-// commas, but we exercise it explicitly to lock the contract.
-func TestExtract_Trust_XFFIPv6Leftmost(t *testing.T) {
+// IPv6 in XFF must round-trip correctly through normalization. IPv6 entries
+// don't contain commas so the simple comma split is safe, but we exercise
+// it explicitly to lock the contract. The rightmost-untrusted walk picks
+// 5.6.7.8 (the rightmost entry, neither in the trusted CIDR).
+func TestExtract_Trust_XFFIPv6Mixed(t *testing.T) {
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "10.244.0.5:443"
 	r.Header.Set("X-Forwarded-For", "2001:db8::1, 5.6.7.8")
+	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
+	if got.IP != "5.6.7.8" {
+		t.Fatalf("IP = %q, want 5.6.7.8", got.IP)
+	}
+}
+
+// IPv6 standalone in a single-entry XFF must be returned by the rightmost
+// walk when it is not itself inside the trusted CIDR.
+func TestExtract_Trust_XFFIPv6Standalone(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.244.0.5:443"
+	r.Header.Set("X-Forwarded-For", "2001:db8::1")
 	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
 	if got.IP != "2001:db8::1" {
 		t.Fatalf("IP = %q, want 2001:db8::1", got.IP)
@@ -175,6 +191,108 @@ func TestExtract_EmptyXFF_FallsBackToRemoteAddr(t *testing.T) {
 	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
 	if got.IP != "10.244.0.5" {
 		t.Fatalf("IP = %q, want 10.244.0.5", got.IP)
+	}
+}
+
+// X-Envoy-External-Address is the istio/envoy ingress's spoof-resistant
+// single-IP header; when present and the request hop is trusted, it wins
+// over X-Forwarded-For walking entirely.
+func TestExtract_Trust_XEnvoyExternalAddress_Used(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.244.2.54:443"
+	r.Header.Set("X-Envoy-External-Address", "175.210.118.204")
+	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
+	if got.IP != "175.210.118.204" {
+		t.Fatalf("IP = %q, want 175.210.118.204", got.IP)
+	}
+}
+
+// Both headers present: X-Envoy-External-Address wins because envoy
+// guarantees it (overwrites incoming) whereas XFF leftmost is freely
+// settable by the client.
+func TestExtract_Trust_XEnvoyExternalAddress_TakesPrecedenceOverXFF(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.244.2.54:443"
+	r.Header.Set("X-Envoy-External-Address", "175.210.118.204")
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 175.210.118.204, 10.244.2.1")
+	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
+	if got.IP != "175.210.118.204" {
+		t.Fatalf("IP = %q, want 175.210.118.204 (envoy header beats XFF)", got.IP)
+	}
+}
+
+// Empty or unparseable X-Envoy-External-Address must fall through to the
+// XFF rightmost-untrusted walk so a misconfigured envoy doesn't blank out
+// IP recording.
+func TestExtract_Trust_XEnvoyExternalAddress_Garbage_FallsBackToXFF(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.244.2.54:443"
+	r.Header.Set("X-Envoy-External-Address", "not-an-ip")
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 175.210.118.204, 10.244.2.1")
+	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
+	if got.IP != "175.210.118.204" {
+		t.Fatalf("IP = %q, want 175.210.118.204 (XFF fallback)", got.IP)
+	}
+}
+
+// Production XFF shape under our osaka topology:
+//
+//	user appended:           1.2.3.4         (spoofable, leftmost)
+//	OCI Flexible LB appended: 175.210.118.204 (real client IP)
+//	envoy appended:           10.244.2.1     (SNAT'd k8s node, in trusted CIDR)
+//
+// The rightmost-untrusted walk skips 10.244.2.1 (trusted) and returns
+// 175.210.118.204, ignoring the spoofed leftmost entry. This locks the
+// security contract for the deployment.
+func TestExtract_Trust_XFFRightmostWalk_SkipsTrustedSuffix(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.244.2.54:443"
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 175.210.118.204, 10.244.2.1")
+	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
+	if got.IP != "175.210.118.204" {
+		t.Fatalf("IP = %q, want 175.210.118.204", got.IP)
+	}
+}
+
+// Spoof regression test: a malicious leftmost in XFF must never become the
+// recorded IP when the envoy header is absent and a trusted suffix exists.
+func TestExtract_Trust_XFFSpoofedLeftmost_NotUsed(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.244.2.54:443"
+	// Attacker sends a single-entry XFF; OCI LB appends the real IP; envoy
+	// appends the SNAT'd node. The leftmost (attacker) must not win.
+	r.Header.Set("X-Forwarded-For", "203.0.113.99, 175.210.118.204, 10.244.2.1")
+	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
+	if got.IP == "203.0.113.99" {
+		t.Fatalf("IP = %q, leftmost spoof must never be returned", got.IP)
+	}
+	if got.IP != "175.210.118.204" {
+		t.Fatalf("IP = %q, want 175.210.118.204", got.IP)
+	}
+}
+
+// All XFF entries inside the trusted CIDR (degenerate config or internal
+// loop) must fall back to the bare RemoteAddr instead of returning "".
+func TestExtract_Trust_XFFAllTrusted_FallsBackToRemoteAddr(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.244.2.54:443"
+	r.Header.Set("X-Forwarded-For", "10.244.0.5, 10.244.2.1")
+	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
+	if got.IP != "10.244.2.54" {
+		t.Fatalf("IP = %q, want 10.244.2.54 (no untrusted entry → bare RemoteAddr)", got.IP)
+	}
+}
+
+// When the immediate hop is outside the trusted CIDR, even a present
+// X-Envoy-External-Address must be ignored — an attacker reaching the app
+// directly must not be able to set the audit IP.
+func TestExtract_UntrustedHop_IgnoresXEnvoyExternalAddress(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "198.51.100.7:51234"
+	r.Header.Set("X-Envoy-External-Address", "1.2.3.4")
+	got := Extract(r, mustParseTrusted(t, "10.244.0.0/16"))
+	if got.IP != "198.51.100.7" {
+		t.Fatalf("IP = %q, want 198.51.100.7 (untrusted hop must not honor envoy header)", got.IP)
 	}
 }
 
