@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/storage"
 	"github.com/kangheeyong/authgate/internal/upstream"
@@ -189,7 +190,8 @@ func (s *DeviceService) ensureDeviceSessionAccess(ctx context.Context, user *sto
 		return nil
 	}
 
-	s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", "", "", map[string]any{"status": user.Status, "channel": "device"})
+	info := clientinfo.FromContext(ctx)
+	s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", info.IP, info.UserAgent, map[string]any{"status": user.Status, "channel": "device"})
 	return &DevicePageResult{Action: DeviceError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 }
 
