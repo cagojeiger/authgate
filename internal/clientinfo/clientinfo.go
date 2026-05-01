@@ -1,6 +1,6 @@
 // Package clientinfo extracts trusted client IP and User-Agent from an HTTP
-// request and threads the result through the request context. It honors
-// X-Forwarded-For only when the request hop is from a trusted proxy CIDR,
+// request and threads the result through the request context. Proxy headers
+// are honored only when the immediate hop is from a trusted proxy CIDR,
 // preventing arbitrary clients from spoofing audit IP.
 package clientinfo
 
@@ -24,10 +24,25 @@ type Info struct {
 	UserAgent string
 }
 
-// Extract returns Info derived from r. X-Forwarded-For is honored only when
-// the immediate hop (r.RemoteAddr) falls within one of the trusted CIDRs;
-// otherwise the header is ignored. Pass nil or empty trusted to disable
-// proxy trust entirely (safe default for self-deployed setups).
+// Extract returns Info derived from r. When r.RemoteAddr falls within a
+// trusted CIDR, the search order is:
+//  1. X-Envoy-External-Address — a single-IP header that an istio/envoy
+//     ingressgateway populates with its trusted-client computation (see
+//     numTrustedProxies/xff_num_trusted_hops). Envoy always overwrites any
+//     incoming value, so this is spoof-resistant when the gateway is in
+//     front.
+//  2. X-Forwarded-For via rightmost-untrusted walk — scan entries from the
+//     right, skip ones that fall inside a trusted CIDR, return the first
+//     untrusted entry. Trusted entries represent proxy hops we control; the
+//     first untrusted hop from the right is the original client (or the
+//     closest untrusted proxy). Leftmost-XFF parsing is avoided because the
+//     leftmost slot is freely settable by the client and not all upstream
+//     proxies (e.g. OCI Flexible LB) sanitize incoming XFF.
+//
+// When r.RemoteAddr is outside the trusted set, both proxy headers are
+// ignored and the bare RemoteAddr is returned. Pass nil or empty trusted to
+// disable proxy trust entirely (safe default for self-deployed setups with
+// no fronting proxy).
 func Extract(r *http.Request, trusted []*net.IPNet) Info {
 	if r == nil {
 		return Info{}
@@ -35,7 +50,9 @@ func Extract(r *http.Request, trusted []*net.IPNet) Info {
 	hopIP := normalizeAddr(r.RemoteAddr)
 	ip := hopIP
 	if hopIP != "" && isTrustedHop(hopIP, trusted) {
-		if xff := leftmostXFF(r.Header.Get("X-Forwarded-For")); xff != "" {
+		if envoy := normalizeAddr(r.Header.Get("X-Envoy-External-Address")); envoy != "" {
+			ip = envoy
+		} else if xff := rightmostUntrustedXFF(r.Header.Get("X-Forwarded-For"), trusted); xff != "" {
 			ip = xff
 		}
 	}
@@ -111,15 +128,27 @@ func normalizeAddr(addr string) string {
 	return ""
 }
 
-// leftmostXFF returns the leftmost client address from an X-Forwarded-For
-// value, normalized to a bare IP. Empty input or unparseable leftmost
-// returns "".
-func leftmostXFF(value string) string {
+// rightmostUntrustedXFF scans an X-Forwarded-For value right-to-left and
+// returns the first entry not inside a trusted CIDR. Returns "" when the
+// header is empty, every parseable entry is trusted, or no entry parses as
+// an IP. Garbage entries are skipped silently so that a malformed proxy
+// hop in the middle of a chain does not blank out a real client IP found
+// further right.
+func rightmostUntrustedXFF(value string, trusted []*net.IPNet) string {
 	if value == "" {
 		return ""
 	}
-	first, _, _ := strings.Cut(value, ",")
-	return normalizeAddr(first)
+	parts := strings.Split(value, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		ip := normalizeAddr(parts[i])
+		if ip == "" {
+			continue
+		}
+		if !isTrustedHop(ip, trusted) {
+			return ip
+		}
+	}
+	return ""
 }
 
 type ctxKey struct{}

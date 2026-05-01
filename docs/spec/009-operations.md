@@ -74,7 +74,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `RATE_LIMIT_TOKEN_BURST` | X | `60` | 토큰 엔드포인트 버스트 허용 요청 수 (최솟값: 1) |
 | `RATE_LIMIT_AUTH_RPS` | X | `10` | 인증 엔드포인트 (`/authorize`, `/login`) 초당 허용 요청 수 |
 | `RATE_LIMIT_AUTH_BURST` | X | `20` | 인증 엔드포인트 버스트 허용 요청 수 (최솟값: 1) |
-| `TRUSTED_PROXIES` | X | — | `X-Forwarded-For`를 신뢰할 프록시 CIDR (콤마 구분). 비워두면 헤더 무시 (안전한 기본값). 예: `10.244.0.0/16,127.0.0.1/32`. ingress-nginx 등 reverse proxy 뒤에서 운영할 때만 설정. |
+| `TRUSTED_PROXIES` | X | — | 프록시 hop으로 신뢰할 CIDR 목록 (콤마 구분). 직전 hop이 이 범위에 속할 때만 클라이언트 IP 추정에 (1) `X-Envoy-External-Address` 헤더 (envoy/istio 가 직접 계산하므로 spoof 불가), (2) `X-Forwarded-For` rightmost-untrusted walk 폴백을 사용한다. 비워두면 모든 프록시 헤더 무시. 예: `10.244.0.0/16,127.0.0.1/32`. istio ingressgateway 등 reverse proxy 뒤에서 운영할 때만 설정. |
 
 `ENABLE_MCP=false`인 경우 `clients.yaml`에 `login_channel: mcp` 항목이 있으면 서버 시작을 거부한다.
 
