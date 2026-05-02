@@ -41,7 +41,13 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 		})
 
 	case service.DeviceShowApprove:
-		csrfToken := generateCSRFToken()
+		csrfToken, err := generateCSRFToken()
+		if err != nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusInternalServerError)
+			pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: http.StatusInternalServerError, Message: "internal error"})
+			return
+		}
 		http.SetCookie(w, &http.Cookie{
 			Name:     "csrf_token",
 			Value:    csrfToken,
@@ -131,10 +137,10 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func generateCSRFToken() string {
+func generateCSRFToken() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
+		return "", err
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
