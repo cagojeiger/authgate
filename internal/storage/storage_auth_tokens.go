@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -448,10 +449,14 @@ func (s *Storage) validateRefreshTokenRequest(ctx context.Context, tx *sql.Tx, r
 
 func tryRevokeRefreshByHash(ctx context.Context, q *storeq.Queries, tokenOrTokenID string, now time.Time) bool {
 	h := hashToken(tokenOrTokenID)
-	rows, _ := q.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
+	rows, err := q.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
 		RevokedAt: sql.NullTime{Time: now, Valid: true},
 		TokenHash: h,
 	})
+	if err != nil {
+		slog.ErrorContext(ctx, "revoke refresh token by hash", "error", err)
+		return false
+	}
 	return rows > 0
 }
 
@@ -473,7 +478,11 @@ func tryRevokeRefreshByIDReturning(ctx context.Context, q *storeq.Queries, token
 		RevokedAt: sql.NullTime{Time: now, Valid: true},
 		ID:        tokenOrTokenID,
 	})
-	return err == nil
+	if err != nil {
+		slog.ErrorContext(ctx, "revoke refresh token by id", "error", err)
+		return false
+	}
+	return true
 }
 
 // GetAuthRequestModel fetches the auth request by ID and returns the concrete model.
