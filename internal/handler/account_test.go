@@ -51,6 +51,24 @@ func TestDeleteAccount_OriginMismatch_Forbidden(t *testing.T) {
 	}
 }
 
+func TestDeleteAccount_OriginAbsent_Forbidden(t *testing.T) {
+	h := newTestAccountHandler()
+	req := httptest.NewRequest(http.MethodDelete, "/account", nil)
+	// Origin header intentionally not set
+	w := httptest.NewRecorder()
+	h.HandleDeleteAccount(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403 for absent origin", w.Code)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("response body is not valid JSON: %v", err)
+	}
+	if body["error"] == "" {
+		t.Error("response JSON should contain non-empty error field")
+	}
+}
+
 // Origin이 publicURL과 정확히 일치하면 origin 체크를 통과해야 한다.
 // (이후 service 호출까지 진행 — nil service이므로 panic; recover로 확인)
 func TestDeleteAccount_OriginMatch_PassesOriginCheck(t *testing.T) {
@@ -82,6 +100,7 @@ func TestDeleteAccount_NoSession_Unauthorized(t *testing.T) {
 	h := NewAccountHandler(svc, "http://authgate.example.com")
 
 	req := httptest.NewRequest(http.MethodDelete, "/account", nil)
+	req.Header.Set("Origin", "http://authgate.example.com")
 	w := httptest.NewRecorder()
 	h.HandleDeleteAccount(w, req)
 

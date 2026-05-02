@@ -24,13 +24,14 @@ func (h *AccountHandler) HandleDeleteAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Origin validation for destructive action
-	if origin := r.Header.Get("Origin"); origin != "" {
-		if origin != h.publicURL {
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{"error": "origin mismatch"})
-			return
-		}
+	// Origin validation for destructive action.
+	// Require Origin to be present and match publicURL — protects against
+	// non-browser clients (curl, etc.) bypassing CSRF protection.
+	origin := r.Header.Get("Origin")
+	if origin == "" || origin != h.publicURL {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "origin mismatch"})
+		return
 	}
 
 	sessionID := getSessionCookie(r)
