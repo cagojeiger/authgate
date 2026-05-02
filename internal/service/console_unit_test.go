@@ -564,6 +564,30 @@ func TestConsole_RevokeOtherSessions_RevokesExceptCurrent(t *testing.T) {
 	}
 }
 
+func TestConsole_RevokeOtherSessions_AuditLogged(t *testing.T) {
+	var gotEventType string
+	var gotMetadata map[string]any
+	store := activeUserStore(nil, nil)
+	store.revokeOtherSessionsFn = func(ctx context.Context, userID, currentSessionID string) error {
+		return nil
+	}
+	store.auditLogFn = func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
+		gotEventType = eventType
+		gotMetadata = metadata
+	}
+	svc := NewConsoleService(store)
+	r := svc.RevokeOtherSessions(context.Background(), "sess-1", "")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if gotEventType != "auth.other_sessions_revoked" {
+		t.Fatalf("audit event=%q, want auth.other_sessions_revoked", gotEventType)
+	}
+	if gotMetadata["current_session_id"] != "sess-1" {
+		t.Fatalf("audit metadata current_session_id=%v, want sess-1", gotMetadata["current_session_id"])
+	}
+}
+
 // --- Audit log ---
 
 func TestConsole_GetAuditLog_DefaultsAndFormats(t *testing.T) {

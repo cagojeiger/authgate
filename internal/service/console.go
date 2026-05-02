@@ -269,6 +269,8 @@ func (s *ConsoleService) RevokeOtherSessions(ctx context.Context, sessionID, aut
 	if err := s.store.RevokeOtherSessions(ctx, auth.user.ID, auth.sessionID); err != nil {
 		return &RevokeOtherSessionsResult{ErrorCode: http.StatusInternalServerError}
 	}
+	info := clientinfo.FromContext(ctx)
+	s.store.AuditLog(ctx, &auth.user.ID, "auth.other_sessions_revoked", info.IP, info.UserAgent, map[string]any{"current_session_id": auth.sessionID})
 	return &RevokeOtherSessionsResult{}
 }
 
