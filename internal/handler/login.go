@@ -51,12 +51,11 @@ func (h *LoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	result := h.loginService.HandleCallback(r.Context(), code, authRequestID, info.IP, info.UserAgent)
 
-	if result.SessionID != "" {
-		setSessionCookie(w, result.SessionID, h.devMode)
-	}
-
 	switch result.Action {
 	case service.ActionAutoApprove:
+		if result.SessionID != "" {
+			setSessionCookie(w, result.SessionID, h.devMode)
+		}
 		http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
 
 	case service.ActionError:
