@@ -11,6 +11,12 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
+	// clientinfo is imported here as an intentional exception to the usual
+	// handler→service→storage layering. The op.Storage interface methods in
+	// this file (CreateAccessAndRefreshTokens, TerminateSession, RevokeToken,
+	// TokenRequestByRefreshToken) are dictated by zitadel-oidc and cannot
+	// take IP/UA as explicit parameters. The clientinfo middleware is
+	// required to populate the request context before these methods run.
 	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/db/storeq"
 )
