@@ -82,6 +82,7 @@ authgate를 처음 배포할 때 필요한 것:
 
 `DEV_MODE=false` (기본값)일 때 다음이 강제됨:
 - `SESSION_SECRET`이 비어있거나 32자 미만이면 **서버 시작 거부**
+- `PUBLIC_URL`이 `https://`로 시작하지 않으면 **서버 시작 거부** (issuer/authorization/token endpoint가 평문으로 광고되는 것을 방지)
 - `OIDC_ISSUER_URL`이 `https://`로 시작하지 않으면 **서버 시작 거부**
 - `OIDC_CLIENT_ID` 또는 `OIDC_CLIENT_SECRET`이 비어있으면 **서버 시작 거부**
 - 쿠키 `Secure=true`
