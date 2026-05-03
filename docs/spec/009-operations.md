@@ -53,6 +53,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `SESSION_SECRET` | O | — | OIDC 암호화 키 (최소 32자) |
 | `PUBLIC_URL` | O | — | 외부 접근 URL (예: `https://auth.example.com`) |
 | `OIDC_ISSUER_URL` | X | `http://localhost:8082` | OIDC IdP issuer URL (예: `https://accounts.google.com`) |
+| `OIDC_ISSUER_HOST_ALLOWLIST` | X | — | 콤마 구분 host 목록 (예: `accounts.google.com,login.microsoftonline.com`). 비어 있으면 검사 안 함. 설정되면 `OIDC_ISSUER_URL`의 host가 정확히 일치해야 시작. 운영자 misconfig 시 attacker IdP로 phishing redirect 되는 경로를 fail-fast로 차단한다. 운영에서 설정 권장. |
 | `OIDC_INTERNAL_URL` | X | — | 서버 간 OIDC 호출용 내부 URL (Docker/K8s 환경) |
 | `OIDC_HTTP_TIMEOUT_SEC` | X | `10` | Upstream OIDC HTTP 호출 timeout(초) |
 | `OIDC_CLIENT_ID` | X | `authgate` | OIDC Client ID |

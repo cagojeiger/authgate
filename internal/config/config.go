@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,14 @@ type Config struct {
 	SessionSecret         string
 	PublicURL             string
 	OIDCIssuerURL         string
+	// OIDCIssuerHostAllowlist is an optional comma-separated list of hosts the
+	// OIDC_ISSUER_URL is allowed to point at. When non-empty, the issuer URL's
+	// host must match an entry exactly (host:port if a non-default port is in
+	// the URL). Empty means no allowlist enforcement — the default for backward
+	// compatibility, but operators are encouraged to set this in production to
+	// fail-fast on misconfigured/compromised env vars that would otherwise
+	// redirect every login through an attacker-controlled IdP.
+	OIDCIssuerHostAllowlist []string
 	OIDCInternalURL       string // optional: internal base URL for server-to-server OIDC calls (Docker/K8s)
 	OIDCHTTPTimeout       time.Duration
 	OIDCClientID          string
@@ -56,6 +66,7 @@ func Load() (*Config, error) {
 		SessionSecret:         os.Getenv("SESSION_SECRET"),
 		PublicURL:             os.Getenv("PUBLIC_URL"),
 		OIDCIssuerURL:         envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
+		OIDCIssuerHostAllowlist: envCommaList("OIDC_ISSUER_HOST_ALLOWLIST"),
 		OIDCInternalURL:       os.Getenv("OIDC_INTERNAL_URL"),
 		OIDCHTTPTimeout:       time.Duration(envInt("OIDC_HTTP_TIMEOUT_SEC", 10)) * time.Second,
 		OIDCClientID:          envDefault("OIDC_CLIENT_ID", "authgate"),
@@ -123,6 +134,16 @@ func Load() (*Config, error) {
 		c.DBMaxIdleConns = c.DBMaxOpenConns
 	}
 
+	if len(c.OIDCIssuerHostAllowlist) > 0 {
+		issuerURL, err := url.Parse(c.OIDCIssuerURL)
+		if err != nil {
+			return nil, fmt.Errorf("OIDC_ISSUER_URL is not a valid URL: %w", err)
+		}
+		if !slices.Contains(c.OIDCIssuerHostAllowlist, issuerURL.Host) {
+			return nil, fmt.Errorf("OIDC_ISSUER_URL host %q is not in OIDC_ISSUER_HOST_ALLOWLIST %v", issuerURL.Host, c.OIDCIssuerHostAllowlist)
+		}
+	}
+
 	// Production guards
 	if !c.DevMode {
 		if len(c.SessionSecret) < 32 {
@@ -171,6 +192,24 @@ func envBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return b
+}
+
+// envCommaList returns the comma-separated values of an environment variable,
+// trimmed of surrounding whitespace, with empty entries dropped. Empty or unset
+// returns nil.
+func envCommaList(key string) []string {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := parts[:0]
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func envFloat(key string, fallback float64) float64 {
