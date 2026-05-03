@@ -170,6 +170,7 @@ sequenceDiagram
 | auth code 발급 후 상태 변경 (`pending_deletion`, `disabled`, `deleted`) | `invalid_grant` | 400 | `/oauth/token` 시점에 subject → user 재조회 후 최종 상태 재검사 |
 | PKCE code_verifier 불일치 | `invalid_grant` | 400 | zitadel이 처리 |
 | client_secret 불일치 | `invalid_client` | 401 | confidential 클라이언트만 |
+| 채널 불일치 (`login_channel: mcp` 클라이언트의 auth_request를 브라우저 경로로 완료 시도) | `channel_mismatch` | 400 | `auth.channel_mismatch` audit 후 거부. `/login`, `/login/callback` 둘 다에서 강제 |
 
 ## pending_deletion 복구
 

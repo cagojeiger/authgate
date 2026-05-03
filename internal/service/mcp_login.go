@@ -38,6 +38,16 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 				s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
 				return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 			}
+			authReq, err := s.store.GetAuthRequestModel(ctx, authRequestID)
+			if errors.Is(err, storage.ErrNotFound) {
+				return &LoginResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
+			}
+			if err != nil {
+				return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+			}
+			if errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, &user.ID); errMsg != "" {
+				return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
+			}
 			if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
 				return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 			}
@@ -70,6 +80,10 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 			"ipAddress", ipAddress,
 		)
 		return &CallbackResult{Action: ActionError, Error: "invalid_target", ErrorCode: http.StatusBadRequest}
+	}
+
+	if errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, nil); errMsg != "" {
+		return &CallbackResult{Action: ActionError, Error: errMsg, ErrorCode: statusCode}
 	}
 
 	userInfo, err := s.mcpProvider.Exchange(ctx, code)

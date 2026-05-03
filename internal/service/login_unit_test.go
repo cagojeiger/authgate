@@ -20,6 +20,7 @@ type fakeLoginStore struct {
 	getUserByIDFn             func(ctx context.Context, userID string) (*storage.User, error)
 	createSessionFn           func(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	getAuthRequestModelFn     func(ctx context.Context, id string) (*storage.AuthRequestModel, error)
+	getClientLoginChannelFn   func(ctx context.Context, clientID string) (string, error)
 }
 
 func (f *fakeLoginStore) GetValidSession(ctx context.Context, sessionID string) (*storage.User, error) {
@@ -55,6 +56,15 @@ func (f *fakeLoginStore) GetUserByID(ctx context.Context, userID string) (*stora
 
 func (f *fakeLoginStore) CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error) {
 	return f.createSessionFn(ctx, userID, ttl)
+}
+
+func (f *fakeLoginStore) GetClientLoginChannel(ctx context.Context, clientID string) (string, error) {
+	if f.getClientLoginChannelFn == nil {
+		// Default: callers that don't care about channel binding get "browser",
+		// matching the historical behavior before #149.
+		return "browser", nil
+	}
+	return f.getClientLoginChannelFn(ctx, clientID)
 }
 
 func TestLogin_HandleLogin_RecoversPendingDeletionSession(t *testing.T) {
@@ -212,12 +222,64 @@ func TestLogin_HandleCallback_SignupAuditLogIncludesChannel(t *testing.T) {
 	}
 }
 
+// #149: completing an mcp-channel auth_request via the browser /login flow
+// must be rejected and audited as auth.channel_mismatch.
+func TestLogin_HandleLogin_RejectsCrossChannelAuthRequest(t *testing.T) {
+	type evt struct {
+		eventType string
+		metadata  map[string]any
+	}
+	var events []evt
+	store := &fakeLoginStore{
+		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
+			return &storage.User{ID: "u1", Status: "active"}, nil
+		},
+		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
+			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "mcp-client"}, nil
+		},
+		getClientLoginChannelFn: func(context.Context, string) (string, error) {
+			return "mcp", nil
+		},
+		completeAuthRequestFn: func(context.Context, string, string) error {
+			t.Fatal("CompleteAuthRequest must not be called on channel mismatch")
+			return nil
+		},
+		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
+			events = append(events, evt{eventType: eventType, metadata: metadata})
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "s1"}}
+	svc := NewLoginService(store, provider, 24*time.Hour)
+
+	result := svc.HandleLogin(context.Background(), "ar-1", "sess-1", "127.0.0.1", "ua")
+
+	if result.Action != ActionError || result.Error != "channel_mismatch" {
+		t.Fatalf("action=%v error=%q, want channel_mismatch error", result.Action, result.Error)
+	}
+	var found *evt
+	for i := range events {
+		if events[i].eventType == storage.EventAuthChannelMismatch {
+			found = &events[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("auth.channel_mismatch not audited; events=%v", events)
+	}
+	if found.metadata["expected_channel"] != "browser" || found.metadata["actual_channel"] != "mcp" {
+		t.Fatalf("audit metadata=%#v", found.metadata)
+	}
+}
+
 func TestMCPLogin_HandleCallback_AuditLogIncludesSessionAndClient(t *testing.T) {
 	var gotEventType string
 	var gotMetadata map[string]any
 	store := &fakeLoginStore{
 		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
 			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "mcp-client", Resource: "http://localhost/mcp"}, nil
+		},
+		getClientLoginChannelFn: func(context.Context, string) (string, error) {
+			return "mcp", nil
 		},
 		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
 			return &storage.User{ID: "u1", Status: "active"}, nil

@@ -217,7 +217,7 @@ INSERT INTO auth_requests (
 )
 VALUES (
   $1,
-  'test-app',
+  'test-mcp-app',
   'http://localhost/callback',
   '{openid}',
   $2,
