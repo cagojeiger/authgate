@@ -211,8 +211,17 @@ func (s *Storage) ValidateBearerTokenWithClientID(ctx context.Context, authHeade
 		return nil, "", errors.New("invalid token format")
 	}
 
+	// Resolve the verification key from the JWT `kid` header so a 2-slot
+	// rotation (current + previous, exposed via JWKS) is honored on the
+	// console path the same way it is by the zitadel OP. Tokens with no
+	// `kid` are treated as legacy and fall back to the current signing key.
+	verifyKey, err := s.selectVerificationKey(tok)
+	if err != nil {
+		return nil, "", err
+	}
+
 	var claims josejwt.Claims
-	if err := tok.Claims(s.signingKey.Public(), &claims); err != nil {
+	if err := tok.Claims(verifyKey, &claims); err != nil {
 		return nil, "", errors.New("invalid token signature")
 	}
 
@@ -247,4 +256,30 @@ func (s *Storage) ValidateBearerTokenWithClientID(ctx context.Context, authHeade
 		return nil, "", err
 	}
 	return user, clientID, nil
+}
+
+// selectVerificationKey picks the RSA public key used to verify a bearer
+// token's signature based on the JWT's `kid` header.
+//
+// Selection rules:
+//   - kid empty → current signing key (legacy / pre-rotation tokens)
+//   - kid == signingKeyID → current signing key
+//   - kid == previousKeyID and previousKey != nil → previous signing key
+//   - anything else → "invalid token: unknown key"
+//
+// Returning the public key as `any` keeps the existing tok.Claims call site
+// untouched.
+func (s *Storage) selectVerificationKey(tok *josejwt.JSONWebToken) (any, error) {
+	kid := ""
+	if len(tok.Headers) > 0 {
+		kid = tok.Headers[0].KeyID
+	}
+	switch {
+	case kid == "" || kid == s.signingKeyID:
+		return s.signingKey.Public(), nil
+	case s.previousKey != nil && kid == s.previousKeyID:
+		return s.previousKey.Public(), nil
+	default:
+		return nil, errors.New("invalid token: unknown key")
+	}
 }
