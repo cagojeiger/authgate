@@ -162,19 +162,27 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 		return &CallbackResult{Action: ActionError, Error: "missing code or state", ErrorCode: http.StatusBadRequest}
 	}
 
-	// Exchange code for user info
+	// Validate the local auth_request — and its channel binding — BEFORE
+	// contacting the upstream IdP. This blocks attacker-controlled callback
+	// spam (random `state` values) from amplifying outbound traffic to the
+	// IdP, and gives a clean fail-fast for callbacks that arrive after the
+	// auth_request has expired.
+	authReq, result := s.getCallbackAuthRequest(ctx, authRequestID)
+	if result != nil {
+		return result
+	}
+	if errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, nil); errMsg != "" {
+		return &CallbackResult{Action: ActionError, Error: errMsg, ErrorCode: statusCode}
+	}
+
 	userInfo, err := s.browserProvider.Exchange(ctx, code)
 	if err != nil {
 		return &CallbackResult{Action: ActionError, Error: "upstream_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	user, signedUp, authReq, result := s.prepareBrowserCallbackUser(ctx, userInfo, authRequestID, ipAddress, userAgent)
+	user, signedUp, _, result := s.prepareBrowserCallbackUser(ctx, userInfo, authRequestID, ipAddress, userAgent)
 	if result != nil {
 		return result
-	}
-
-	if errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, &user.ID); errMsg != "" {
-		return &CallbackResult{Action: ActionError, Error: errMsg, ErrorCode: code}
 	}
 
 	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)

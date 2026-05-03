@@ -212,7 +212,13 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 	}
 }
 
-// E2E 5: 복구 후 로그인 완료 실패가 발생해도 다음 재시도에서 정상 완료되어야 한다.
+// E2E 5: pending_deletion 사용자가 정상 authRequest 콜백으로 복구 + 완료에
+// 한 번에 성공해야 한다.
+//
+// #162 이전: 잘못된 authRequestID 콜백에서도 복구가 선행됐다 (Exchange가 먼저
+// 호출됐기 때문). 이는 outbound IdP 트래픽 amplification 표면이라 차단되었다.
+// 새 동작: 잘못된 authRequestID 콜백은 Exchange 전에 거부되며 복구도 일어나지
+// 않는다. 유효한 authRequestID 콜백 한 번으로 복구 + 완료가 모두 성공한다.
 func TestE2E5_RecoveryThenAuthRequestRetry(t *testing.T) {
 	fx := setupE2ETest(t)
 	ctx := context.Background()
@@ -226,23 +232,25 @@ func TestE2E5_RecoveryThenAuthRequestRetry(t *testing.T) {
 		t.Fatalf("deletion request failed: %s", del.Message)
 	}
 
-	// 2) Browser callback 시도하되 존재하지 않는 authRequestID로 완료 단계 실패 유도
+	// 2) 잘못된 authRequestID 콜백은 Exchange 이전에 거부되고 복구도 일어나지 않는다.
 	first := fx.LoginSvc.HandleCallback(ctx, "fake-code", "missing-auth-request", "127.0.0.1", "browser")
 	if first.Action != ActionError {
 		t.Fatalf("first action = %v, want ActionError", first.Action)
 	}
-
-	// 복구는 선행되므로 status는 active여야 한다.
 	var status string
 	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
-	if status != "active" {
-		t.Fatalf("status after failed completion = %q, want active", status)
+	if status != "pending_deletion" {
+		t.Fatalf("status after invalid callback = %q, want pending_deletion (no recovery)", status)
 	}
 
-	// 3) 정상 authRequest로 재시도 시 성공해야 한다.
+	// 3) 유효한 authRequest로 한 번에 복구 + 완료.
 	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e5-retry")
 	second := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "browser")
 	if second.Action != ActionAutoApprove {
 		t.Fatalf("second action = %v, want ActionAutoApprove", second.Action)
+	}
+	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	if status != "active" {
+		t.Fatalf("status after valid callback = %q, want active", status)
 	}
 }
