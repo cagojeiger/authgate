@@ -112,6 +112,8 @@ chmod 600 signing_key.pem
 # 교체: 아래 "키 로테이션" 참조
 ```
 
+**Docker 빌드 컨텍스트에 포함 금지.** 리포 루트의 `signing_key.pem`이 `COPY . .`로 builder 레이어에 진입하면 GHCR에 푸시되는 빌더 캐시(예: `cache-to=type=registry`)나 멀티스테이지 캐시 공유를 통해 RSA private key가 노출될 수 있다. `.dockerignore`가 `signing_key.pem`, `*.pem`, `*.key`, `.env*`를 차단하고 있으니 변경 시 항상 유지하라. 운영에서는 키 파일을 빌드 컨텍스트에 두지 말고 Kubernetes Secret / Vault 등 런타임 시크릿으로 컨테이너에 주입하라.
+
 ### client_secret (각 앱별)
 
 ```bash

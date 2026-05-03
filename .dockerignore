@@ -1,0 +1,37 @@
+# Secrets — must never enter the Docker build context.
+# signing_key.pem in particular: it is the RSA private key used to sign
+# every access_token/id_token. If it lands in a builder layer that gets
+# pushed as a cache image, the entire fleet's tokens become forgeable.
+signing_key.pem
+*.pem
+*.key
+.env
+.env.*
+
+# Pre-built binaries and test artifacts (must be rebuilt inside the image).
+authgate
+*.test
+*.out
+coverage*
+
+# VCS and local tooling.
+.git
+.gitignore
+.gitmodules
+.github
+.vscode
+.idea
+.claude
+.omc
+.gobin
+.gocache
+.playwright-mcp
+.repos
+
+# Documentation and local screenshots.
+*.png
+docs
+
+# Build outputs and OS files.
+.DS_Store
+node_modules
