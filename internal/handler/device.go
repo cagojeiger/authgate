@@ -2,6 +2,7 @@ package handler
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 
@@ -113,7 +114,7 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	if c, err := r.Cookie("csrf_token"); err == nil {
 		cookieToken = c.Value
 	}
-	if formToken == "" || formToken != cookieToken {
+	if formToken == "" || subtle.ConstantTimeCompare([]byte(formToken), []byte(cookieToken)) != 1 {
 		w.WriteHeader(http.StatusForbidden)
 		pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: 403, Message: "CSRF validation failed"})
 		return
