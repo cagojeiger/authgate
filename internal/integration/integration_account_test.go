@@ -90,7 +90,7 @@ func TestIntegration_DeleteAccount_InactiveUser_Rejected(t *testing.T) {
 	}
 }
 
-// handler-login: session cookie HttpOnly / SameSite=Lax / Secure=false(devMode) 속성 검증
+// handler-login: session cookie HttpOnly / SameSite=Strict / Secure=false(devMode) 속성 검증
 func TestIntegration_DeleteAccount_ResponseShape(t *testing.T) {
 	ts := SetupTestServer(t)
 	ctx := context.Background()
