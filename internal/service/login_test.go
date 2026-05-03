@@ -157,11 +157,15 @@ func TestHandleCallback_InactiveUser_Error(t *testing.T) {
 }
 
 func TestHandleCallback_UpstreamError_Sanitized(t *testing.T) {
-	svc, _ := setupLoginService(t)
+	svc, store := setupLoginService(t)
 	ctx := context.Background()
 	svc.browserProvider = &upstream.FakeProvider{ProviderName: "google"}
 
-	result := svc.HandleCallback(ctx, "fake-code", "req-upstream", "127.0.0.1", "test-agent")
+	// #162: callback now validates the local auth_request before contacting
+	// the upstream IdP. Use a real auth_request so we exercise the
+	// upstream-error sanitization path rather than the local-state guard.
+	arID, _ := store.CreateTestAuthRequest(ctx, "upstream-err")
+	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test-agent")
 
 	if result.Action != ActionError {
 		t.Fatalf("action = %v, want ActionError", result.Action)
@@ -171,7 +175,13 @@ func TestHandleCallback_UpstreamError_Sanitized(t *testing.T) {
 	}
 }
 
-// browser-007 / E2E 6: 복구 후 auth_request 완료 실패 → 재시도 멱등성
+// browser-007 / E2E 6: 복구가 유효한 auth_request 콜백에서 멱등적으로 동작해야 한다.
+//
+// #162 이전에는 잘못된 authRequestID로도 복구가 선행되었다 (Exchange가 먼저
+// 호출됐으므로). 그 동작은 outbound IdP 트래픽 amplification 표면이라
+// 제거되었다. 새 동작: 잘못된 authRequestID 콜백은 Exchange 전에 거부되며
+// 복구도 일어나지 않는다. 유효한 authRequestID 콜백에서만 복구가 일어나고,
+// 두 번 이상 호출돼도 멱등이다.
 func TestBrowser007_RecoveryRetryIdempotent(t *testing.T) {
 	fx := setupGapTest(t)
 	ctx := context.Background()
@@ -180,24 +190,33 @@ func TestBrowser007_RecoveryRetryIdempotent(t *testing.T) {
 	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "retry@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "gap-sub", ProviderEmail: "r@test.com"})
 	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
-	// First attempt: recovery succeeds, but use an invalid authRequestID so CompleteAuthRequest fails
+	// First attempt: callback with bogus authRequestID is rejected before
+	// Exchange. Recovery does NOT happen.
 	result1 := fx.LoginSvc.HandleCallback(ctx, "fake-code", "invalid-ar-id", "127.0.0.1", "browser")
-	// Recovery happened (user is now active), but auth_request completion may fail
-	// The important thing: user is recovered
-
-	// Verify user is active (recovery persisted even if auth_request failed)
+	if result1.Action != ActionError {
+		t.Fatalf("invalid authRequestID should be rejected, got %v", result1.Action)
+	}
 	var status string
 	fx.Store.DB().QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
-	if status != "active" {
-		t.Fatalf("user should be active after recovery, got %q", status)
+	if status != "pending_deletion" {
+		t.Fatalf("user must remain pending_deletion when auth_request invalid, got %q", status)
 	}
 
-	// Second attempt: retry login → should succeed normally (idempotent)
+	// Second attempt: valid authRequestID — recovery + completion in one shot.
 	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "retry")
 	result2 := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "browser")
 	if result2.Action != ActionAutoApprove {
-		t.Errorf("retry action = %v, want AutoApprove (recovery already done)", result2.Action)
+		t.Errorf("retry action = %v, want AutoApprove", result2.Action)
+	}
+	fx.Store.DB().QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	if status != "active" {
+		t.Fatalf("after valid callback, user should be active, got %q", status)
 	}
 
-	_ = result1 // first result may be error, that's OK
+	// Third attempt: idempotent retry on a fresh authRequestID also succeeds.
+	arID2, _ := fx.Store.CreateTestAuthRequest(ctx, "retry-2")
+	result3 := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID2, "127.0.0.1", "browser")
+	if result3.Action != ActionAutoApprove {
+		t.Errorf("idempotent retry action = %v, want AutoApprove", result3.Action)
+	}
 }
