@@ -51,6 +51,11 @@ type Storage struct {
 	clients         sync.Map // map[string]*ClientModel (client_id → client)
 	clientPolicy    ClientResolutionPolicy
 	resourcePolicy  ResourceBindingPolicy
+	// issuer is the expected `iss` claim for bearer-token validation on
+	// console APIs. Wired from cfg.PublicURL via SetIssuer at startup; empty
+	// string falls back to clock-only validation for backward compatibility
+	// with tests that construct Storage without explicit issuer plumbing.
+	issuer string
 }
 
 func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
@@ -78,6 +83,14 @@ func (s *Storage) SetSigningKey(key *rsa.PrivateKey, keyID string) {
 func (s *Storage) SetPreviousKey(key *rsa.PrivateKey, keyID string) {
 	s.previousKey = key
 	s.previousKeyID = keyID
+}
+
+// SetIssuer pins the expected `iss` claim used during bearer-token
+// validation. Should be called once at startup with cfg.PublicURL. Empty
+// string disables the check (only useful in tests that construct Storage
+// without going through main.go).
+func (s *Storage) SetIssuer(issuer string) {
+	s.issuer = issuer
 }
 
 // DB returns the underlying *sql.DB. For testing only.
