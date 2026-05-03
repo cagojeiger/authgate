@@ -216,9 +216,13 @@ func (s *Storage) ValidateBearerTokenWithClientID(ctx context.Context, authHeade
 		return nil, "", errors.New("invalid token signature")
 	}
 
-	if err := claims.ValidateWithLeeway(josejwt.Expected{
+	expected := josejwt.Expected{
 		Time: s.clock.Now(),
-	}, time.Second*5); err != nil {
+	}
+	if s.issuer != "" {
+		expected.Issuer = s.issuer
+	}
+	if err := claims.ValidateWithLeeway(expected, time.Second*5); err != nil {
 		return nil, "", errors.New("token validation failed: " + err.Error())
 	}
 
@@ -226,10 +230,16 @@ func (s *Storage) ValidateBearerTokenWithClientID(ctx context.Context, authHeade
 		return nil, "", errors.New("missing sub claim")
 	}
 
-	// client_id is carried in the aud claim for browser/device flows
-	clientID := ""
-	if len(claims.Audience) > 0 {
-		clientID = string(claims.Audience[0])
+	if len(claims.Audience) == 0 {
+		return nil, "", errors.New("missing aud claim")
+	}
+	// client_id is carried in the aud claim for browser/device flows. MCP
+	// resource-bound tokens (RFC 8707) carry a resource URL in `aud` instead;
+	// those must never be accepted on console APIs even though they share the
+	// same signing key. Reject anything that parses as an http(s) URL.
+	clientID := string(claims.Audience[0])
+	if strings.HasPrefix(clientID, "http://") || strings.HasPrefix(clientID, "https://") {
+		return nil, "", errors.New("resource-bound token not accepted on console")
 	}
 
 	user, err := s.GetUserByID(ctx, claims.Subject)
