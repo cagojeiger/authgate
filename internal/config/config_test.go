@@ -65,11 +65,27 @@ func TestLoad_MissingPublicURL(t *testing.T) {
 	}
 }
 
+func TestLoad_DevModeFalseRequiresPublicURLHTTPS(t *testing.T) {
+	clearEnv()
+	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	os.Setenv("SESSION_SECRET", "test-secret-32-chars-long-enough!")
+	os.Setenv("PUBLIC_URL", "http://authgate.example.com")
+	os.Setenv("DEV_MODE", "false")
+	os.Setenv("OIDC_ISSUER_URL", "https://accounts.google.com")
+	os.Setenv("OIDC_CLIENT_ID", "id")
+	os.Setenv("OIDC_CLIENT_SECRET", "secret")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error: DEV_MODE=false requires https:// PUBLIC_URL")
+	}
+}
+
 func TestLoad_DevModeFalseRequiresHTTPS(t *testing.T) {
 	clearEnv()
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
 	os.Setenv("SESSION_SECRET", "test-secret-32-chars-long-enough!")
-	os.Setenv("PUBLIC_URL", "http://localhost")
+	os.Setenv("PUBLIC_URL", "https://authgate.example.com")
 	os.Setenv("DEV_MODE", "false")
 	os.Setenv("OIDC_ISSUER_URL", "http://localhost:8082")
 	os.Setenv("OIDC_CLIENT_ID", "id")
@@ -85,7 +101,7 @@ func TestLoad_DevModeFalseRequiresOIDCCredentials(t *testing.T) {
 	clearEnv()
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
 	os.Setenv("SESSION_SECRET", "test-secret-32-chars-long-enough!")
-	os.Setenv("PUBLIC_URL", "http://localhost")
+	os.Setenv("PUBLIC_URL", "https://authgate.example.com")
 	os.Setenv("DEV_MODE", "false")
 	os.Setenv("OIDC_ISSUER_URL", "https://accounts.google.com")
 	// Missing OIDC_CLIENT_SECRET
@@ -162,7 +178,7 @@ func TestLoad_DevModeFalseShortSessionSecret(t *testing.T) {
 	clearEnv()
 	os.Setenv("DATABASE_URL", "postgres://localhost/test")
 	os.Setenv("SESSION_SECRET", "short") // < 32 chars
-	os.Setenv("PUBLIC_URL", "http://localhost")
+	os.Setenv("PUBLIC_URL", "https://authgate.example.com")
 	os.Setenv("DEV_MODE", "false")
 	os.Setenv("OIDC_ISSUER_URL", "https://accounts.google.com")
 	os.Setenv("OIDC_CLIENT_ID", "id")

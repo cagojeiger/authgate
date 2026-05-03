@@ -128,6 +128,9 @@ func Load() (*Config, error) {
 		if len(c.SessionSecret) < 32 {
 			return nil, fmt.Errorf("DEV_MODE=false requires SESSION_SECRET of at least 32 characters")
 		}
+		if !strings.HasPrefix(c.PublicURL, "https://") {
+			return nil, fmt.Errorf("DEV_MODE=false requires PUBLIC_URL with https:// (got %q)", c.PublicURL)
+		}
 		if !strings.HasPrefix(c.OIDCIssuerURL, "https://") {
 			return nil, fmt.Errorf("DEV_MODE=false requires OIDC_ISSUER_URL with https:// (got %q)", c.OIDCIssuerURL)
 		}
