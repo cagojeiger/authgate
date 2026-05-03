@@ -165,8 +165,8 @@ func TestIntegration_SessionCookie_Attributes(t *testing.T) {
 	if !sessionCookie.HttpOnly {
 		t.Error("session cookie: HttpOnly should be true")
 	}
-	if sessionCookie.SameSite != http.SameSiteLaxMode {
-		t.Errorf("session cookie: SameSite = %v, want Lax", sessionCookie.SameSite)
+	if sessionCookie.SameSite != http.SameSiteStrictMode {
+		t.Errorf("session cookie: SameSite = %v, want Strict", sessionCookie.SameSite)
 	}
 	// devMode=true in TestServer → Secure must be false
 	if sessionCookie.Secure {

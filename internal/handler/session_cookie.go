@@ -10,7 +10,7 @@ func setSessionCookie(w http.ResponseWriter, sessionID string, devMode bool) {
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   !devMode,
 	})
 }
