@@ -2,13 +2,15 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
 func clearEnv() {
 	for _, key := range []string{
 		"PORT", "DATABASE_URL", "SESSION_SECRET", "PUBLIC_URL",
-		"OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
+		"OIDC_ISSUER_URL", "OIDC_ISSUER_HOST_ALLOWLIST",
+		"OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"OIDC_HTTP_TIMEOUT_SEC",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL",
 		"DEV_MODE", "ENABLE_MCP",
@@ -171,6 +173,51 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.DBConnMaxIdleTime.Seconds() != 120 {
 		t.Errorf("DBConnMaxIdleTime = %v, want 120s", cfg.DBConnMaxIdleTime)
+	}
+}
+
+func TestLoad_OIDCIssuerHostAllowlist_Match(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("OIDC_ISSUER_URL", "https://accounts.google.com")
+	os.Setenv("OIDC_ISSUER_HOST_ALLOWLIST", "accounts.google.com,login.microsoftonline.com")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cfg.OIDCIssuerHostAllowlist; len(got) != 2 || got[0] != "accounts.google.com" || got[1] != "login.microsoftonline.com" {
+		t.Errorf("OIDCIssuerHostAllowlist = %v, want [accounts.google.com login.microsoftonline.com]", got)
+	}
+}
+
+func TestLoad_OIDCIssuerHostAllowlist_Mismatch(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("OIDC_ISSUER_URL", "https://attacker.example.com")
+	os.Setenv("OIDC_ISSUER_HOST_ALLOWLIST", "accounts.google.com")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error: issuer host not in allowlist")
+	}
+	if !strings.Contains(err.Error(), "OIDC_ISSUER_HOST_ALLOWLIST") {
+		t.Errorf("error = %v, want one mentioning OIDC_ISSUER_HOST_ALLOWLIST", err)
+	}
+}
+
+func TestLoad_OIDCIssuerHostAllowlist_EmptyDisablesCheck(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("OIDC_ISSUER_URL", "https://anything.example.com")
+	// OIDC_ISSUER_HOST_ALLOWLIST unset
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("empty allowlist should not enforce: %v", err)
+	}
+	if len(cfg.OIDCIssuerHostAllowlist) != 0 {
+		t.Errorf("OIDCIssuerHostAllowlist = %v, want empty", cfg.OIDCIssuerHostAllowlist)
 	}
 }
 
