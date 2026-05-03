@@ -27,6 +27,28 @@ type LoginStore interface {
 	GetUserByID(ctx context.Context, userID string) (*storage.User, error)
 	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	GetAuthRequestModel(ctx context.Context, id string) (*storage.AuthRequestModel, error)
+	GetClientLoginChannel(ctx context.Context, clientID string) (string, error)
+}
+
+// verifyAuthRequestChannel ensures the auth_request's client uses the expected
+// login_channel. On mismatch it audits an auth.channel_mismatch event and
+// returns an error message + HTTP status suitable for a *LoginResult or
+// *CallbackResult. Lookup errors return ("internal_error", 500); a clean match
+// returns ("", 0).
+func verifyAuthRequestChannel(ctx context.Context, store LoginStore, authReq *storage.AuthRequestModel, expected, ipAddress, userAgent string, userID *string) (string, int) {
+	channel, err := store.GetClientLoginChannel(ctx, authReq.ClientID)
+	if err != nil {
+		return "internal_error", http.StatusInternalServerError
+	}
+	if channel != expected {
+		store.AuditLog(ctx, userID, storage.EventAuthChannelMismatch, ipAddress, userAgent, map[string]any{
+			"expected_channel": expected,
+			"actual_channel":   channel,
+			"client_id":        authReq.ClientID,
+		})
+		return "channel_mismatch", http.StatusBadRequest
+	}
+	return "", 0
 }
 
 func NewLoginService(store LoginStore, browserProvider upstream.Provider, sessionTTL time.Duration) *LoginService {
@@ -104,6 +126,10 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 		return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
+	if errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, &user.ID); errMsg != "" {
+		return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
+	}
+
 	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
 		return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
@@ -145,6 +171,10 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 	user, signedUp, authReq, result := s.prepareBrowserCallbackUser(ctx, userInfo, authRequestID, ipAddress, userAgent)
 	if result != nil {
 		return result
+	}
+
+	if errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, &user.ID); errMsg != "" {
+		return &CallbackResult{Action: ActionError, Error: errMsg, ErrorCode: code}
 	}
 
 	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)

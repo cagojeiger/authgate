@@ -18,6 +18,7 @@ const (
 	EventAuthDeletionCompleted    = "auth.deletion_completed"
 	EventAuthLogout               = "auth.logout"
 	EventAuthTokenRevoked         = "auth.token_revoked"
+	EventAuthChannelMismatch      = "auth.channel_mismatch"
 
 	EventTokenRefresh   = "token.refresh"
 	EventTokenRevoked   = "token.revoked"

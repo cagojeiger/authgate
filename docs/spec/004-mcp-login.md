@@ -427,6 +427,18 @@ user.Status = pending_deletion / disabled / deleted
 MCP는 Device와 같은 "후속 로그인 채널"이다.
 가입과 `pending_deletion` 복구는 Browser 채널에서만 처리한다.
 
+### 채널 바인딩 (cross-channel completion 차단)
+
+`/login`, `/login/callback`, `/mcp/login`, `/mcp/callback` 모두 진입 시점에
+`auth_request.client_id`로 클라이언트의 `login_channel`을 조회하고, 현재 경로와
+기대 채널이 다르면 거부한다 (`channel_mismatch`, HTTP 400). 거부 시
+`auth.channel_mismatch` audit 이벤트가 기록되며 `metadata.expected_channel`,
+`metadata.actual_channel`, `metadata.client_id` 필드를 포함한다.
+
+이는 공격자가 MCP 클라이언트의 `auth_request`를 브라우저 `/login` 자동승인
+경로로 흘려서 MCP 전용 정책 (기존 계정 요구, `pending_deletion` 거부, MCP
+callback resource 검증) 을 우회하는 것을 막는다.
+
 ## Resource Parameter
 
 MCP에서 `resource`는 부가 옵션이 아니라, "이 토큰을 어느 MCP 서버에서 쓸 것인가"를 나타내는 식별자다.
