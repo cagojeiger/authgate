@@ -114,6 +114,11 @@ func (s *ConsoleService) resolveAuth(ctx context.Context, sessionID, authHeader 
 		if err == nil {
 			return &consoleAuth{user: user, sessionID: sessionID}, nil
 		}
+		// storage.ErrUserAccountClosed (added in #157) intentionally falls
+		// through to the bearer path. The bearer leg gets its own
+		// status-enforcement gate in #161; once that lands, both legs
+		// reject closed accounts and resolveAuth returns "unauthenticated"
+		// here instead of the prior CheckAccess→403 path.
 	}
 	if authHeader != "" {
 		user, clientID, err := s.store.ValidateBearerTokenWithClientID(ctx, authHeader)
