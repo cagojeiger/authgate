@@ -51,6 +51,20 @@ func normalizeIPAddress(addr string) string {
 	return ""
 }
 
+// auditClientName returns the human-readable client name for clientID, or
+// "" if it cannot be resolved. Used by storage-level audit call sites to
+// embed `client_name` alongside `client_id` per #147.
+func (s *Storage) auditClientName(ctx context.Context, clientID string) string {
+	if clientID == "" {
+		return ""
+	}
+	c, err := s.ResolveClient(ctx, clientID)
+	if err != nil || c == nil {
+		return ""
+	}
+	return c.Name
+}
+
 // AuditLog records a security/audit event on a best-effort basis. Failures are
 // logged via slog.ErrorContext but never propagated: callers have already
 // committed the underlying business transaction (login, token issue, etc.) and

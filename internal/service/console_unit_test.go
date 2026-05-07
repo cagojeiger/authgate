@@ -23,6 +23,7 @@ type fakeConsoleStore struct {
 	revokeOtherSessionsFn      func(ctx context.Context, userID, currentSessionID string) error
 	getAuditLogFn              func(ctx context.Context, userID string, limit, offset int) (*storage.AuditLogPage, error)
 	auditLogFn                 func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
+	resolveClientFn            func(ctx context.Context, clientID string) (*storage.ClientModel, error)
 }
 
 func (f *fakeConsoleStore) GetValidSession(ctx context.Context, sessionID string) (*storage.User, error) {
@@ -67,6 +68,13 @@ func (f *fakeConsoleStore) AuditLog(ctx context.Context, userID *string, eventTy
 		return
 	}
 	f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
+}
+
+func (f *fakeConsoleStore) ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error) {
+	if f.resolveClientFn != nil {
+		return f.resolveClientFn(ctx, clientID)
+	}
+	return nil, storage.ErrNotFound
 }
 
 func activeUserStore(clients []storage.ClientView, connIDs []string) *fakeConsoleStore {
@@ -484,6 +492,14 @@ func TestConsole_RevokeConnection_ValidAuth_AuditLogsConnectionRevoked(t *testin
 	var gotUserID, gotEventType string
 	var gotMetadata map[string]any
 	store := activeUserStore(nil, nil)
+	// #147: ResolveClient must be wired so audit metadata carries
+	// client_name alongside client_id.
+	store.resolveClientFn = func(_ context.Context, clientID string) (*storage.ClientModel, error) {
+		if clientID == "app-a" {
+			return &storage.ClientModel{ID: "app-a", Name: "App A"}, nil
+		}
+		return nil, storage.ErrNotFound
+	}
 	store.auditLogFn = func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 		if userID != nil {
 			gotUserID = *userID
@@ -503,6 +519,9 @@ func TestConsole_RevokeConnection_ValidAuth_AuditLogsConnectionRevoked(t *testin
 	}
 	if gotMetadata["client_id"] != "app-a" {
 		t.Fatalf("metadata client_id=%v, want app-a", gotMetadata["client_id"])
+	}
+	if gotMetadata["client_name"] != "App A" {
+		t.Fatalf("metadata client_name=%v, want 'App A' (#147)", gotMetadata["client_name"])
 	}
 }
 

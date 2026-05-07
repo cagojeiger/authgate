@@ -28,6 +28,7 @@ type LoginStore interface {
 	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	GetAuthRequestModel(ctx context.Context, id string) (*storage.AuthRequestModel, error)
 	GetClientLoginChannel(ctx context.Context, clientID string) (string, error)
+	ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error)
 }
 
 // verifyAuthRequestChannel ensures the auth_request's client uses the expected
@@ -45,6 +46,7 @@ func verifyAuthRequestChannel(ctx context.Context, store LoginStore, authReq *st
 			"expected_channel": expected,
 			"actual_channel":   channel,
 			"client_id":        authReq.ClientID,
+			"client_name":      resolveClientName(ctx, store, authReq.ClientID),
 		})
 		return "channel_mismatch", http.StatusBadRequest
 	}
@@ -141,6 +143,7 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 		"channel":        "browser",
 		"session_id":     sessionID,
 		"client_id":      authReq.ClientID,
+		"client_name":    resolveClientName(ctx, s.store, authReq.ClientID),
 		"reused_session": true,
 	})
 	return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
@@ -198,10 +201,11 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 		return &CallbackResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
 	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
-		"channel":    "browser",
-		"session_id": sessionID,
-		"client_id":  authReq.ClientID,
-		"signup":     signedUp,
+		"channel":     "browser",
+		"session_id":  sessionID,
+		"client_id":   authReq.ClientID,
+		"client_name": resolveClientName(ctx, s.store, authReq.ClientID),
+		"signup":      signedUp,
 	})
 
 	return &CallbackResult{Action: ActionAutoApprove, AuthRequestID: authRequestID, SessionID: sessionID}

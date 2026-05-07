@@ -31,7 +31,7 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, 
 
 	resource := ResourceFromContext(ctx)
 	if resource == "" {
-		client, err := s.resolveClient(ctx, req.ClientID)
+		client, err := s.ResolveClient(ctx, req.ClientID)
 		if err == nil {
 			if err := s.resourcePolicy.ValidateAuthorizeRequest(ctx, client, resource); err != nil {
 				return nil, err
@@ -180,8 +180,9 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	if currentRefreshToken != "" {
 		info := clientinfo.FromContext(ctx)
 		s.AuditLog(ctx, &derived.userID, EventTokenRefresh, info.IP, info.UserAgent, map[string]any{
-			"client_id": derived.clientID,
-			"family_id": derived.familyID,
+			"client_id":   derived.clientID,
+			"client_name": s.auditClientName(ctx, derived.clientID),
+			"family_id":   derived.familyID,
 		})
 	}
 
@@ -257,12 +258,18 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 	info := clientinfo.FromContext(ctx)
 
 	if tryRevokeRefreshByHash(ctx, q, tokenOrTokenID, now) {
-		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, info.IP, info.UserAgent, map[string]any{"client_id": clientID})
+		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, info.IP, info.UserAgent, map[string]any{
+			"client_id":   clientID,
+			"client_name": s.auditClientName(ctx, clientID),
+		})
 		return nil
 	}
 
 	if tryRevokeRefreshByIDReturning(ctx, q, tokenOrTokenID, now) {
-		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, info.IP, info.UserAgent, map[string]any{"client_id": clientID})
+		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, info.IP, info.UserAgent, map[string]any{
+			"client_id":   clientID,
+			"client_name": s.auditClientName(ctx, clientID),
+		})
 	}
 
 	// RFC 7009: always return 200 regardless of whether anything was revoked

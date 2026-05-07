@@ -27,14 +27,15 @@
 | `audit-008` | pending_deletion/disabled/deleted 로그인 시도 | `auth.inactive_user` | `metadata.status` 포함 |
 | `audit-009` | refresh token 재사용 탐지 | `auth.refresh_reuse_detected` | `metadata.family_id` 기록 |
 | `audit-010` | family 전체 revoke | `auth.refresh_family_revoked` | `metadata.family_id` 기록 |
+| `audit-011` | client 컨텍스트가 있는 모든 이벤트 | (해당 이벤트) | `metadata.client_id` + `metadata.client_name`이 함께 기록 (#147) |
 
 ## 채널별 auth.login 검증
 
 | ID | 채널 | 입력 | 기대 metadata |
 |----|------|------|---------------|
-| `audit-login-001` | browser | Browser 로그인 성공 | `{channel: "browser"}` |
-| `audit-login-002` | device | Device 로그인 성공 | `{channel: "device"}` |
-| `audit-login-003` | mcp | MCP 로그인 성공 | `{channel: "mcp"}` |
+| `audit-login-001` | browser | Browser 로그인 성공 | `{channel: "browser", client_id, client_name}` |
+| `audit-login-002` | device | Device 로그인 성공 | `{channel: "device", client_id, client_name}` |
+| `audit-login-003` | mcp | MCP 로그인 성공 | `{channel: "mcp", client_id, client_name}` |
 
 ## 보안 이벤트 검증
 

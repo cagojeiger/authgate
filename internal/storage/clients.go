@@ -163,7 +163,11 @@ func (s *Storage) SetResourceBindingPolicy(policy ResourceBindingPolicy) {
 	s.resourcePolicy = policy
 }
 
-func (s *Storage) resolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
+// ResolveClient looks up a client by ID through the configured client
+// resolution policy (in-memory registry plus the optional MCP/CIMD
+// fallback). Exported so service-layer audit helpers can fetch the
+// human-readable client name without holding a Storage pointer.
+func (s *Storage) ResolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
 	// Safety net for tests constructing Storage without New().
 	if s.clientPolicy == nil {
 		s.clientPolicy = NewCoreClientResolutionPolicy(s)
@@ -176,7 +180,7 @@ func (s *Storage) resolveClient(ctx context.Context, clientID string) (*ClientMo
 // auth_request issued for one channel cannot be completed via the other
 // channel's login flow.
 func (s *Storage) GetClientLoginChannel(ctx context.Context, clientID string) (string, error) {
-	cm, err := s.resolveClient(ctx, clientID)
+	cm, err := s.ResolveClient(ctx, clientID)
 	if err != nil {
 		return "", err
 	}
