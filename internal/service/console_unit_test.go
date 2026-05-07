@@ -23,6 +23,7 @@ type fakeConsoleStore struct {
 	revokeOtherSessionsFn      func(ctx context.Context, userID, currentSessionID string) error
 	getAuditLogFn              func(ctx context.Context, userID string, limit, offset int) (*storage.AuditLogPage, error)
 	auditLogFn                 func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
+	resolveClientFn            func(ctx context.Context, clientID string) (*storage.ClientModel, error)
 }
 
 func (f *fakeConsoleStore) GetValidSession(ctx context.Context, sessionID string) (*storage.User, error) {
@@ -67,6 +68,13 @@ func (f *fakeConsoleStore) AuditLog(ctx context.Context, userID *string, eventTy
 		return
 	}
 	f.auditLogFn(ctx, userID, eventType, ipAddress, userAgent, metadata)
+}
+
+func (f *fakeConsoleStore) ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error) {
+	if f.resolveClientFn != nil {
+		return f.resolveClientFn(ctx, clientID)
+	}
+	return nil, storage.ErrNotFound
 }
 
 func activeUserStore(clients []storage.ClientView, connIDs []string) *fakeConsoleStore {
@@ -484,6 +492,14 @@ func TestConsole_RevokeConnection_ValidAuth_AuditLogsConnectionRevoked(t *testin
 	var gotUserID, gotEventType string
 	var gotMetadata map[string]any
 	store := activeUserStore(nil, nil)
+	// #147: ResolveClient must be wired so audit metadata carries
+	// client_name alongside client_id.
+	store.resolveClientFn = func(_ context.Context, clientID string) (*storage.ClientModel, error) {
+		if clientID == "app-a" {
+			return &storage.ClientModel{ID: "app-a", Name: "App A"}, nil
+		}
+		return nil, storage.ErrNotFound
+	}
 	store.auditLogFn = func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 		if userID != nil {
 			gotUserID = *userID
@@ -503,6 +519,38 @@ func TestConsole_RevokeConnection_ValidAuth_AuditLogsConnectionRevoked(t *testin
 	}
 	if gotMetadata["client_id"] != "app-a" {
 		t.Fatalf("metadata client_id=%v, want app-a", gotMetadata["client_id"])
+	}
+	if gotMetadata["client_name"] != "App A" {
+		t.Fatalf("metadata client_name=%v, want 'App A' (#147)", gotMetadata["client_name"])
+	}
+}
+
+// TestConsole_RevokeConnection_UnresolvedClient_NameIsEmpty pins the
+// fallback contract for #147: an audit event whose client_id cannot be
+// resolved (CIMD URL out of cache, removed registry entry, lookup error)
+// must still emit client_name="" rather than crash or omit other metadata.
+func TestConsole_RevokeConnection_UnresolvedClient_NameIsEmpty(t *testing.T) {
+	var gotMetadata map[string]any
+	store := activeUserStore(nil, nil)
+	// Default resolveClientFn is unset → returns ErrNotFound.
+	store.auditLogFn = func(_ context.Context, _ *string, _, _, _ string, metadata map[string]any) {
+		gotMetadata = metadata
+	}
+	svc := NewConsoleService(store)
+
+	r := svc.RevokeConnection(context.Background(), "sess-1", "", "ghost-client")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if gotMetadata["client_id"] != "ghost-client" {
+		t.Fatalf("client_id=%v, want ghost-client", gotMetadata["client_id"])
+	}
+	got, ok := gotMetadata["client_name"]
+	if !ok {
+		t.Fatal("client_name missing; expected key with empty-string value")
+	}
+	if got != "" {
+		t.Fatalf("client_name=%q, want \"\" for unresolved client_id", got)
 	}
 }
 

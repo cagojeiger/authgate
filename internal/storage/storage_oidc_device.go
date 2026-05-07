@@ -53,7 +53,7 @@ func (s *Storage) KeySet(ctx context.Context) ([]op.Key, error) {
 // --- op.Storage: OPStorage ---
 
 func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.Client, error) {
-	client, err := s.resolveClient(ctx, clientID)
+	client, err := s.ResolveClient(ctx, clientID)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.
 }
 
 func (s *Storage) AuthorizeClientIDSecret(ctx context.Context, clientID, clientSecret string) error {
-	client, err := s.resolveClient(ctx, clientID)
+	client, err := s.ResolveClient(ctx, clientID)
 	if err != nil {
 		return ErrNotFound
 	}

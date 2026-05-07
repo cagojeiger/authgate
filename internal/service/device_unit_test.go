@@ -19,6 +19,7 @@ type fakeDeviceStore struct {
 	createSessionFn           func(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	denyDeviceCodeFn          func(ctx context.Context, userCode string) error
 	approveDeviceCodeFn       func(ctx context.Context, userCode, subject string) error
+	resolveClientFn           func(ctx context.Context, clientID string) (*storage.ClientModel, error)
 }
 
 func (f *fakeDeviceStore) GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*storage.DeviceCodeModel, error) {
@@ -50,6 +51,13 @@ func (f *fakeDeviceStore) DenyDeviceCode(ctx context.Context, userCode string) e
 
 func (f *fakeDeviceStore) ApproveDeviceCode(ctx context.Context, userCode, subject string) error {
 	return f.approveDeviceCodeFn(ctx, userCode, subject)
+}
+
+func (f *fakeDeviceStore) ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error) {
+	if f.resolveClientFn != nil {
+		return f.resolveClientFn(ctx, clientID)
+	}
+	return nil, storage.ErrNotFound
 }
 
 func TestDevice_HandleDevicePage_NoSession_Redirects(t *testing.T) {

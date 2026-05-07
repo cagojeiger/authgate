@@ -28,6 +28,7 @@ type DeviceStore interface {
 	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	DenyDeviceCode(ctx context.Context, userCode string) error
 	ApproveDeviceCode(ctx context.Context, userCode, subject string) error
+	ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error)
 }
 
 func NewDeviceService(store DeviceStore, provider upstream.Provider, publicURL string, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
@@ -128,9 +129,10 @@ func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode
 	}
 
 	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
-		"channel":    "device",
-		"session_id": sessionID,
-		"client_id":  deviceCode.ClientID,
+		"channel":     "device",
+		"session_id":  sessionID,
+		"client_id":   deviceCode.ClientID,
+		"client_name": resolveClientName(ctx, s.store, deviceCode.ClientID),
 	})
 
 	return &DevicePageResult{Action: DeviceRedirectBack, UserCode: userCode, SessionID: sessionID}

@@ -116,9 +116,10 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 		return &CallbackResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
 	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
-		"channel":    "mcp",
-		"session_id": sessionID,
-		"client_id":  authReq.ClientID,
+		"channel":     "mcp",
+		"session_id":  sessionID,
+		"client_id":   authReq.ClientID,
+		"client_name": resolveClientName(ctx, s.store, authReq.ClientID),
 	})
 	return &CallbackResult{Action: ActionAutoApprove, AuthRequestID: authRequestID, SessionID: sessionID}
 }
