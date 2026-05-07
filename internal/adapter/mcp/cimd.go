@@ -62,6 +62,14 @@ const (
 	// until the window passes (see #156).
 	cimdFailureLimit  = 5
 	cimdFailureWindow = 5 * time.Minute
+
+	// cimdFloorTTL is the minimum positive-cache TTL applied to any
+	// successful response. Server-stated max-age values smaller than this
+	// (or `no-store` / `no-cache` / `max-age<=0`, which previously bypassed
+	// the cache entirely) are raised to the floor so back-to-back identical
+	// fetches cannot keep stalling the worker pool when the upstream is
+	// slow (see #158).
+	cimdFloorTTL = 5 * time.Second
 )
 
 // errCIMDRateLimited is returned when a client_id exceeds cimdFailureLimit
@@ -401,6 +409,17 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 }
 
 func cacheTTLFromCacheControl(cacheControl string, fallback time.Duration) time.Duration {
+	ttl := parseCacheControlTTL(cacheControl, fallback)
+	if ttl < cimdFloorTTL {
+		return cimdFloorTTL
+	}
+	return ttl
+}
+
+// parseCacheControlTTL returns the TTL implied by a Cache-Control header
+// without applying the cimdFloorTTL clamp. `no-store`, `no-cache`, and
+// `max-age<=0` map to 0; an unparseable header falls back to `fallback`.
+func parseCacheControlTTL(cacheControl string, fallback time.Duration) time.Duration {
 	if cacheControl == "" {
 		return fallback
 	}

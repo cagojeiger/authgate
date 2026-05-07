@@ -142,7 +142,11 @@ func TestCIMDFetcher_CacheExpiry(t *testing.T) {
 	}
 }
 
-func TestCIMDFetcher_RespectsCacheControlMaxAge(t *testing.T) {
+// TestCIMDFetcher_RespectsCacheControlMaxAgeAboveFloor checks that a
+// server-supplied max-age larger than cimdFloorTTL is still honored
+// verbatim (the floor only raises short / missing values, never lowers
+// long ones).
+func TestCIMDFetcher_RespectsCacheControlMaxAgeAboveFloor(t *testing.T) {
 	fetchCount := 0
 	var serverURL string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -154,7 +158,7 @@ func TestCIMDFetcher_RespectsCacheControlMaxAge(t *testing.T) {
 			GrantTypes:   []string{"authorization_code"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "max-age=1")
+		w.Header().Set("Cache-Control", "max-age=10")
 		json.NewEncoder(w).Encode(meta)
 	}))
 	defer srv.Close()
@@ -174,7 +178,7 @@ func TestCIMDFetcher_RespectsCacheControlMaxAge(t *testing.T) {
 		t.Fatalf("fetchCount = %d, want 1 (within max-age)", fetchCount)
 	}
 
-	clk.T = clk.T.Add(2 * time.Second)
+	clk.T = clk.T.Add(11 * time.Second)
 	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {
 		t.Fatalf("third fetch failed: %v", err)
 	}
@@ -183,7 +187,12 @@ func TestCIMDFetcher_RespectsCacheControlMaxAge(t *testing.T) {
 	}
 }
 
-func TestCIMDFetcher_NoStoreDisablesCache(t *testing.T) {
+// TestCIMDFetcher_FloorTTLOnNoStore covers #158: even responses that
+// declare `Cache-Control: no-store` (or `max-age=0`) get a small floor TTL
+// so back-to-back identical fetches do not each issue a fresh outbound
+// HTTP request. Without the floor a slow upstream stalls every concurrent
+// authorize attempt for the same client_id.
+func TestCIMDFetcher_FloorTTLOnNoStore(t *testing.T) {
 	fetchCount := 0
 	var serverURL string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -201,7 +210,8 @@ func TestCIMDFetcher_NoStoreDisablesCache(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
 	clientID := serverURL + "/client.json"
 
 	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {
@@ -210,7 +220,16 @@ func TestCIMDFetcher_NoStoreDisablesCache(t *testing.T) {
 	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {
 		t.Fatalf("second fetch failed: %v", err)
 	}
+	if fetchCount != 1 {
+		t.Errorf("fetchCount = %d, want 1 (floor TTL must short-circuit identical no-store calls)", fetchCount)
+	}
+
+	// After the floor TTL elapses the next call should refetch.
+	clk.T = clk.T.Add(cimdFloorTTL + time.Second)
+	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {
+		t.Fatalf("third fetch failed: %v", err)
+	}
 	if fetchCount != 2 {
-		t.Fatalf("fetchCount = %d, want 2 (no-store must disable cache)", fetchCount)
+		t.Errorf("fetchCount = %d, want 2 (floor TTL should expire)", fetchCount)
 	}
 }
