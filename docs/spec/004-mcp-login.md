@@ -339,27 +339,36 @@ YAML 클라이언트(`clients.yaml`)도 입력 크기/개수 검증 원칙은 �
 
 ### CIMD 캐시 정책
 
-IETF draft 권장사항에 맞춰 성공 응답의 HTTP 캐시 헤더를 우선 적용한다.
-error/invalid 문서는 캐시하지 않는다.
+IETF draft 권장사항에 맞춰 성공 응답의 HTTP 캐시 헤더를 적용하되,
+CIMD 메타데이터의 정적 특성과 outbound-amplification 방어를 위해
+최소 floor TTL을 강제한다. 실패 응답도 짧은 부정 캐시 + 실패 쿼터로
+방어한다.
 
 | 항목 | 값 | 이유 |
 |------|-----|------|
-| **성공 캐시 TTL** | `Cache-Control` 우선 (`max-age`, `no-store`, `no-cache`) | 메타데이터 제공자의 캐시 의도 존중 |
+| **성공 캐시 TTL** | `Cache-Control`(`max-age`, `no-store`, `no-cache`) 해석 후 5초 floor 적용 | 짧거나 부재한 캐시 지시로 인한 outbound 증폭 방어 (#158) |
 | **성공 캐시 TTL fallback** | 5분 | 캐시 헤더가 없을 때 기본값 |
-| **실패/invalid 문서 캐시** | 캐시 안 함 | stale error 고착 방지, draft 권장 준수 |
-| **동시 요청 합치기 (singleflight)** | 동일 client_id에 대해 1개만 실행 | cache miss 시 thundering herd 방지 |
-| **캐시 키** | client_id URL 원본 그대로 | URL 정규화 없음 (CIMD 스펙: 정확 일치) |
-| **재시도/백오프** | 없음 | 실패 시 즉시 에러 반환 |
+| **실패 응답 부정 캐시** | 30초 | 동일 client_id 반복 실패 시 outbound HTTP 차단 (#156) |
+| **실패 쿼터** | 5분 윈도우 내 5회 실패 시 후속 요청 즉시 거부 | 부정 캐시 만료 후에도 amplification 방지 (#156) |
+| **동시 요청 합치기 (singleflight)** | 동일 정규형 client_id에 대해 1개만 실행 | cache miss 시 thundering herd 방지 |
+| **캐시 키** | 정규형 client_id (lowercase host, default port 제거, path.Clean, ASCII 한정) | URL alias로 위 방어선을 우회하지 못하도록 비정규형 입력은 게이트에서 거부 (#156) |
+| **캐시 크기 상한** | 4096 엔트리 (bounded LRU) | 고유 client_id URL 폭주로 인한 OOM 방지 (#159) |
+| **재시도/백오프** | 없음 (실패 쿼터로 대체) | 실패 시 즉시 에러 반환 |
 
 ```text
 캐시 동작 흐름:
 
-요청 → cache hit?
-  ├─ 성공 캐시 (TTL 내) → 캐시된 ClientModel 반환
-  └─ cache miss / 만료 → singleflight로 동시 요청 합치기
-       └─ fetch 실행
-            ├─ 성공 → Cache-Control 기준 TTL로 캐시 (헤더 없으면 5분)
-            └─ 실패/invalid → 캐시하지 않고 에러 반환
+요청 → 정규형 client_id 검증
+  ├─ 비정규형 → 즉시 거부 (HTTP 호출 없음)
+  └─ 정규형 → cache hit?
+       ├─ 성공 캐시 (TTL 내) → 캐시된 ClientModel 반환
+       ├─ 부정 캐시 (TTL 내) → 캐시된 에러 즉시 반환 (HTTP 호출 없음)
+       └─ cache miss / 만료
+            → 실패 쿼터 초과? → 즉시 거부 (HTTP 호출 없음)
+            → singleflight로 동시 요청 합치기
+                 └─ fetch 실행
+                      ├─ 성공 → 서버 TTL ∨ 5초 floor 로 정상 캐시
+                      └─ 실패 → 30초 부정 캐시 + 실패 쿼터 카운트
 ```
 
 ### CIMD 조회 시점별 동작
