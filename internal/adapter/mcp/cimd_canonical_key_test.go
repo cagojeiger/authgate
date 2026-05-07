@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,11 +29,44 @@ func TestCanonicalCIMDKey(t *testing.T) {
 	}
 }
 
-// TestCIMDFetcher_NegativeCacheNormalizesURLAliases verifies the bypass
-// closed in this PR's review: trivial URL aliases must share the negative
-// cache (and rate-limit budget) so they cannot each get a fresh failure
-// quota.
-func TestCIMDFetcher_NegativeCacheNormalizesURLAliases(t *testing.T) {
+func TestIsCanonicalCIMDClientID(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		// Already canonical.
+		{"https://example.com/c.json", true},
+		{"https://example.com/path/c.json", true},
+
+		// Host case.
+		{"https://Example.com/c.json", false},
+
+		// Default port.
+		{"https://example.com:443/c.json", false},
+
+		// Path normalization.
+		{"https://example.com//c.json", false},
+		{"https://example.com/x/../c.json", false},
+
+		// Percent-encoding (decodes to a different canonical form).
+		{"https://example.com/a%2Fb/c.json", false},
+
+		// Non-ASCII host (closes IDN/Unicode alias class).
+		{"https://мирзоев.example/c.json", false},
+	}
+	for _, tc := range cases {
+		if got := isCanonicalCIMDClientID(tc.in); got != tc.want {
+			t.Errorf("isCanonicalCIMDClientID(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestCIMDFetcher_RejectsNonCanonicalAtGate verifies the gate fix from the
+// PR review: non-canonical inputs must be rejected before any cache,
+// rate-limit, or HTTP work happens. This closes both the alias rate-limit
+// bypass and the positive-cache mis-attribution between aliases sharing a
+// canonical key.
+func TestCIMDFetcher_RejectsNonCanonicalAtGate(t *testing.T) {
 	fetchCount := 0
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetchCount++
@@ -43,20 +77,24 @@ func TestCIMDFetcher_NegativeCacheNormalizesURLAliases(t *testing.T) {
 	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
 	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
 
-	canonical := srv.URL + "/c.json"
-	aliased := srv.URL + "/x/../c.json"
-
-	if _, err := fetcher.FetchClient(context.Background(), canonical); err == nil {
-		t.Fatal("first fetch should fail")
+	// httptest URL is https://127.0.0.1:<port>/, so :443 stripping and host
+	// case don't apply directly; exercise path-aliasing instead, which is
+	// representative of the alias class.
+	aliases := []string{
+		srv.URL + "//c.json",
+		srv.URL + "/x/../c.json",
+		srv.URL + "/a%2Fb/c.json",
 	}
-	if fetchCount != 1 {
-		t.Fatalf("after first fetch, fetchCount = %d, want 1", fetchCount)
+	for _, alias := range aliases {
+		_, err := fetcher.FetchClient(context.Background(), alias)
+		if err == nil {
+			t.Fatalf("FetchClient(%q) should reject non-canonical input", alias)
+		}
+		if !strings.Contains(err.Error(), "canonical") {
+			t.Errorf("FetchClient(%q) error = %q, want to mention 'canonical'", alias, err.Error())
+		}
 	}
-
-	if _, err := fetcher.FetchClient(context.Background(), aliased); err == nil {
-		t.Fatal("aliased fetch should fail")
-	}
-	if fetchCount != 1 {
-		t.Errorf("aliased fetch issued HTTP, fetchCount = %d, want 1 (negative cache must merge URL aliases)", fetchCount)
+	if fetchCount != 0 {
+		t.Errorf("fetchCount = %d, want 0 (gate must reject before HTTP)", fetchCount)
 	}
 }

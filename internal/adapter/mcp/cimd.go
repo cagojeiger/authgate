@@ -141,14 +141,16 @@ func (f *HTTPCIMDFetcher) recordFailure(clientID string, now time.Time) {
 	rec.times = append(pruneOldTimestamps(rec.times, now, cimdFailureWindow), now)
 }
 
-// canonicalCIMDKey returns a normalized form of clientID for cache,
-// rate-limit, and singleflight bookkeeping so trivial URL aliases (host
-// case, redundant default port, path that resolves to the same target) all
-// share one bucket. The fetch and `meta.client_id` validation still use
-// the raw clientID — only internal map keys are normalized.
+// canonicalCIMDKey returns the canonical form of clientID:
+//   - lowercase host
+//   - default `:443` removed
+//   - path.Clean (collapses `//`, resolves `..`)
+//   - any percent-encoding in the path normalized to its decoded form
 //
-// Without this, an attacker can defeat the per-client_id rate limit in
-// #156 by issuing the same logical URL with mutated case or path segments.
+// Used by isCanonicalCIMDClientID to gate non-canonical inputs at the door
+// so that an attacker cannot defeat the per-client_id rate limit (or
+// silently mis-attribute a positive-cache entry to an alias) by mutating
+// trivial parts of the URL.
 func canonicalCIMDKey(clientID string) string {
 	u, err := url.Parse(clientID)
 	if err != nil || u.Scheme == "" || u.Host == "" {
@@ -169,6 +171,23 @@ func canonicalCIMDKey(clientID string) string {
 	u.RawPath = ""
 	u.Fragment = ""
 	return u.String()
+}
+
+// isCanonicalCIMDClientID rejects non-ASCII inputs (closes the IDN/punycode
+// alias class) and inputs that are not already in the canonical form
+// produced by canonicalCIMDKey (closes host-case, default-port,
+// path-segment, and percent-encoding alias classes).
+//
+// Rejecting at the gate means alias variants never enter the cache,
+// rate-limit tracker, or singleflight, so no positive cache entry can be
+// mis-attributed across two raw IDs that share a canonical form.
+func isCanonicalCIMDClientID(clientID string) bool {
+	for _, r := range clientID {
+		if r > 127 {
+			return false
+		}
+	}
+	return canonicalCIMDKey(clientID) == clientID
 }
 
 func pruneOldTimestamps(times []time.Time, now time.Time, window time.Duration) []time.Time {
@@ -223,34 +242,36 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 	if !storage.IsCIMDClientID(clientID) {
 		return nil, fmt.Errorf("cimd: invalid client_id URL")
 	}
+	if !isCanonicalCIMDClientID(clientID) {
+		return nil, fmt.Errorf("cimd: client_id must be in canonical form (lowercase ASCII host, no default port, clean path)")
+	}
 
 	cache := f.ensureCache()
-	key := canonicalCIMDKey(clientID)
 
 	// Check cache (positive or negative entry).
-	if ce, ok := cache.Get(key); ok {
+	if ce, ok := cache.Get(clientID); ok {
 		if f.clock.Now().Before(ce.expiresAt) {
 			if ce.err != nil {
 				return nil, ce.err
 			}
 			return ce.client, nil
 		}
-		cache.Remove(key)
+		cache.Remove(clientID)
 	}
 
 	// Reject without an outbound call when this client_id is currently
 	// rate-limited.
-	if f.isRateLimited(key, f.clock.Now()) {
+	if f.isRateLimited(clientID, f.clock.Now()) {
 		return nil, errCIMDRateLimited
 	}
 
 	// Collapse concurrent cache-miss fetches for the same client_id.
-	v, err, _ := f.sf.Do(key, func() (any, error) {
+	v, err, _ := f.sf.Do(clientID, func() (any, error) {
 		client, ttl, fetchErr := f.fetchAndValidate(ctx, clientID)
 		if fetchErr != nil {
 			now := f.clock.Now()
-			f.recordFailure(key, now)
-			cache.Add(key, &cimdCacheEntry{
+			f.recordFailure(clientID, now)
+			cache.Add(clientID, &cimdCacheEntry{
 				err:       fetchErr,
 				expiresAt: now.Add(cimdNegativeCacheTTL),
 			})
@@ -258,7 +279,7 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 		}
 
 		if ttl > 0 {
-			cache.Add(key, &cimdCacheEntry{
+			cache.Add(clientID, &cimdCacheEntry{
 				client:    client,
 				expiresAt: f.clock.Now().Add(ttl),
 			})
