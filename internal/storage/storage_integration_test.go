@@ -4,6 +4,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -170,3 +171,62 @@ func TestSession_CreateAndValidate(t *testing.T) {
 }
 
 func ptrStr(s string) *string { return &s }
+
+// TestSession_StatusFilter covers #157: GetValidSession must reject sessions
+// belonging to users in terminal states (`disabled`, `deleted`) at the
+// storage layer with ErrUserAccountClosed, while still passing through
+// `active` and `pending_deletion` so the channel × status policy in
+// service.CheckAccess can handle browser-channel recovery.
+func TestSession_StatusFilter(t *testing.T) {
+	cases := []struct {
+		name     string
+		status   string
+		wantErr  error
+		wantUser bool
+	}{
+		{name: "active user passes through", status: "active", wantErr: nil, wantUser: true},
+		{name: "pending_deletion passes through", status: "pending_deletion", wantErr: nil, wantUser: true},
+		{name: "disabled user is rejected", status: "disabled", wantErr: ErrUserAccountClosed, wantUser: true},
+		{name: "deleted user is rejected", status: "deleted", wantErr: ErrUserAccountClosed, wantUser: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := testStorage(t)
+			ctx := context.Background()
+
+			user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{
+				Email: tc.name + "@test.com", EmailVerified: true, Name: "Test", AvatarURL: "",
+				Provider: "google", ProviderUserID: "filter-" + tc.name, ProviderEmail: tc.name + "@test.com",
+			})
+			if err != nil {
+				t.Fatalf("create user: %v", err)
+			}
+			if tc.status != "active" {
+				if err := s.SetUserStatus(ctx, user.ID, tc.status); err != nil {
+					t.Fatalf("set status %q: %v", tc.status, err)
+				}
+			}
+
+			sessionID, err := s.CreateSession(ctx, user.ID, 24*time.Hour)
+			if err != nil {
+				t.Fatalf("create session: %v", err)
+			}
+
+			got, err := s.GetValidSession(ctx, sessionID)
+			if tc.wantErr == nil {
+				if err != nil {
+					t.Fatalf("err = %v, want nil", err)
+				}
+			} else if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+			if tc.wantUser && got == nil {
+				t.Fatalf("user = nil, want non-nil so caller can audit")
+			}
+			if got != nil && got.Status != tc.status {
+				t.Errorf("status = %q, want %q", got.Status, tc.status)
+			}
+		})
+	}
+}

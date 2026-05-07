@@ -99,6 +99,10 @@ func (s *LoginService) handleSessionLogin(ctx context.Context, authRequestID, se
 	}
 
 	user, err := s.store.GetValidSession(ctx, sessionID)
+	if errors.Is(err, storage.ErrUserAccountClosed) {
+		s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
+		return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
+	}
 	if err != nil {
 		return nil
 	}
