@@ -78,6 +78,11 @@ func (s *DeviceService) HandleDevicePage(ctx context.Context, userCode, sessionI
 	if errors.Is(err, storage.ErrNotFound) {
 		return s.redirectDeviceToProvider(userCode)
 	}
+	if errors.Is(err, storage.ErrUserAccountClosed) {
+		// Storage flagged a terminal status; ensureDeviceSessionAccess
+		// performs the audit + 403 response.
+		return s.ensureDeviceSessionAccess(ctx, user)
+	}
 	if err != nil {
 		return &DevicePageResult{Action: DeviceError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
@@ -145,6 +150,10 @@ func (s *DeviceService) HandleDeviceApprove(ctx context.Context, userCode, actio
 	}
 
 	user, err := s.store.GetValidSession(ctx, sessionID)
+	if errors.Is(err, storage.ErrUserAccountClosed) {
+		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "device"})
+		return &DeviceApproveResult{Success: false, Message: "account_inactive", ErrorCode: http.StatusForbidden}
+	}
 	if err != nil {
 		return &DeviceApproveResult{Success: false, Message: "invalid session", ErrorCode: http.StatusUnauthorized}
 	}

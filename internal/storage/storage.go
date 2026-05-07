@@ -17,6 +17,19 @@ import (
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrEmailConflict = errors.New("email_conflict")
+
+	// ErrUserAccountClosed is returned when a user lookup succeeds but the
+	// account is in a terminal state (`disabled` or `deleted`). The user is
+	// returned alongside the error so callers can emit the right audit
+	// metadata (channel, IP, UA) before rejecting. `pending_deletion` is
+	// passed through without an error because the channel × status policy
+	// in service.CheckAccess permits browser-channel recovery.
+	//
+	// Defense-in-depth for #157: any new caller that does
+	// `if err != nil { return err }` after a session/bearer lookup will
+	// correctly reject closed accounts without needing to remember the
+	// status check itself.
+	ErrUserAccountClosed = errors.New("user account is closed")
 )
 
 // StateChecker validates that a user is still eligible for token issuance.

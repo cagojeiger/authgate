@@ -295,7 +295,27 @@ func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User,
 	if err != nil {
 		return nil, err
 	}
-	return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.AvatarUrl, row.Status, row.CreatedAt, row.UpdatedAt), nil
+	user := buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.AvatarUrl, row.Status, row.CreatedAt, row.UpdatedAt)
+	if err := requireUsableUser(user); err != nil {
+		return user, err
+	}
+	return user, nil
+}
+
+// requireUsableUser rejects users in terminal states (`disabled`, `deleted`).
+// `active` and `pending_deletion` pass through because the channel × status
+// matrix in service.CheckAccess still has nuanced handling for the latter
+// (browser-channel recovery). The returned user is non-nil so the caller
+// can emit channel-aware audit metadata before propagating the rejection.
+func requireUsableUser(u *User) error {
+	if u == nil {
+		return errors.New("nil user")
+	}
+	switch u.Status {
+	case "disabled", "deleted":
+		return ErrUserAccountClosed
+	}
+	return nil
 }
 
 func buildCoreUser(id, email string, emailVerified bool, name sql.NullString, status string) *User {

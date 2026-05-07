@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/kangheeyong/authgate/internal/storage"
@@ -34,6 +35,10 @@ func (s *AccountService) RequestDeletion(ctx context.Context, sessionID, ipAddre
 	}
 
 	user, err := s.store.GetValidSession(ctx, sessionID)
+	if errors.Is(err, storage.ErrUserAccountClosed) {
+		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "browser"})
+		return &AccountResult{Success: false, Message: "account_inactive", ErrorCode: http.StatusForbidden}
+	}
 	if err != nil {
 		return &AccountResult{Success: false, Message: "invalid session", ErrorCode: http.StatusUnauthorized}
 	}

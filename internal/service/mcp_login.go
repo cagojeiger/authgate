@@ -33,6 +33,10 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 
 	if sessionID != "" {
 		user, err := s.store.GetValidSession(ctx, sessionID)
+		if errors.Is(err, storage.ErrUserAccountClosed) {
+			s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
+			return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
+		}
 		if err == nil {
 			if CheckAccess(user.Status, "mcp") != AccessAllow {
 				s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
