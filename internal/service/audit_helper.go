@@ -20,6 +20,11 @@ type clientResolver interface {
 // call sites to embed `client_name` alongside `client_id` so audit rows
 // remain renderable after the connection is revoked or the client_id is
 // retired (#147).
+//
+// The empty-string return is intentional rather than "omit the field": the
+// downstream console renders metadata as a flat object and treats absent
+// keys identically to empty strings; keeping the field always present
+// makes the JSON shape stable for log indexers.
 func resolveClientName(ctx context.Context, store clientResolver, clientID string) string {
 	if clientID == "" {
 		return ""

@@ -525,6 +525,35 @@ func TestConsole_RevokeConnection_ValidAuth_AuditLogsConnectionRevoked(t *testin
 	}
 }
 
+// TestConsole_RevokeConnection_UnresolvedClient_NameIsEmpty pins the
+// fallback contract for #147: an audit event whose client_id cannot be
+// resolved (CIMD URL out of cache, removed registry entry, lookup error)
+// must still emit client_name="" rather than crash or omit other metadata.
+func TestConsole_RevokeConnection_UnresolvedClient_NameIsEmpty(t *testing.T) {
+	var gotMetadata map[string]any
+	store := activeUserStore(nil, nil)
+	// Default resolveClientFn is unset → returns ErrNotFound.
+	store.auditLogFn = func(_ context.Context, _ *string, _, _, _ string, metadata map[string]any) {
+		gotMetadata = metadata
+	}
+	svc := NewConsoleService(store)
+
+	r := svc.RevokeConnection(context.Background(), "sess-1", "", "ghost-client")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if gotMetadata["client_id"] != "ghost-client" {
+		t.Fatalf("client_id=%v, want ghost-client", gotMetadata["client_id"])
+	}
+	got, ok := gotMetadata["client_name"]
+	if !ok {
+		t.Fatal("client_name missing; expected key with empty-string value")
+	}
+	if got != "" {
+		t.Fatalf("client_name=%q, want \"\" for unresolved client_id", got)
+	}
+}
+
 func TestConsole_RevokeConnection_OwnClient_BadRequest(t *testing.T) {
 	store := bearerStore(&storage.User{ID: "u1", Status: "active"}, nil)
 	store.validateBearerWithClientFn = func(context.Context, string) (*storage.User, string, error) {
