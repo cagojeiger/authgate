@@ -53,6 +53,13 @@ func TestIsCanonicalCIMDClientID(t *testing.T) {
 
 		// Non-ASCII host (closes IDN/Unicode alias class).
 		{"https://мирзоев.example/c.json", false},
+
+		// IPv6 literal: intentionally unsupported. The canonical re-
+		// serialization drops the surrounding brackets, so the rebuilt URL
+		// no longer matches the input. If IPv6 CIMD clients are ever
+		// supported, this row will need to flip to true and canonicalCIMDKey
+		// will need bracket-aware host handling.
+		{"https://[::1]/c.json", false},
 	}
 	for _, tc := range cases {
 		if got := isCanonicalCIMDClientID(tc.in); got != tc.want {
