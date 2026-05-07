@@ -144,9 +144,25 @@ func (s *ConsoleService) ListClients(ctx context.Context, sessionID, authHeader 
 	if CheckAccess(user.Status, "browser") != AccessAllow {
 		return &ClientsResult{ErrorCode: http.StatusForbidden}
 	}
-	clients := s.store.ListAllClients()
-	if clients == nil {
-		clients = []storage.ClientView{}
+
+	// #155: only return clients the requesting user is actually connected
+	// to. Returning the full registered-client roster leaks redirect_uris,
+	// allowed_scopes, and login_channel to any authenticated user, which
+	// is reconnaissance fuel for redirect/scope attacks.
+	connections, err := s.store.GetActiveConnections(ctx, user.ID)
+	if err != nil {
+		return &ClientsResult{ErrorCode: http.StatusInternalServerError}
+	}
+	connected := make(map[string]struct{}, len(connections))
+	for _, c := range connections {
+		connected[c.ClientID] = struct{}{}
+	}
+	all := s.store.ListAllClients()
+	clients := make([]storage.ClientView, 0, len(connected))
+	for _, c := range all {
+		if _, ok := connected[c.ClientID]; ok {
+			clients = append(clients, c)
+		}
 	}
 	return &ClientsResult{Clients: clients}
 }

@@ -150,29 +150,63 @@ func TestConsole_ListClients_PendingDeletion_Forbidden(t *testing.T) {
 	}
 }
 
-func TestConsole_ListClients_ActiveUser_ReturnsClients(t *testing.T) {
-	clients := []storage.ClientView{
+// TestConsole_ListClients_OnlyReturnsConnectedClients covers #155: the
+// endpoint must NOT return the full registered-client roster to every
+// authenticated user. It must return only the clients the requesting user
+// has an active connection with.
+func TestConsole_ListClients_OnlyReturnsConnectedClients(t *testing.T) {
+	registered := []storage.ClientView{
 		{ClientID: "app-a", Name: "App A"},
 		{ClientID: "app-b", Name: "App B"},
+		{ClientID: "app-c", Name: "App C"},
 	}
-	svc := NewConsoleService(activeUserStore(clients, nil))
+	// User has connected to app-a only.
+	svc := NewConsoleService(activeUserStore(registered, []string{"app-a"}))
 	r := svc.ListClients(context.Background(), "sess-1", "")
 	if r.ErrorCode != 0 {
 		t.Fatalf("want success, got error %d", r.ErrorCode)
 	}
-	if len(r.Clients) != 2 {
-		t.Fatalf("want 2 clients, got %d", len(r.Clients))
+	if len(r.Clients) != 1 {
+		t.Fatalf("want 1 client (app-a), got %d", len(r.Clients))
+	}
+	if r.Clients[0].ClientID != "app-a" {
+		t.Errorf("client_id = %q, want app-a", r.Clients[0].ClientID)
 	}
 }
 
-func TestConsole_ListClients_NilClients_ReturnsEmptySlice(t *testing.T) {
-	svc := NewConsoleService(activeUserStore(nil, nil))
+// TestConsole_ListClients_NoConnections_ReturnsEmpty covers #155: users who
+// have not connected to any registered client must NOT see the registry.
+func TestConsole_ListClients_NoConnections_ReturnsEmpty(t *testing.T) {
+	registered := []storage.ClientView{
+		{ClientID: "app-a", Name: "App A"},
+		{ClientID: "app-b", Name: "App B"},
+	}
+	svc := NewConsoleService(activeUserStore(registered, nil))
 	r := svc.ListClients(context.Background(), "sess-1", "")
 	if r.ErrorCode != 0 {
-		t.Fatalf("want success, got %d", r.ErrorCode)
+		t.Fatalf("want success, got error %d", r.ErrorCode)
+	}
+	if len(r.Clients) != 0 {
+		t.Fatalf("want 0 clients (no connections), got %d", len(r.Clients))
 	}
 	if r.Clients == nil {
 		t.Fatal("want empty slice, got nil")
+	}
+}
+
+// TestConsole_ListClients_DropsRevokedAndUnregistered guards against a
+// connection record whose client_id is no longer in the registered set
+// (admin removed it, or the connection points at a CIMD URL not held in
+// the in-memory map). Such entries must not appear in /console/clients.
+func TestConsole_ListClients_DropsRevokedAndUnregistered(t *testing.T) {
+	registered := []storage.ClientView{{ClientID: "app-a", Name: "App A"}}
+	svc := NewConsoleService(activeUserStore(registered, []string{"app-a", "ghost-client"}))
+	r := svc.ListClients(context.Background(), "sess-1", "")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got error %d", r.ErrorCode)
+	}
+	if len(r.Clients) != 1 || r.Clients[0].ClientID != "app-a" {
+		t.Fatalf("want only app-a, got %+v", r.Clients)
 	}
 }
 
@@ -312,6 +346,10 @@ func TestConsole_ListClients_BearerValid_ReturnsClients(t *testing.T) {
 	store := bearerStore(&storage.User{ID: "u1", Status: "active"}, nil)
 	store.listAllClientsFn = func() []storage.ClientView {
 		return []storage.ClientView{{ClientID: "app-a", Name: "App A"}}
+	}
+	// Bearer-authenticated user has connected to app-a.
+	store.getActiveConnFn = func(context.Context, string) ([]storage.ConnectionTokenInfo, error) {
+		return []storage.ConnectionTokenInfo{{ClientID: "app-a"}}, nil
 	}
 	svc := NewConsoleService(store)
 	r := svc.ListClients(context.Background(), "", "Bearer valid-token")
