@@ -114,18 +114,24 @@ func (s *ConsoleService) resolveAuth(ctx context.Context, sessionID, authHeader 
 		if err == nil {
 			return &consoleAuth{user: user, sessionID: sessionID}, nil
 		}
-		// storage.ErrUserAccountClosed (added in #157) intentionally falls
-		// through to the bearer path. The bearer leg gets its own
-		// status-enforcement gate in #161; once that lands, both legs
-		// reject closed accounts and resolveAuth returns "unauthenticated"
-		// here instead of the prior CheckAccess→403 path.
+		if errors.Is(err, storage.ErrUserAccountClosed) && user != nil {
+			// Storage flagged a closed account (#157). Pass the user
+			// through so the channel-aware CheckAccess in each console
+			// handler returns 403 with the existing semantics.
+			return &consoleAuth{user: user, sessionID: sessionID}, nil
+		}
 	}
 	if authHeader != "" {
 		user, clientID, err := s.store.ValidateBearerTokenWithClientID(ctx, authHeader)
-		if err != nil {
-			return nil, err
+		if err == nil {
+			return &consoleAuth{user: user, clientID: clientID}, nil
 		}
-		return &consoleAuth{user: user, clientID: clientID}, nil
+		if errors.Is(err, storage.ErrUserAccountClosed) && user != nil {
+			// Same shape as the session leg above; #161 adds the bearer-
+			// path enforcement that produces this sentinel.
+			return &consoleAuth{user: user, clientID: clientID}, nil
+		}
+		return nil, err
 	}
 	return nil, errors.New("unauthenticated")
 }
