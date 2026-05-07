@@ -8,6 +8,8 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -139,6 +141,36 @@ func (f *HTTPCIMDFetcher) recordFailure(clientID string, now time.Time) {
 	rec.times = append(pruneOldTimestamps(rec.times, now, cimdFailureWindow), now)
 }
 
+// canonicalCIMDKey returns a normalized form of clientID for cache,
+// rate-limit, and singleflight bookkeeping so trivial URL aliases (host
+// case, redundant default port, path that resolves to the same target) all
+// share one bucket. The fetch and `meta.client_id` validation still use
+// the raw clientID — only internal map keys are normalized.
+//
+// Without this, an attacker can defeat the per-client_id rate limit in
+// #156 by issuing the same logical URL with mutated case or path segments.
+func canonicalCIMDKey(clientID string) string {
+	u, err := url.Parse(clientID)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return clientID
+	}
+	host := strings.ToLower(u.Hostname())
+	if p := u.Port(); p != "" && p != "443" {
+		host += ":" + p
+	}
+	u.Host = host
+	if u.Path != "" {
+		cleaned := path.Clean(u.Path)
+		if cleaned == "." {
+			cleaned = "/"
+		}
+		u.Path = cleaned
+	}
+	u.RawPath = ""
+	u.Fragment = ""
+	return u.String()
+}
+
 func pruneOldTimestamps(times []time.Time, now time.Time, window time.Duration) []time.Time {
 	cutoff := now.Add(-window)
 	kept := times[:0]
@@ -193,31 +225,32 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 	}
 
 	cache := f.ensureCache()
+	key := canonicalCIMDKey(clientID)
 
 	// Check cache (positive or negative entry).
-	if ce, ok := cache.Get(clientID); ok {
+	if ce, ok := cache.Get(key); ok {
 		if f.clock.Now().Before(ce.expiresAt) {
 			if ce.err != nil {
 				return nil, ce.err
 			}
 			return ce.client, nil
 		}
-		cache.Remove(clientID)
+		cache.Remove(key)
 	}
 
 	// Reject without an outbound call when this client_id is currently
 	// rate-limited.
-	if f.isRateLimited(clientID, f.clock.Now()) {
+	if f.isRateLimited(key, f.clock.Now()) {
 		return nil, errCIMDRateLimited
 	}
 
 	// Collapse concurrent cache-miss fetches for the same client_id.
-	v, err, _ := f.sf.Do(clientID, func() (any, error) {
+	v, err, _ := f.sf.Do(key, func() (any, error) {
 		client, ttl, fetchErr := f.fetchAndValidate(ctx, clientID)
 		if fetchErr != nil {
 			now := f.clock.Now()
-			f.recordFailure(clientID, now)
-			cache.Add(clientID, &cimdCacheEntry{
+			f.recordFailure(key, now)
+			cache.Add(key, &cimdCacheEntry{
 				err:       fetchErr,
 				expiresAt: now.Add(cimdNegativeCacheTTL),
 			})
@@ -225,7 +258,7 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 		}
 
 		if ttl > 0 {
-			cache.Add(clientID, &cimdCacheEntry{
+			cache.Add(key, &cimdCacheEntry{
 				client:    client,
 				expiresAt: f.clock.Now().Add(ttl),
 			})
