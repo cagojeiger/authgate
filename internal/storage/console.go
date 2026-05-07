@@ -255,6 +255,13 @@ func (s *Storage) ValidateBearerTokenWithClientID(ctx context.Context, authHeade
 	if err != nil {
 		return nil, "", err
 	}
+	if err := requireUsableUser(user); err != nil {
+		// Defense-in-depth for #161: parallels the GetValidSession gate
+		// added in #157. The user is returned alongside the sentinel so
+		// the console handler's CheckAccess still emits the same 403 +
+		// channel-aware response for closed accounts.
+		return user, clientID, err
+	}
 	return user, clientID, nil
 }
 
