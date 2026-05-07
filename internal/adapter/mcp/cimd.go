@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/storage"
 	"golang.org/x/sync/singleflight"
@@ -43,15 +44,33 @@ const (
 	maxCIMDRedirectURILength = 2048
 	maxCIMDGrantTypeCount    = 2
 	maxCIMDResponseTypeCount = 1
+
+	// cimdCacheMaxEntries caps the in-memory cache so a flood of unique
+	// client_id URLs cannot grow the cache without bound (see #159).
+	cimdCacheMaxEntries = 4096
 )
 
 // HTTPCIMDFetcher fetches CIMD metadata via HTTP with SSRF protection and caching.
 type HTTPCIMDFetcher struct {
-	client   *http.Client
-	clock    clock.Clock
-	cache    sync.Map // map[string]*cimdCacheEntry
-	cacheTTL time.Duration
-	sf       singleflight.Group
+	client    *http.Client
+	clock     clock.Clock
+	cache     *lru.Cache[string, *cimdCacheEntry]
+	cacheTTL  time.Duration
+	cacheMax  int // overrides cimdCacheMaxEntries when > 0; primarily for tests.
+	cacheOnce sync.Once
+	sf        singleflight.Group
+}
+
+func (f *HTTPCIMDFetcher) ensureCache() *lru.Cache[string, *cimdCacheEntry] {
+	f.cacheOnce.Do(func() {
+		max := f.cacheMax
+		if max <= 0 {
+			max = cimdCacheMaxEntries
+		}
+		c, _ := lru.New[string, *cimdCacheEntry](max)
+		f.cache = c
+	})
+	return f.cache
 }
 
 // NewHTTPCIMDFetcher creates a CIMD fetcher with SSRF-safe HTTP client.
@@ -96,16 +115,17 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 		return nil, fmt.Errorf("cimd: invalid client_id URL")
 	}
 
+	cache := f.ensureCache()
+
 	// Check cache
-	if entry, ok := f.cache.Load(clientID); ok {
-		ce := entry.(*cimdCacheEntry)
+	if ce, ok := cache.Get(clientID); ok {
 		if f.clock.Now().Before(ce.expiresAt) {
 			if ce.err != nil {
 				return nil, ce.err
 			}
 			return ce.client, nil
 		}
-		f.cache.Delete(clientID)
+		cache.Remove(clientID)
 	}
 
 	// Collapse concurrent cache-miss fetches for the same client_id.
@@ -116,7 +136,7 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 		}
 
 		if ttl > 0 {
-			f.cache.Store(clientID, &cimdCacheEntry{
+			cache.Add(clientID, &cimdCacheEntry{
 				client:    client,
 				expiresAt: f.clock.Now().Add(ttl),
 			})
