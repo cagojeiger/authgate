@@ -47,7 +47,10 @@ func TestCIMDFetcher_CacheHit(t *testing.T) {
 	}
 }
 
-func TestCIMDFetcher_ErrorResponsesAreNotCached(t *testing.T) {
+// TestCIMDFetcher_NegativeCachesErrors covers #156: failed fetches must be
+// negative-cached for a short TTL so a flood of repeat lookups against a
+// failing client_id cannot keep issuing fresh outbound HTTP requests.
+func TestCIMDFetcher_NegativeCachesErrors(t *testing.T) {
 	fetchCount := 0
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetchCount++
@@ -66,21 +69,23 @@ func TestCIMDFetcher_ErrorResponsesAreNotCached(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected first fetch to fail, got nil")
 	}
+	// Within the negative-cache TTL the second call must NOT issue HTTP.
 	_, err = fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
 	if err == nil {
 		t.Fatal("expected second fetch to fail, got nil")
 	}
-	if fetchCount != 2 {
-		t.Errorf("fetchCount = %d, want 2 (error response must not be cached)", fetchCount)
+	if fetchCount != 1 {
+		t.Errorf("fetchCount = %d, want 1 (error must be negative-cached)", fetchCount)
 	}
 
+	// Once the negative-cache TTL expires the next call refetches.
 	clk.T = clk.T.Add(31 * time.Second)
 	_, err = fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
 	if err == nil {
 		t.Fatal("expected third fetch to fail, got nil")
 	}
-	if fetchCount != 3 {
-		t.Errorf("fetchCount = %d, want 3", fetchCount)
+	if fetchCount != 2 {
+		t.Errorf("fetchCount = %d, want 2 (negative cache should have expired)", fetchCount)
 	}
 }
 

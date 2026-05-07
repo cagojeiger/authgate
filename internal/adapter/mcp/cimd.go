@@ -48,7 +48,23 @@ const (
 	// cimdCacheMaxEntries caps the in-memory cache so a flood of unique
 	// client_id URLs cannot grow the cache without bound (see #159).
 	cimdCacheMaxEntries = 4096
+
+	// cimdNegativeCacheTTL short-circuits repeat lookups of a failing
+	// client_id so a flood of identical requests cannot keep issuing fresh
+	// outbound HTTP fetches (see #156).
+	cimdNegativeCacheTTL = 30 * time.Second
+
+	// cimdFailureLimit / cimdFailureWindow form a per-client_id failure
+	// quota. Once a single client_id produces this many failures inside the
+	// window, the fetcher rejects further attempts without an outbound call
+	// until the window passes (see #156).
+	cimdFailureLimit  = 5
+	cimdFailureWindow = 5 * time.Minute
 )
+
+// errCIMDRateLimited is returned when a client_id exceeds cimdFailureLimit
+// failures inside cimdFailureWindow.
+var errCIMDRateLimited = fmt.Errorf("cimd: too many recent failures, retry later")
 
 // HTTPCIMDFetcher fetches CIMD metadata via HTTP with SSRF protection and caching.
 type HTTPCIMDFetcher struct {
@@ -59,6 +75,16 @@ type HTTPCIMDFetcher struct {
 	cacheMax  int // overrides cimdCacheMaxEntries when > 0; primarily for tests.
 	cacheOnce sync.Once
 	sf        singleflight.Group
+
+	failuresMu   sync.Mutex
+	failures     *lru.Cache[string, *cimdFailureRecord]
+	failuresOnce sync.Once
+}
+
+// cimdFailureRecord tracks the timestamps of recent failures for a single
+// client_id; entries outside cimdFailureWindow are pruned on access.
+type cimdFailureRecord struct {
+	times []time.Time
 }
 
 func (f *HTTPCIMDFetcher) ensureCache() *lru.Cache[string, *cimdCacheEntry] {
@@ -71,6 +97,57 @@ func (f *HTTPCIMDFetcher) ensureCache() *lru.Cache[string, *cimdCacheEntry] {
 		f.cache = c
 	})
 	return f.cache
+}
+
+func (f *HTTPCIMDFetcher) ensureFailures() *lru.Cache[string, *cimdFailureRecord] {
+	f.failuresOnce.Do(func() {
+		max := f.cacheMax
+		if max <= 0 {
+			max = cimdCacheMaxEntries
+		}
+		c, _ := lru.New[string, *cimdFailureRecord](max)
+		f.failures = c
+	})
+	return f.failures
+}
+
+// isRateLimited reports whether clientID has exceeded cimdFailureLimit
+// failures inside cimdFailureWindow as of now. It also prunes timestamps
+// that have aged out of the window.
+func (f *HTTPCIMDFetcher) isRateLimited(clientID string, now time.Time) bool {
+	f.failuresMu.Lock()
+	defer f.failuresMu.Unlock()
+	rec, ok := f.ensureFailures().Get(clientID)
+	if !ok {
+		return false
+	}
+	rec.times = pruneOldTimestamps(rec.times, now, cimdFailureWindow)
+	return len(rec.times) >= cimdFailureLimit
+}
+
+// recordFailure appends a failure timestamp for clientID, pruning any that
+// have aged out of cimdFailureWindow.
+func (f *HTTPCIMDFetcher) recordFailure(clientID string, now time.Time) {
+	f.failuresMu.Lock()
+	defer f.failuresMu.Unlock()
+	cache := f.ensureFailures()
+	rec, ok := cache.Get(clientID)
+	if !ok {
+		rec = &cimdFailureRecord{}
+		cache.Add(clientID, rec)
+	}
+	rec.times = append(pruneOldTimestamps(rec.times, now, cimdFailureWindow), now)
+}
+
+func pruneOldTimestamps(times []time.Time, now time.Time, window time.Duration) []time.Time {
+	cutoff := now.Add(-window)
+	kept := times[:0]
+	for _, t := range times {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	return kept
 }
 
 // NewHTTPCIMDFetcher creates a CIMD fetcher with SSRF-safe HTTP client.
@@ -117,7 +194,7 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 
 	cache := f.ensureCache()
 
-	// Check cache
+	// Check cache (positive or negative entry).
 	if ce, ok := cache.Get(clientID); ok {
 		if f.clock.Now().Before(ce.expiresAt) {
 			if ce.err != nil {
@@ -128,11 +205,23 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 		cache.Remove(clientID)
 	}
 
+	// Reject without an outbound call when this client_id is currently
+	// rate-limited.
+	if f.isRateLimited(clientID, f.clock.Now()) {
+		return nil, errCIMDRateLimited
+	}
+
 	// Collapse concurrent cache-miss fetches for the same client_id.
 	v, err, _ := f.sf.Do(clientID, func() (any, error) {
-		client, ttl, err := f.fetchAndValidate(ctx, clientID)
-		if err != nil {
-			return nil, err
+		client, ttl, fetchErr := f.fetchAndValidate(ctx, clientID)
+		if fetchErr != nil {
+			now := f.clock.Now()
+			f.recordFailure(clientID, now)
+			cache.Add(clientID, &cimdCacheEntry{
+				err:       fetchErr,
+				expiresAt: now.Add(cimdNegativeCacheTTL),
+			})
+			return nil, fetchErr
 		}
 
 		if ttl > 0 {
