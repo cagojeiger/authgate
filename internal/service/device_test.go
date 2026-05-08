@@ -154,7 +154,11 @@ func TestDeviceApprove_NoSession_Unauthorized(t *testing.T) {
 }
 
 func TestDeviceCallback_NewUser_SignupRequired(t *testing.T) {
-	svc, _, _ := setupDeviceService(t)
+	svc, store, clk := setupDeviceService(t)
+	// #186: callback now front-loads the user_code lookup, so seed a
+	// pending row before invoking — the post-Exchange "no user account"
+	// branch is what this test is asserting.
+	insertDeviceCode(t, store, "CBCK-CODE", clk)
 	// FakeProvider returns a user that doesn't exist in DB yet
 	result := svc.HandleDeviceCallback(context.Background(), "fake-code", "CBCK-CODE", "127.0.0.1", "test")
 	if result.Action != DeviceError {
@@ -186,11 +190,12 @@ func TestDeviceCallback_ExistingUser_RedirectBack(t *testing.T) {
 
 // device-005: recoverable_browser_only callback → account_inactive
 func TestDevice005_RecoverableCallback_Rejected(t *testing.T) {
-	svc, store, _ := setupDeviceExtTest(t, "dev-recover-sub")
+	svc, store, clk := setupDeviceExtTest(t, "dev-recover-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-recover@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "dev-recover-sub", ProviderEmail: "drc@test.com"})
 	store.SetUserStatus(ctx, user.ID, "pending_deletion")
+	insertDeviceCode(t, store, "RECV-CODE", clk)
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "RECV-CODE", "127.0.0.1", "test")
 	if result.Action != DeviceError {
@@ -203,11 +208,12 @@ func TestDevice005_RecoverableCallback_Rejected(t *testing.T) {
 
 // device-006: inactive callback → account_inactive
 func TestDevice006_InactiveCallback_Rejected(t *testing.T) {
-	svc, store, _ := setupDeviceExtTest(t, "dev-inactive-sub")
+	svc, store, clk := setupDeviceExtTest(t, "dev-inactive-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-inactive@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "dev-inactive-sub", ProviderEmail: "di@test.com"})
 	store.DisableUser(ctx, user.ID)
+	insertDeviceCode(t, store, "INAC-CODE", clk)
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "INAC-CODE", "127.0.0.1", "test")
 	if result.Action != DeviceError {
@@ -220,11 +226,12 @@ func TestDevice006_InactiveCallback_Rejected(t *testing.T) {
 
 // device-004: deleted callback -> account_inactive
 func TestDeviceCallback_DeletedUser_Rejected(t *testing.T) {
-	svc, store, _ := setupDeviceExtTest(t, "dev-deleted-sub")
+	svc, store, clk := setupDeviceExtTest(t, "dev-deleted-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "dev-deleted@test.com", EmailVerified: true, Name: "Deleted", AvatarURL: "", Provider: "google", ProviderUserID: "dev-deleted-sub", ProviderEmail: "dev-deleted@test.com"})
 	_ = store.SetUserStatus(ctx, user.ID, "deleted")
+	insertDeviceCode(t, store, "DELD-CODE", clk)
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "DELD-CODE", "127.0.0.1", "test")
 	if result.Action != DeviceError {

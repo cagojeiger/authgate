@@ -214,6 +214,7 @@ func TestAccount004_PendingDeletion_DeviceRejected(t *testing.T) {
 
 	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "pd-device@test.com", EmailVerified: true, Name: "Test", AvatarURL: "", Provider: "google", ProviderUserID: "gap-sub", ProviderEmail: "pd@test.com"})
 	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
+	insertDeviceCode(t, fx.Store, "PD-CODE", fx.Clock)
 
 	result := fx.DeviceSvc.HandleDeviceCallback(ctx, "fake-code", "PD-CODE", "127.0.0.1", "test")
 	if result.Action != DeviceError {

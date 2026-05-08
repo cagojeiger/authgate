@@ -10,12 +10,24 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/kangheeyong/authgate/internal/storage"
 )
 
 func TestIntegration_DeviceCallback_NewUser_Rejected(t *testing.T) {
 	ts := SetupTestServer(t)
+	ctx := context.Background()
+
+	// #186 made the device callback front-load the user_code lookup
+	// before calling provider.Exchange. The "no user account" branch is
+	// now post-Exchange and only reachable when the user_code is valid
+	// and pending — seed one explicitly so this test still exercises
+	// the account_not_found surface rather than tripping the new gate.
+	if err := ts.Store.StoreDeviceAuthorization(ctx, "test-client", "fresh-dc", "TEST-CODE", ts.Clock.Now().Add(5*time.Minute), []string{"openid"}); err != nil {
+		t.Fatalf("seed device_code: %v", err)
+	}
+
 	resp, err := http.Get(ts.BaseURL + "/device/auth/callback?code=fake-code&state=TEST-CODE")
 	if err != nil {
 		t.Fatalf("device callback: %v", err)
@@ -42,6 +54,12 @@ func TestIntegration_DeviceCallback_PendingDeletion_Rejected(t *testing.T) {
 	}
 	if _, err := ts.DB.ExecContext(ctx, `UPDATE users SET status = 'pending_deletion' WHERE id = $1`, user.ID); err != nil {
 		t.Fatalf("set pending_deletion: %v", err)
+	}
+
+	// #186: seed a pending user_code so the front-load gate passes; the
+	// account_inactive surface this test cares about is still post-Exchange.
+	if err := ts.Store.StoreDeviceAuthorization(ctx, "test-client", "pending-dc", "TEST-CODE", ts.Clock.Now().Add(5*time.Minute), []string{"openid"}); err != nil {
+		t.Fatalf("seed device_code: %v", err)
 	}
 
 	resp, err := http.Get(ts.BaseURL + "/device/auth/callback?code=fake-code&state=TEST-CODE")

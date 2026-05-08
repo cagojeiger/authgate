@@ -101,6 +101,29 @@ func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode
 		return &DevicePageResult{Action: DeviceError, Error: "invalid_request", ErrorCode: http.StatusBadRequest}
 	}
 
+	// #186: validate the local user_code state BEFORE calling provider.Exchange.
+	// Without this gate an attacker can drive arbitrary callbacks at the
+	// upstream IdP token endpoint (amplification + quota burn) without ever
+	// holding a valid user_code. The browser callback got the same fix in
+	// #171; this matches that ordering invariant for RFC 8628 §3.3/§3.5.
+	deviceCode, err := s.store.GetDeviceCodeByUserCode(ctx, userCode)
+	if errors.Is(err, storage.ErrNotFound) {
+		return &DevicePageResult{Action: DeviceError, Error: "invalid_request", ErrorCode: http.StatusBadRequest}
+	}
+	if err != nil {
+		return &DevicePageResult{Action: DeviceError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+	}
+	if s.clock.Now().After(deviceCode.ExpiresAt) {
+		return &DevicePageResult{Action: DeviceError, Error: "invalid_request", ErrorCode: http.StatusBadRequest}
+	}
+	// Only `pending` user_codes are eligible for callback consumption.
+	// `approved`/`consumed`/`denied` already finished their lifecycle and
+	// must not silently re-bind a freshly-IdP-authenticated subject; the
+	// device-flow client is expected to start a new device-authorization.
+	if deviceCode.State != "pending" {
+		return &DevicePageResult{Action: DeviceError, Error: "invalid_request", ErrorCode: http.StatusBadRequest}
+	}
+
 	// Exchange code for user info
 	userInfo, err := s.provider.Exchange(ctx, code)
 	if err != nil {
@@ -113,14 +136,6 @@ func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode
 	}
 	if result := s.ensureDeviceCallbackAccess(ctx, user, ipAddress, userAgent); result != nil {
 		return result
-	}
-
-	deviceCode, err := s.store.GetDeviceCodeByUserCode(ctx, userCode)
-	if errors.Is(err, storage.ErrNotFound) {
-		return &DevicePageResult{Action: DeviceError, Error: "invalid_request", ErrorCode: http.StatusBadRequest}
-	}
-	if err != nil {
-		return &DevicePageResult{Action: DeviceError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
 	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)
