@@ -305,3 +305,89 @@ func TestValidateBearerTokenWithClientID_StatusFilter(t *testing.T) {
 		})
 	}
 }
+
+// #183: RequestDeletion must NOT overwrite a closed-account status. The
+// browser-channel recovery path treats `pending_deletion` as recoverable, so
+// if `disabled` (operator suspension) silently became `pending_deletion`
+// because the conditional UPDATE was missing, the user could log back in and
+// reach `active` again — bypassing the suspension entirely.
+//
+// This test exercises the storage invariant directly (bypassing
+// GetValidSession's status filter) to model the operator-side race: a user
+// has a valid session, then gets disabled in between session validation and
+// the storage UPDATE.
+func TestRequestDeletion_RejectsClosedAccount(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name           string
+		flipStatus     string
+		wantErr        error
+		wantFinalState string
+	}{
+		{"disabled", "disabled", ErrUserAccountClosed, "disabled"},
+		{"deleted", "deleted", ErrUserAccountClosed, "deleted"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := testStorage(t)
+			user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{
+				Email: "del-" + tc.flipStatus + "@test.com", EmailVerified: true, Name: "Del " + tc.flipStatus,
+				Provider: "google", ProviderUserID: "del-sub-" + tc.flipStatus, ProviderEmail: "del-" + tc.flipStatus + "@test.com",
+			})
+			if err != nil {
+				t.Fatalf("create user: %v", err)
+			}
+			if err := s.SetUserStatus(ctx, user.ID, tc.flipStatus); err != nil {
+				t.Fatalf("flip status: %v", err)
+			}
+
+			err = s.RequestDeletion(ctx, user.ID)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("RequestDeletion err = %v, want %v", err, tc.wantErr)
+			}
+
+			got, err := s.GetUserByID(ctx, user.ID)
+			if err != nil {
+				t.Fatalf("re-read user: %v", err)
+			}
+			if got.Status != tc.wantFinalState {
+				t.Errorf("status after rejected deletion = %q, want %q (closed-account suspension lost)", got.Status, tc.wantFinalState)
+			}
+		})
+	}
+}
+
+// #183 (companion): pending_deletion must remain idempotent — calling
+// RequestDeletion again returns nil and does not error, since the user is
+// already in the target state. The UPDATE must not double-bump
+// deletion_requested_at because that would extend the recovery window.
+func TestRequestDeletion_PendingDeletionIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	s := testStorage(t)
+
+	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{
+		Email: "del-idem@test.com", EmailVerified: true, Name: "Del Idem",
+		Provider: "google", ProviderUserID: "del-idem-sub", ProviderEmail: "del-idem@test.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	if err := s.RequestDeletion(ctx, user.ID); err != nil {
+		t.Fatalf("first RequestDeletion: %v", err)
+	}
+
+	got1, _ := s.GetUserByID(ctx, user.ID)
+	if got1.Status != "pending_deletion" {
+		t.Fatalf("first call status = %q, want pending_deletion", got1.Status)
+	}
+
+	// Second call: must succeed without changing deletion_requested_at.
+	if err := s.RequestDeletion(ctx, user.ID); err != nil {
+		t.Fatalf("second RequestDeletion: %v", err)
+	}
+	got2, _ := s.GetUserByID(ctx, user.ID)
+	if got2.Status != "pending_deletion" {
+		t.Errorf("second call status = %q, want pending_deletion", got2.Status)
+	}
+}

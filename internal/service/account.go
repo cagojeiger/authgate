@@ -54,6 +54,14 @@ func (s *AccountService) RequestDeletion(ctx context.Context, sessionID, ipAddre
 	}
 
 	if err := s.store.RequestDeletion(ctx, user.ID); err != nil {
+		// #183: storage rejects the conditional UPDATE when the row's status is
+		// no longer 'active' (e.g. the operator disabled the user between
+		// session validation and the UPDATE). Translate to the same 403
+		// account_inactive surface that GetValidSession's check uses.
+		if errors.Is(err, storage.ErrUserAccountClosed) {
+			s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "browser", "phase": "account_deletion"})
+			return &AccountResult{Success: false, Message: "account_inactive", ErrorCode: http.StatusForbidden}
+		}
 		return &AccountResult{Success: false, Message: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
