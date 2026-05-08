@@ -12,6 +12,23 @@ import (
 )
 
 // Audit event type constants.
+//
+// EventAuthLogout vs EventAuthTokenRevoked (#191):
+//
+//   - `auth.logout` is emitted by `TerminateSession` when the user invokes
+//     OIDC RP-Initiated Logout (`/end_session`). It revokes server-side
+//     **session rows** (`sessions.revoked_at`) but does NOT touch active
+//     refresh tokens — RFC 7009 token revocation and OIDC RP-Initiated
+//     Logout 1.0 §2 are deliberately distinct concepts in the protocol.
+//   - `auth.token_revoked` is emitted by `RevokeToken` when an RP calls
+//     `/oauth/revoke` per RFC 7009 to retire a specific refresh token.
+//   - Refresh tokens issued before `auth.logout` therefore remain valid
+//     until their natural expiry, an explicit `/oauth/revoke`, or
+//     reuse-detection family revoke (`auth.refresh_family_revoked`).
+//
+// Audit consumers MUST NOT treat `auth.logout` as "session **and** tokens
+// fully invalidated" — see docs/spec/005-token-lifecycle.md "Logout vs.
+// Revoke" for the contract.
 const (
 	EventAuthRefreshReuseDetected = "auth.refresh_reuse_detected"
 	EventAuthRefreshFamilyRevoked = "auth.refresh_family_revoked"

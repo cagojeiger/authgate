@@ -28,6 +28,8 @@
 | `audit-009` | refresh token 재사용 탐지 | `auth.refresh_reuse_detected` | `metadata.family_id` 기록 |
 | `audit-010` | family 전체 revoke | `auth.refresh_family_revoked` | `metadata.family_id` 기록 |
 | `audit-011` | client 컨텍스트가 있는 모든 이벤트 | (해당 이벤트) | `metadata.client_id` + `metadata.client_name`이 함께 기록 (#147) |
+| `audit-012` | OIDC RP-Initiated Logout (`/end_session`) 호출 | `auth.logout` | **세션 폐기**만 의미. 발급된 refresh 토큰은 자연 만료/명시적 revoke 전까지 유효. `metadata.client_id` + `client_name` 함께 기록 (#191, [Spec 005 Logout vs. Revoke](../spec/005-token-lifecycle.md#logout-vs-revoke-191)) |
+| `audit-013` | RFC 7009 `/oauth/revoke` 호출에서 **매칭되는 refresh token이 발견되어 revoke된 경우** | `auth.token_revoked` | `metadata.client_id` 기록. 알려지지 않은 토큰은 RFC 7009 §2.2에 따라 200 OK만 반환하고 이벤트는 발생하지 않음. `auth.logout`과 별개 이벤트 (#191) |
 
 ## 채널별 auth.login 검증
 
