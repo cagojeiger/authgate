@@ -241,6 +241,14 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	return rt, nil
 }
 
+// TerminateSession implements OIDC RP-Initiated Logout 1.0 §2 by revoking
+// session rows for the user. Per RFC 7009 / OIDC RP-Initiated Logout, this
+// does NOT cascade into refresh-token revocation: the two endpoints are
+// deliberately distinct in the protocol, and RPs that need full token
+// invalidation must call `/oauth/revoke` separately. The `auth.logout`
+// audit event therefore signals "session terminated" only — see the
+// EventAuthLogout doc-block in audit.go and docs/spec/005-token-lifecycle.md
+// "Logout vs. Revoke" (#191).
 func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID string) error {
 	err := storeq.New(s.db).RevokeSessionsByUserID(ctx, storeq.RevokeSessionsByUserIDParams{
 		RevokedAt: sql.NullTime{Time: s.clock.Now(), Valid: true},
