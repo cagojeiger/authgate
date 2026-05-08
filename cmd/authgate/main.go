@@ -321,11 +321,19 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
 
 	mux.Handle("/authorize", authLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resource := storage.ResourceFromRequest(r)
+		resource, err := storage.ResourceFromRequestStrict(r)
+		if err != nil {
+			writeInvalidTargetError(w, err)
+			return
+		}
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
 	mux.Handle("/oauth/token", tokenLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resource := storage.ResourceFromRequest(r)
+		resource, err := storage.ResourceFromRequestStrict(r)
+		if err != nil {
+			writeInvalidTargetError(w, err)
+			return
+		}
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
 	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -453,4 +461,16 @@ func installGracefulShutdown(srv *http.Server, cfg *config.Config, inflightReque
 		signal.Stop(sigCh)
 		slog.Info("shutdown completed", "inflight_requests", atomic.LoadInt64(inflightRequests))
 	}()
+}
+
+// writeInvalidTargetError writes the canonical OAuth invalid_target error
+// JSON body for HTTP-layer rejections (e.g. duplicate resource params per
+// authgate's single-audience policy under RFC 8707 §2.2).
+func writeInvalidTargetError(w http.ResponseWriter, cause error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error":             "invalid_target",
+		"error_description": cause.Error(),
+	})
 }

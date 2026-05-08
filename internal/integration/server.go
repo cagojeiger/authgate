@@ -172,12 +172,20 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 		json.NewEncoder(w).Encode(metadata)
 	})
 	mux.Handle("/authorize", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resource := storage.ResourceFromRequest(r)
+		resource, err := storage.ResourceFromRequestStrict(r)
+		if err != nil {
+			writeInvalidTargetError(w, err)
+			return
+		}
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	}))
 	tokenRateLimiter := middleware.NewRateLimiter(rate.Limit(5), 5)
 	mux.Handle("/oauth/token", tokenRateLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resource := storage.ResourceFromRequest(r)
+		resource, err := storage.ResourceFromRequestStrict(r)
+		if err != nil {
+			writeInvalidTargetError(w, err)
+			return
+		}
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
 	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -224,4 +232,15 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 		Clock:   clk,
 		BaseURL: srv.URL,
 	}
+}
+
+// writeInvalidTargetError writes the canonical OAuth invalid_target error
+// JSON body for HTTP-layer rejections (e.g. duplicate resource params).
+func writeInvalidTargetError(w http.ResponseWriter, cause error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error":             "invalid_target",
+		"error_description": cause.Error(),
+	})
 }

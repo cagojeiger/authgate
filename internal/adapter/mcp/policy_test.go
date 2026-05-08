@@ -125,6 +125,27 @@ func TestResourceBindingPolicy_DelegatesToBase(t *testing.T) {
 	}
 }
 
+// #184: a browser-channel client passing `resource` must be rejected
+// inside the MCP wrapper without delegating to the base policy. This
+// closes the boundary-confusion attack where a non-MCP client mints a
+// token whose `aud` is an MCP resource URL.
+func TestResourceBindingPolicy_RejectsResourceForBrowserClient(t *testing.T) {
+	base := &fakeResourcePolicy{}
+	p := NewResourceBindingPolicy(base)
+
+	err := p.ValidateAuthorizeRequest(context.Background(), &storage.ClientModel{LoginChannel: "browser"}, "https://mcp.example.com/resource")
+	if err == nil {
+		t.Fatal("expected invalid_target for browser client with resource")
+	}
+	var oidcErr *oidc.Error
+	if !errors.As(err, &oidcErr) || oidcErr.ErrorType != "invalid_target" {
+		t.Fatalf("error = %v, want oidc invalid_target", err)
+	}
+	if base.authCalls != 0 {
+		t.Fatalf("base auth calls = %d, want 0 (must reject before delegation)", base.authCalls)
+	}
+}
+
 func TestResourceBindingPolicy_TokenDelegatesToBase(t *testing.T) {
 	wantErr := errors.New("base token denied")
 	base := &fakeResourcePolicy{tokenErr: wantErr}

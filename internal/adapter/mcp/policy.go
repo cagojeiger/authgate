@@ -29,9 +29,29 @@ type resourceBindingPolicy struct {
 	base storage.ResourceBindingPolicy
 }
 
+// ValidateAuthorizeRequest enforces the channel × resource matrix per
+// RFC 8707 §2.2 AS-side policy and authgate spec 004:
+//   - login_channel='mcp'     ⇒ resource is REQUIRED (the token would
+//                                otherwise have no audience to bind to)
+//   - login_channel='browser' ⇒ resource MUST NOT be present (a browser
+//                                client minting an MCP-audience token is a
+//                                boundary-confusion attack — issue #184)
+//
+// Once /authorize rejects browser+resource here, the core policy's
+// existing "unexpected resource" check at /oauth/token covers the
+// follow-on token and refresh paths transitively (storedResource will
+// be empty for browser-channel auth_requests / refresh_tokens).
 func (p *resourceBindingPolicy) ValidateAuthorizeRequest(ctx context.Context, client *storage.ClientModel, requestResource string) error {
-	if requestResource == "" && client != nil && client.LoginChannel == "mcp" {
-		return &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
+	if client != nil {
+		if client.LoginChannel == "mcp" {
+			if requestResource == "" {
+				return &oidc.Error{ErrorType: "invalid_target", Description: "missing resource"}
+			}
+		} else {
+			if requestResource != "" {
+				return &oidc.Error{ErrorType: "invalid_target", Description: "resource parameter not permitted for this client"}
+			}
+		}
 	}
 	return p.base.ValidateAuthorizeRequest(ctx, client, requestResource)
 }
