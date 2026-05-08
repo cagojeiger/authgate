@@ -314,10 +314,18 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 			"jwks_uri":                              cfg.PublicURL + "/keys",
 			"response_types_supported":              []string{"code"},
 			"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
-			"code_challenge_methods_supported":      []string{"S256"},
-			"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post"},
-			"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
-			"client_id_metadata_document_supported": cfg.EnableMCP,
+			"code_challenge_methods_supported": []string{"S256"},
+			// #189 / RFC 8414 §2: zitadel/oidc's /oauth/token branch always
+			// accepts `client_secret_basic` (the OIDC default), accepts
+			// `client_secret_post` because op.Config.AuthMethodPost=true,
+			// and accepts `none` for public clients. Advertise all three so
+			// confidential clients trusting discovery don't pick the wrong
+			// credential location and silently fail. The /oauth/revoke
+			// branch (RFC 7009) accepts the same set, so mirror it.
+			"token_endpoint_auth_methods_supported":      []string{"none", "client_secret_basic", "client_secret_post"},
+			"revocation_endpoint_auth_methods_supported": []string{"none", "client_secret_basic", "client_secret_post"},
+			"scopes_supported":                           []string{"openid", "profile", "email", "offline_access"},
+			"client_id_metadata_document_supported":      cfg.EnableMCP,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(metadata)

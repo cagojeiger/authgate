@@ -170,10 +170,13 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 			"jwks_uri":                              srv.URL + "/keys",
 			"response_types_supported":              []string{"code"},
 			"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
-			"code_challenge_methods_supported":      []string{"S256"},
-			"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post"},
-			"scopes_supported":                      []string{"openid", "profile", "email", "offline_access"},
-			"client_id_metadata_document_supported": opts.EnableMCP,
+			"code_challenge_methods_supported": []string{"S256"},
+			// Mirror the production metadata contract: advertise every auth
+			// method the underlying op accepts (#189 / RFC 8414 §2).
+			"token_endpoint_auth_methods_supported":      []string{"none", "client_secret_basic", "client_secret_post"},
+			"revocation_endpoint_auth_methods_supported": []string{"none", "client_secret_basic", "client_secret_post"},
+			"scopes_supported":                           []string{"openid", "profile", "email", "offline_access"},
+			"client_id_metadata_document_supported":      opts.EnableMCP,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)
