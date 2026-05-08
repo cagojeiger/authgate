@@ -16,6 +16,44 @@ func writeClientConfigFile(t *testing.T, body string) string {
 	return p
 }
 
+// #190: a URL-form static client_id (i.e. one that satisfies IsCIMDClientID)
+// must be rejected at config-load time. Otherwise an operator can register
+// a CIMD-shaped client_id in the static map, where ResolveClient hits the
+// in-memory hit before the CIMD fallback ever runs — bypassing every
+// HTTPS / content-type / redirect / size validation that CIMDFetcher
+// applies on dynamic resolution. Two cases pinned: a typical CIMD URL
+// and the canonical RFC example shape.
+func TestLoadClientConfig_RejectsCIMDShapedClientID(t *testing.T) {
+	cases := []struct {
+		name     string
+		clientID string
+	}{
+		{"https path", "https://app.example.com/oauth/client.json"},
+		{"https deep path", "https://example.com/.well-known/oauth-client"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeClientConfigFile(t, `
+clients:
+  - client_id: `+tc.clientID+`
+    client_type: public
+    login_channel: mcp
+    name: CIMD-shaped
+    redirect_uris: ["https://app.example.com/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+			_, err := LoadClientConfig(path)
+			if err == nil {
+				t.Fatalf("expected URL-form client_id to be rejected, got nil")
+			}
+			if !strings.Contains(err.Error(), "CIMD") && !strings.Contains(err.Error(), "URL-form") {
+				t.Fatalf("expected CIMD rejection error, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoadClientConfig_DuplicateClientID(t *testing.T) {
 	path := writeClientConfigFile(t, `
 clients:

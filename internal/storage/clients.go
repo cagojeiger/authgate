@@ -60,6 +60,14 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		if len(c.ClientID) > maxYAMLClientIDLength {
 			return nil, fmt.Errorf("client[%d] %q: client_id exceeds %d chars", i, c.ClientID, maxYAMLClientIDLength)
 		}
+		// #190: a URL-form (CIMD-shaped) client_id MUST NOT be registered
+		// statically. ResolveClient consults the in-memory map before the
+		// CIMD fetcher fallback, so a static URL-form entry would bypass
+		// every HTTPS / content-type / redirect / size validation that
+		// CIMDFetcher applies on dynamic resolution.
+		if IsCIMDClientID(c.ClientID) {
+			return nil, fmt.Errorf("client[%d] %q: URL-form (CIMD-shaped) client_id cannot be registered statically; remove this entry and rely on dynamic CIMD resolution", i, c.ClientID)
+		}
 		if seen[c.ClientID] {
 			return nil, fmt.Errorf("client[%d] %q: duplicate client_id", i, c.ClientID)
 		}
