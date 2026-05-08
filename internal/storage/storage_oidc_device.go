@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	jose "github.com/go-jose/go-jose/v4"
@@ -133,6 +134,36 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 		return nil, err
 	}
 
+	// #188 / RFC 8628 §3.5: enforce the advertised poll `interval`. Compare
+	// the **previous** last_polled_at (read above) with `now`, then refresh
+	// last_polled_at to `now` so the next poll is measured against this
+	// attempt — clients that ignore slow_down keep tripping the gate. Only
+	// the `pending` branch returns slow_down because §3.5 frames slow_down
+	// as the "polling too fast while waiting" response; terminal states
+	// (denied/expired/consumed) and one-shot approved→consumed transitions
+	// keep their canonical RFC responses.
+	now := s.clock.Now()
+	tooSoon := dc.LastPolledAt != nil && now.Sub(*dc.LastPolledAt) < s.devicePollInterval
+	if err := qtx.UpdateDeviceCodeLastPolledAt(ctx, storeq.UpdateDeviceCodeLastPolledAtParams{
+		LastPolledAt: sql.NullTime{Time: now, Valid: true},
+		ID:           dc.ID,
+	}); err != nil {
+		return nil, err
+	}
+	if tooSoon && dc.State == "pending" {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		// zitadel/oidc op.CheckDeviceAuthorizationState only converts errors
+		// that satisfy `errors.Is(err, context.DeadlineExceeded)` into the
+		// RFC 8628 §3.5 `slow_down` response; every other error is wrapped
+		// as `access_denied`. Wrap the sentinel so the client receives the
+		// canonical slow_down it must back off on, not access_denied which
+		// signals a permanent rejection. (See pkg/op/device.go around the
+		// CheckDeviceAuthorizationState branch in zitadel/oidc/v3.)
+		return nil, fmt.Errorf("device polling too fast: %w", context.DeadlineExceeded)
+	}
+
 	// #185: defense-in-depth — when an approved device code's bound subject
 	// is no longer authorized to receive tokens (admin disabled, deleted,
 	// pending_deletion), reject the polling attempt with invalid_grant
@@ -150,7 +181,7 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 		}
 	}
 
-	return resolveDeviceAuthorizationState(ctx, tx, qtx, dc, s.clock.Now())
+	return resolveDeviceAuthorizationState(ctx, tx, qtx, dc, now)
 }
 
 // --- Device code business operations (called by service, not by zitadel) ---
@@ -214,13 +245,14 @@ func loadDeviceAuthorizationForUpdate(ctx context.Context, qtx *storeq.Queries, 
 		return nil, err
 	}
 	return &DeviceCodeModel{
-		ID:        row.ID,
-		ClientID:  row.ClientID,
-		Scopes:    StringArray(row.Scopes),
-		State:     row.State,
-		Subject:   nullStringToPtr(row.Subject),
-		ExpiresAt: row.ExpiresAt,
-		AuthTime:  nullTimePtr(row.AuthTime),
+		ID:           row.ID,
+		ClientID:     row.ClientID,
+		Scopes:       StringArray(row.Scopes),
+		State:        row.State,
+		Subject:      nullStringToPtr(row.Subject),
+		ExpiresAt:    row.ExpiresAt,
+		AuthTime:     nullTimePtr(row.AuthTime),
+		LastPolledAt: nullTimePtr(row.LastPolledAt),
 	}, nil
 }
 

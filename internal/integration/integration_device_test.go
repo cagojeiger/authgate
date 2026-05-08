@@ -241,6 +241,43 @@ func TestIntegration_DevicePolling_RechecksUserStatus(t *testing.T) {
 	}
 }
 
+// #188 / RFC 8628 §3.5: when a device-flow client polls the token endpoint
+// faster than the advertised `interval`, the AS MUST respond with
+// `slow_down` so the client backs off. Authgate previously kept returning
+// `authorization_pending` regardless of poll cadence, leaving aggressive
+// or buggy clients free to hammer the DB.
+//
+// Cadence under test (FixedClock):
+//   poll #1 (t=0)        — first poll seeds last_polled_at; expect authorization_pending
+//   poll #2 (t=0)        — same instant; delta=0 < 5s interval; expect slow_down
+//   advance clock +6s
+//   poll #3 (t=6s)       — delta=6s >= 5s; expect authorization_pending again
+func TestIntegration_DevicePolling_EnforcesSlowDown(t *testing.T) {
+	ts := SetupTestServer(t)
+
+	authz := startDeviceAuthorization(t, ts)
+
+	first := pollDeviceToken(t, ts, authz.DeviceCode)
+	if !strings.Contains(first.RawBody, "authorization_pending") {
+		t.Fatalf("poll #1 want authorization_pending, got status=%d body=%s", first.StatusCode, first.RawBody)
+	}
+
+	second := pollDeviceToken(t, ts, authz.DeviceCode)
+	if !strings.Contains(second.RawBody, "slow_down") {
+		t.Fatalf("poll #2 (within interval) want slow_down, got status=%d body=%s", second.StatusCode, second.RawBody)
+	}
+
+	// Advance the test clock past the 5s interval and confirm polling
+	// resumes its normal authorization_pending response — slow_down is a
+	// back-off signal, not a permanent denial.
+	ts.Clock.T = ts.Clock.T.Add(6 * time.Second)
+
+	third := pollDeviceToken(t, ts, authz.DeviceCode)
+	if !strings.Contains(third.RawBody, "authorization_pending") {
+		t.Fatalf("poll #3 (after interval) want authorization_pending, got status=%d body=%s", third.StatusCode, third.RawBody)
+	}
+}
+
 // security-001: /device/approve rejects non-POST methods
 func TestIntegration_DeviceApprove_GetRejected(t *testing.T) {
 	ts := SetupTestServer(t)

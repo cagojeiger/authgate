@@ -67,6 +67,7 @@ type Querier interface {
 	TryCleanupAdvisoryLock(ctx context.Context, lockKey int64) (bool, error)
 	UnlockCleanupAdvisoryLock(ctx context.Context, lockKey int64) (bool, error)
 	UpdateAuthRequestCode(ctx context.Context, arg UpdateAuthRequestCodeParams) error
+	UpdateDeviceCodeLastPolledAt(ctx context.Context, arg UpdateDeviceCodeLastPolledAtParams) error
 	UpdateDeviceCodeStateConsumedByID(ctx context.Context, id string) error
 }
 

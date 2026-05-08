@@ -3,7 +3,7 @@ INSERT INTO device_codes (id, device_code, user_code, client_id, scopes, state, 
 VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7);
 
 -- name: GetDeviceAuthorizationForUpdate :one
-SELECT id, client_id, scopes, state, subject, expires_at, auth_time
+SELECT id, client_id, scopes, state, subject, expires_at, auth_time, last_polled_at
 FROM device_codes
 WHERE device_code = $1 AND client_id = $2
 FOR UPDATE;
@@ -12,6 +12,11 @@ FOR UPDATE;
 UPDATE device_codes
 SET state = 'consumed'
 WHERE id = $1;
+
+-- name: UpdateDeviceCodeLastPolledAt :exec
+UPDATE device_codes
+SET last_polled_at = $1
+WHERE id = $2;
 
 -- name: GetDeviceCodeByUserCode :one
 SELECT id, device_code, user_code, client_id, scopes, state, subject, expires_at, auth_time

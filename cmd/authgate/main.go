@@ -35,6 +35,13 @@ import (
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
+// devicePollInterval is the minimum gap between successive device-flow
+// polls. Wired into both `op.DeviceAuthorizationConfig.PollInterval` (the
+// value advertised to clients in the device-authorization response) and
+// `Storage.SetDevicePollInterval` (the server-side `slow_down` enforcement
+// per RFC 8628 §3.5) so the two stay in lockstep.
+const devicePollInterval = 5 * time.Second
+
 func main() {
 	cfg := mustLoadConfig()
 	db := mustOpenDB(cfg)
@@ -152,6 +159,7 @@ func newStateChecker() func(*storage.User) error {
 func mustBuildStore(cfg *config.Config, db *sql.DB, clk clock.Clock, gen idgen.CryptoGenerator) *storage.Storage {
 	store := storage.New(db, clk, gen, newStateChecker(), cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	store.SetIssuer(cfg.PublicURL)
+	store.SetDevicePollInterval(devicePollInterval)
 	mustConfigureSigningKey(store)
 	configureMCPPoliciesIfEnabled(cfg, store)
 	return store
@@ -225,7 +233,7 @@ func buildOPConfig(cfg *config.Config) *op.Config {
 		SupportedScopes:       []string{"openid", "profile", "email", "offline_access"},
 		DeviceAuthorization: op.DeviceAuthorizationConfig{
 			Lifetime:     5 * time.Minute,
-			PollInterval: 5 * time.Second,
+			PollInterval: devicePollInterval,
 			UserFormPath: "/device",
 			UserCode: op.UserCodeConfig{
 				CharSet:      "BCDFGHJKLMNPQRSTVWXZ",
