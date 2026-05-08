@@ -290,6 +290,17 @@ authgate의 CIMD 처리:
   4. 검증 성공 → 메모리에서 ClientModel 생성 → 플로우 진행
 ```
 
+### URL-form static client_id 금지 (#190)
+
+`clients.yaml`의 정적 등록 항목 중 `client_id`가 CIMD URL 형식 (HTTPS + path 포함)이면
+설정 로드 시점에 거부한다. `ResolveClient`는 정적 in-memory 맵을 CIMD fetcher보다 먼저
+조회하므로, URL 형식 정적 등록을 허용하면 CIMDFetcher의 HTTPS / content-type / redirect /
+size 검증을 전부 우회하는 고리가 생긴다. 따라서:
+
+- 정적 client_id는 비-URL 형식이어야 한다 (예: `my-app`, `mcp-cli`).
+- URL 형식 client_id를 쓰려면 정적 등록 없이 dynamic CIMD 경로로만 진입한다.
+- 위반 시 `LoadClientConfig`가 `URL-form (CIMD-shaped) client_id cannot be registered statically` 에러를 반환한다.
+
 CIMD가 DCR을 대체하는 이유:
 
 | 항목 | DCR | CIMD |
