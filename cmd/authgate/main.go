@@ -329,13 +329,14 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 		}
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
+	tokenWithAtJWT := storage.WrapAccessTokenJWTType(provider, store)
 	mux.Handle("/oauth/token", tokenLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource, err := storage.ResourceFromRequestStrict(r)
 		if err != nil {
 			writeInvalidTargetError(w, err)
 			return
 		}
-		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
+		tokenWithAtJWT.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
 	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !cfg.EnableMCP {

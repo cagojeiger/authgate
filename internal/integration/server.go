@@ -181,13 +181,14 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	}))
 	tokenRateLimiter := middleware.NewRateLimiter(rate.Limit(5), 5)
+	tokenWithAtJWT := storage.WrapAccessTokenJWTType(provider, store)
 	mux.Handle("/oauth/token", tokenRateLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource, err := storage.ResourceFromRequestStrict(r)
 		if err != nil {
 			writeInvalidTargetError(w, err)
 			return
 		}
-		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
+		tokenWithAtJWT.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
 	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !opts.EnableMCP {
