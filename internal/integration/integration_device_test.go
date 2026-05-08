@@ -161,6 +161,57 @@ func TestIntegration_DeviceConcurrentPolling_ExactlyOneSuccess(t *testing.T) {
 	}
 }
 
+// device-008 / #185: tokens MUST NOT be issued for a user whose status flipped
+// to disabled (or any non-active state) between approve and poll. The device
+// code MUST remain in "approved" rather than transitioning to "consumed", so
+// polling continues to return invalid_grant rather than minting tokens once.
+func TestIntegration_DevicePolling_RechecksUserStatus(t *testing.T) {
+	ts := SetupTestServer(t)
+	ctx := context.Background()
+
+	user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
+		Email: "device-disable@test.com", EmailVerified: true, Name: "Disabled Mid-Flow", AvatarURL: "",
+		Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "device-disable@test.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	authz := startDeviceAuthorization(t, ts)
+	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID); err != nil {
+		t.Fatalf("approve device code: %v", err)
+	}
+
+	// Operator disables the user AFTER approval, BEFORE poll.
+	if err := ts.Store.SetUserStatus(ctx, user.ID, "disabled"); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+
+	result := pollDeviceToken(t, ts, authz.DeviceCode)
+	if result.StatusCode == http.StatusOK {
+		t.Fatalf("token exchange should reject disabled user, got 200 body=%s", result.RawBody)
+	}
+	// zitadel/oidc wraps our invalid_grant into access_denied at the device
+	// endpoint (RFC 8628 §3.5 lists access_denied as a valid device-grant
+	// error). Either signals the closed-account rejection.
+	if !strings.Contains(result.RawBody, "invalid_grant") && !strings.Contains(result.RawBody, "access_denied") {
+		t.Fatalf("expected invalid_grant or access_denied, got body=%s", result.RawBody)
+	}
+
+	// Re-approving (or any retry) must not have silently consumed the device
+	// code. State must still be "approved" so the operator can decide whether
+	// to extend or revoke; certainly not "consumed" which would leave the
+	// caller permanently locked out of retrieving tokens even after the
+	// account is reactivated within the device-code TTL.
+	dc, err := ts.Store.GetDeviceCodeByUserCode(ctx, authz.UserCode)
+	if err != nil {
+		t.Fatalf("re-read device code: %v", err)
+	}
+	if dc.State == "consumed" {
+		t.Errorf("device code state = %q, want %q (closed-account check must not consume the code)", dc.State, "approved")
+	}
+}
+
 // security-001: /device/approve rejects non-POST methods
 func TestIntegration_DeviceApprove_GetRejected(t *testing.T) {
 	ts := SetupTestServer(t)

@@ -133,6 +133,23 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 		return nil, err
 	}
 
+	// #185: defense-in-depth — when an approved device code's bound subject
+	// is no longer authorized to receive tokens (admin disabled, deleted,
+	// pending_deletion), reject the polling attempt with invalid_grant
+	// without consuming the device code. The auth_code and refresh paths
+	// already run stateChecker at issuance; the device branch otherwise
+	// would mint tokens for a user whose status flipped between approve
+	// and poll.
+	if dc.State == "approved" && dc.Subject != nil && s.stateChecker != nil {
+		user, lookupErr := s.getUserByID(ctx, tx, *dc.Subject)
+		if lookupErr != nil {
+			return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "subject lookup failed"}
+		}
+		if checkErr := s.stateChecker(user); checkErr != nil {
+			return nil, &oidc.Error{ErrorType: "invalid_grant", Description: checkErr.Error()}
+		}
+	}
+
 	return resolveDeviceAuthorizationState(ctx, tx, qtx, dc, s.clock.Now())
 }
 
