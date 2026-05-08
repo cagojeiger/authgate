@@ -96,7 +96,7 @@ func TestClientResolutionPolicy_NoFallbackForNonCIMD(t *testing.T) {
 
 func TestResourceBindingPolicy_EnforcesMCPResource(t *testing.T) {
 	base := &fakeResourcePolicy{}
-	p := NewResourceBindingPolicy(base)
+	p := NewResourceBindingPolicy(base, nil)
 
 	err := p.ValidateAuthorizeRequest(context.Background(), &storage.ClientModel{LoginChannel: "mcp"}, "")
 	if err == nil {
@@ -114,7 +114,7 @@ func TestResourceBindingPolicy_EnforcesMCPResource(t *testing.T) {
 func TestResourceBindingPolicy_DelegatesToBase(t *testing.T) {
 	wantErr := errors.New("base authorize denied")
 	base := &fakeResourcePolicy{authorizeErr: wantErr}
-	p := NewResourceBindingPolicy(base)
+	p := NewResourceBindingPolicy(base, nil)
 
 	err := p.ValidateAuthorizeRequest(context.Background(), &storage.ClientModel{LoginChannel: "browser"}, "")
 	if !errors.Is(err, wantErr) {
@@ -125,10 +125,53 @@ func TestResourceBindingPolicy_DelegatesToBase(t *testing.T) {
 	}
 }
 
+// #184: a browser-channel client passing `resource` must be rejected
+// inside the MCP wrapper without delegating to the base policy. This
+// closes the boundary-confusion attack where a non-MCP client mints a
+// token whose `aud` is an MCP resource URL.
+func TestResourceBindingPolicy_RejectsResourceForBrowserClient(t *testing.T) {
+	base := &fakeResourcePolicy{}
+	p := NewResourceBindingPolicy(base, nil)
+
+	err := p.ValidateAuthorizeRequest(context.Background(), &storage.ClientModel{LoginChannel: "browser"}, "https://mcp.example.com/resource")
+	if err == nil {
+		t.Fatal("expected invalid_target for browser client with resource")
+	}
+	var oidcErr *oidc.Error
+	if !errors.As(err, &oidcErr) || oidcErr.ErrorType != "invalid_target" {
+		t.Fatalf("error = %v, want oidc invalid_target", err)
+	}
+	if base.authCalls != 0 {
+		t.Fatalf("base auth calls = %d, want 0 (must reject before delegation)", base.authCalls)
+	}
+}
+
+// #184 (legacy data): a refresh token with storedResource minted before
+// the channel × resource gate landed must fail closed on first reuse,
+// not silently keep minting MCP-aud tokens. The wrapper rejects with
+// invalid_grant when the resolver reports a non-MCP login_channel.
+func TestResourceBindingPolicy_RejectsLegacyStoredResourceOnNonMCPClient(t *testing.T) {
+	base := &fakeResourcePolicy{}
+	resolver := fakeClientPolicy{client: &storage.ClientModel{ID: "browser-app", LoginChannel: "browser"}}
+	p := NewResourceBindingPolicy(base, resolver)
+
+	err := p.ValidateTokenRequest(context.Background(), "browser-app", "https://mcp.example.com/resource", "")
+	if err == nil {
+		t.Fatal("expected invalid_grant for stored resource on browser client")
+	}
+	var oidcErr *oidc.Error
+	if !errors.As(err, &oidcErr) || oidcErr.ErrorType != "invalid_grant" {
+		t.Fatalf("error = %v, want oidc invalid_grant (legacy data must fail closed)", err)
+	}
+	if base.tokenCalls != 0 {
+		t.Fatalf("base token calls = %d, want 0", base.tokenCalls)
+	}
+}
+
 func TestResourceBindingPolicy_TokenDelegatesToBase(t *testing.T) {
 	wantErr := errors.New("base token denied")
 	base := &fakeResourcePolicy{tokenErr: wantErr}
-	p := NewResourceBindingPolicy(base)
+	p := NewResourceBindingPolicy(base, nil)
 
 	err := p.ValidateTokenRequest(context.Background(), "c1", "r1", "r1")
 	if !errors.Is(err, wantErr) {

@@ -30,12 +30,14 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, 
 	}
 
 	resource := ResourceFromContext(ctx)
-	if resource == "" {
-		client, err := s.ResolveClient(ctx, req.ClientID)
-		if err == nil {
-			if err := s.resourcePolicy.ValidateAuthorizeRequest(ctx, client, resource); err != nil {
-				return nil, err
-			}
+	// #184: validate the channel × resource matrix on every /authorize, not
+	// only when resource is empty. Previously the validate call was gated on
+	// `resource == ""`, which let a browser client pass an MCP-bound
+	// resource through unchallenged and mint tokens with an MCP audience.
+	client, err := s.ResolveClient(ctx, req.ClientID)
+	if err == nil {
+		if err := s.resourcePolicy.ValidateAuthorizeRequest(ctx, client, resource); err != nil {
+			return nil, err
 		}
 	}
 
@@ -53,7 +55,7 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, 
 		CreatedAt:           s.clock.Now(),
 	}
 
-	err := storeq.New(s.db).InsertAuthRequest(ctx, storeq.InsertAuthRequestParams{
+	err = storeq.New(s.db).InsertAuthRequest(ctx, storeq.InsertAuthRequestParams{
 		ID:                  ar.ID,
 		ClientID:            ar.ClientID,
 		Resource:            sql.NullString{String: ar.Resource, Valid: true},

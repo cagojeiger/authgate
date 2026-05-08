@@ -482,6 +482,16 @@ authgate는 authorize 단계와 token 단계 모두에서 같은 `resource`를 �
 4. access_token의 aud는 canonical resource로 발급
 ```
 
+`resource` 파라미터는 channel별로 강제된다 (RFC 8707 §2.2 AS-side policy):
+
+| login_channel | resource 처리 |
+|---------------|--------------|
+| `mcp`         | **필수** — 누락 시 `invalid_target` |
+| `browser`     | **금지** — 포함 시 `invalid_target` |
+| `device`      | **금지** — 포함 시 `invalid_target` |
+
+또한 단일 audience 정책: `resource=` 파라미터가 두 번 이상 나타나면 HTTP 400 `invalid_target`. 이는 `aud=[A,B]` 같은 다중 청자 토큰을 통한 audience smuggling을 차단한다.
+
 MCP 서버가 검증해야 하는 항목:
 
 ```text

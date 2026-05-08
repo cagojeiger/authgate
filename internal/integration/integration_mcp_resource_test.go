@@ -94,6 +94,84 @@ func TestMCPResourceBinding(t *testing.T) {
 		}
 	})
 
+	// #184: a non-MCP (browser) client must NOT be able to bind a token's
+	// audience to an MCP resource URL. RFC 8707 §2.2 explicitly permits
+	// the AS to reject `resource` values per its own policy via
+	// invalid_target; our spec scopes resource to login_channel='mcp', so
+	// a browser client passing resource= is a boundary-confusion attempt
+	// that must be rejected at /authorize before any auth_request is
+	// stored.
+	t.Run("browser client passing resource is rejected at /authorize (#184)", func(t *testing.T) {
+		ts := SetupTestServer(t)
+		// "test-client" is the browser-channel client baked into the test server.
+		client := NewOAuthClientFor(t, ts.BaseURL, "test-client", "/callback")
+		client.Resource = ts.BaseURL + "/some-mcp-resource"
+
+		noFollowClient := &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse },
+		}
+		resp, err := noFollowClient.Get(client.AuthorizeURL())
+		if err != nil {
+			t.Fatalf("authorize: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+
+		// Either a 4xx error response or a redirect carrying error=invalid_target
+		// is acceptable. The critical invariants: not a successful login flow
+		// (so no auth_request gets stored), and the error surface mentions
+		// invalid_target.
+		if resp.StatusCode == http.StatusOK {
+			t.Fatalf("browser client + resource should be rejected, got 200 body=%s", string(body))
+		}
+		combined := string(body) + " " + resp.Header.Get("Location")
+		if !strings.Contains(combined, "invalid_target") {
+			t.Fatalf("expected invalid_target in response, got status=%d body=%s location=%s",
+				resp.StatusCode, string(body), resp.Header.Get("Location"))
+		}
+	})
+
+	// #184: RFC 8707 lets the AS apply single-audience policy. Multiple
+	// `resource` params at /authorize must be rejected so a malicious
+	// client cannot smuggle in additional audiences (e.g. a private
+	// internal MCP URL) past the front-door check.
+	t.Run("duplicate resource params at /authorize are rejected (#184)", func(t *testing.T) {
+		ts := SetupTestServer(t)
+		client := NewOAuthClientFor(t, ts.BaseURL, "mcp-client", "/mcp/callback")
+
+		params := url.Values{
+			"client_id":             {client.ClientID},
+			"redirect_uri":          {client.RedirectURI},
+			"response_type":         {"code"},
+			"scope":                 {"openid profile email"},
+			"code_challenge":        {client.CodeChallenge},
+			"code_challenge_method": {"S256"},
+			"state":                 {"test-state"},
+		}
+		// Encode so resource appears twice in the query string.
+		raw := params.Encode() + "&resource=" + url.QueryEscape(ts.BaseURL+"/mcp-1") + "&resource=" + url.QueryEscape(ts.BaseURL+"/mcp-2")
+		authzURL := ts.BaseURL + "/authorize?" + raw
+
+		noFollowClient := &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse },
+		}
+		resp, err := noFollowClient.Get(authzURL)
+		if err != nil {
+			t.Fatalf("authorize: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+
+		if resp.StatusCode == http.StatusOK {
+			t.Fatalf("duplicate resource params should be rejected, got 200 body=%s", string(body))
+		}
+		combined := string(body) + " " + resp.Header.Get("Location")
+		if !strings.Contains(combined, "invalid_target") {
+			t.Fatalf("expected invalid_target, got status=%d body=%s location=%s",
+				resp.StatusCode, string(body), resp.Header.Get("Location"))
+		}
+	})
+
 	t.Run("mismatched resource in token exchange is rejected", func(t *testing.T) {
 		ts := SetupTestServer(t)
 		client := NewOAuthClientFor(t, ts.BaseURL, "mcp-client", "/mcp/callback")
