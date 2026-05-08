@@ -131,10 +131,16 @@ Device 플로우의 주요 사용자(CLI 첫 사용자)는 브라우저 세션�
 1. /device?user_code=XXXX → 세션 없음 감지
 2. IdP 로그인 redirect (state=user_code, redirect_uri=/device/auth/callback)
 3. IdP 인증 성공 → /device/auth/callback?code=...&state=user_code
-4. 기존 유저 확인 → user.Status 상태 검사 (active가 아니면 즉시 차단)
-5. 세션 생성 → /device?user_code=XXXX로 302 redirect
-6. 승인 페이지 표시 → 사용자 승인
+4. user_code state 사전 검증 (pending 아니면 invalid_request 400, IdP Exchange 호출 안 함)
+5. IdP Exchange → 기존 유저 확인 → user.Status 상태 검사 (active가 아니면 즉시 차단)
+6. 세션 생성 → /device?user_code=XXXX로 302 redirect
+7. 승인 페이지 표시 → 사용자 승인
 ```
+
+**Step 4 (validate-before-exchange) 는 보안상 load-bearing이다.**
+`user_code`가 unknown/expired/non-pending 상태에서는 IdP token 엔드포인트
+호출 자체를 막아 outbound traffic 증폭과 IdP quota 소모 공격을 차단한다.
+브라우저 callback도 동일 패턴(#171)을 사용한다.
 
 **`/login/callback`과 분리된 별도 엔드포인트를 사용한다.**
 `state`의 의미가 엔드포인트별로 고정되며, 다른 형식이면 `invalid_request`로 거부한다:
