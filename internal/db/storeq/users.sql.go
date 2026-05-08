@@ -301,13 +301,13 @@ func (q *Queries) InsertUserIdentity(ctx context.Context, arg InsertUserIdentity
 	return err
 }
 
-const markUserPendingDeletionByID = `-- name: MarkUserPendingDeletionByID :exec
+const markUserPendingDeletionByID = `-- name: MarkUserPendingDeletionByID :execrows
 UPDATE users
 SET status = 'pending_deletion',
     deletion_requested_at = $1,
     deletion_scheduled_at = $2,
     updated_at = $1
-WHERE id = $3
+WHERE id = $3 AND status = 'active'
 `
 
 type MarkUserPendingDeletionByIDParams struct {
@@ -316,9 +316,12 @@ type MarkUserPendingDeletionByIDParams struct {
 	ID                  string
 }
 
-func (q *Queries) MarkUserPendingDeletionByID(ctx context.Context, arg MarkUserPendingDeletionByIDParams) error {
-	_, err := q.db.ExecContext(ctx, markUserPendingDeletionByID, arg.DeletionRequestedAt, arg.DeletionScheduledAt, arg.ID)
-	return err
+func (q *Queries) MarkUserPendingDeletionByID(ctx context.Context, arg MarkUserPendingDeletionByIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markUserPendingDeletionByID, arg.DeletionRequestedAt, arg.DeletionScheduledAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const recoverPendingDeletionUserByID = `-- name: RecoverPendingDeletionUserByID :exec

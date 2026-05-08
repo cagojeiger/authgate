@@ -47,13 +47,13 @@ SET status = 'active',
     updated_at = $1
 WHERE id = $2 AND status = 'pending_deletion';
 
--- name: MarkUserPendingDeletionByID :exec
+-- name: MarkUserPendingDeletionByID :execrows
 UPDATE users
 SET status = 'pending_deletion',
     deletion_requested_at = $1,
     deletion_scheduled_at = $2,
     updated_at = $1
-WHERE id = $3;
+WHERE id = $3 AND status = 'active';
 
 -- name: RevokeActiveRefreshTokensByUserID :exec
 UPDATE refresh_tokens

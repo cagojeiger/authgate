@@ -14,7 +14,11 @@ type AccountService struct {
 
 type AccountStore interface {
 	GetValidSession(ctx context.Context, sessionID string) (*storage.User, error)
-	RequestDeletion(ctx context.Context, userID string) error
+	// RequestDeletion returns the live user status (read inside the same TX as
+	// the conditional UPDATE) when err is ErrUserAccountClosed, so the caller
+	// can record the actual closed-account state in audit logs rather than the
+	// stale session-snapshot status. Empty string otherwise.
+	RequestDeletion(ctx context.Context, userID string) (string, error)
 	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 }
 
@@ -53,7 +57,18 @@ func (s *AccountService) RequestDeletion(ctx context.Context, sessionID, ipAddre
 		return &AccountResult{Success: true, Message: "Already pending deletion. Login within 30 days to cancel."}
 	}
 
-	if err := s.store.RequestDeletion(ctx, user.ID); err != nil {
+	liveStatus, err := s.store.RequestDeletion(ctx, user.ID)
+	if err != nil {
+		// #183: storage rejects the conditional UPDATE when the row's status is
+		// no longer 'active' (e.g. the operator disabled the user between
+		// session validation and the UPDATE). Translate to the same 403
+		// account_inactive surface that GetValidSession's check uses, and
+		// audit the *live* status returned by storage rather than the
+		// session-snapshot user.Status, which may already be stale.
+		if errors.Is(err, storage.ErrUserAccountClosed) {
+			s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": liveStatus, "channel": "browser", "phase": "account_deletion"})
+			return &AccountResult{Success: false, Message: "account_inactive", ErrorCode: http.StatusForbidden}
+		}
 		return &AccountResult{Success: false, Message: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 

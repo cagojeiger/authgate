@@ -53,7 +53,7 @@ type Querier interface {
 	ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff sql.NullTime) ([]string, error)
 	MarkRefreshTokenUsedAndRevokedByID(ctx context.Context, arg MarkRefreshTokenUsedAndRevokedByIDParams) error
 	MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedByIDParams) error
-	MarkUserPendingDeletionByID(ctx context.Context, arg MarkUserPendingDeletionByIDParams) error
+	MarkUserPendingDeletionByID(ctx context.Context, arg MarkUserPendingDeletionByIDParams) (int64, error)
 	RecoverPendingDeletionUserByID(ctx context.Context, arg RecoverPendingDeletionUserByIDParams) error
 	RevokeActiveRefreshTokensByUserID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDParams) error
 	RevokeActiveRefreshTokensByUserIDAndClientID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDAndClientIDParams) error
