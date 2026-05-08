@@ -55,6 +55,72 @@ func TestAccessToken_TypIsAtJWTAndIDTokenStaysJWT(t *testing.T) {
 	}
 }
 
+// #187 (refresh grant): the at+jwt typ rewrite must also apply to access
+// tokens minted via the refresh_token grant. Same code path through
+// /oauth/token, but worth exercising explicitly so the wrapper isn't
+// inadvertently bypassed by a future refactor that splits the routes.
+func TestRefreshGrant_AccessTokenTypIsAtJWT(t *testing.T) {
+	ts := SetupTestServer(t)
+	ctx := context.Background()
+
+	if _, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
+		Email: "atjwt-refresh@test.com", EmailVerified: true, Name: "AT JWT Refresh",
+		Provider: "google", ProviderUserID: "test-google-sub",
+		ProviderEmail: "atjwt-refresh@test.com",
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	client := NewOAuthClient(t, ts.BaseURL)
+	code := completeLoginFlowToCode(t, ts, client)
+	first := client.ExchangeCode(code)
+	if first.StatusCode != http.StatusOK || first.RefreshToken == "" {
+		t.Fatalf("first exchange: status=%d body=%s", first.StatusCode, first.RawBody)
+	}
+
+	refreshed := client.RefreshToken(first.RefreshToken)
+	if refreshed.StatusCode != http.StatusOK {
+		t.Fatalf("refresh: status=%d body=%s", refreshed.StatusCode, refreshed.RawBody)
+	}
+	if refreshed.AccessToken == "" {
+		t.Fatal("expected non-empty refreshed access_token")
+	}
+	if got := jwtTyp(t, "refreshed access_token", refreshed.AccessToken); got != "at+jwt" {
+		t.Errorf("refreshed access_token typ = %q, want at+jwt", got)
+	}
+}
+
+// #187 (device grant): same invariant for tokens minted from a
+// device-code grant. Different grant_type in the same /oauth/token
+// handler — guard against a future grant-specific bypass.
+func TestDeviceGrant_AccessTokenTypIsAtJWT(t *testing.T) {
+	ts := SetupTestServer(t)
+	ctx := context.Background()
+
+	user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
+		Email: "atjwt-device@test.com", EmailVerified: true, Name: "AT JWT Device",
+		Provider: "google", ProviderUserID: "test-google-sub",
+		ProviderEmail: "atjwt-device@test.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	authz := startDeviceAuthorization(t, ts)
+	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID); err != nil {
+		t.Fatalf("approve device code: %v", err)
+	}
+	result := pollDeviceToken(t, ts, authz.DeviceCode)
+	if result.StatusCode != http.StatusOK {
+		t.Fatalf("device token exchange: status=%d body=%s", result.StatusCode, result.RawBody)
+	}
+	if result.AccessToken == "" {
+		t.Fatal("expected non-empty device-grant access_token")
+	}
+	if got := jwtTyp(t, "device-grant access_token", result.AccessToken); got != "at+jwt" {
+		t.Errorf("device-grant access_token typ = %q, want at+jwt", got)
+	}
+}
+
 // jwtTyp decodes the JOSE header of a compact JWS and returns the typ
 // header value. Failures are reported via t.Fatalf rather than returned
 // so callers don't need extra error handling on a malformed input.

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -32,14 +34,31 @@ func WrapAccessTokenJWTType(inner http.Handler, store *Storage) http.Handler {
 
 		body := rec.body.Bytes()
 		if rec.code == http.StatusOK && len(body) > 0 {
-			if upgraded, err := upgradeAccessTokenTyp(r.Context(), store, body); err == nil {
+			upgraded, err := upgradeAccessTokenTyp(r.Context(), store, body)
+			switch {
+			case err == nil:
 				body = upgraded
+			case errors.Is(err, errSkipUpgrade):
+				// Response is not eligible (no access_token, not a JWS).
+				// Forward the original body unchanged.
+			default:
+				// A real error means we'd be serving a typ=JWT access token
+				// despite the fix. Preserve availability (forward original
+				// body) but log loudly so the regression is visible.
+				slog.ErrorContext(r.Context(), "at+jwt typ rewrite failed; serving typ=JWT access token",
+					"error", err,
+				)
 			}
 		}
 
 		for k, vs := range rec.Header() {
 			w.Header()[k] = vs
 		}
+		// Strip any content-integrity headers zitadel may have set against
+		// the original body — they would now be inconsistent.
+		w.Header().Del("ETag")
+		w.Header().Del("Content-Digest")
+		w.Header().Del("Repr-Digest")
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 		w.WriteHeader(rec.code)
 		_, _ = w.Write(body)
