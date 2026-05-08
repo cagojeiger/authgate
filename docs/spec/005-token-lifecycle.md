@@ -227,8 +227,8 @@ OIDC RP-Initiated Logout 1.0 §2의 `/end_session` 엔드포인트와 RFC 7009�
 
 **핵심 계약**:
 
-- `/end_session`은 **세션만** 폐기한다. 발급된 access/refresh 토큰은 자연 만료, 명시적 `/oauth/revoke`, 또는 family 폐기 전까지 유효하다.
-- `auth.logout` 이벤트를 "세션 + 토큰 모두 무효화"로 해석해서는 안 된다. 감사 컨슈머는 토큰 무효화 여부를 확인하려면 `auth.token_revoked` / `auth.refresh_family_revoked`를 함께 추적해야 한다.
+- `/end_session`은 **세션만** 폐기한다. authgate는 access token을 stateless로 발급(만료 시각만 검증)하므로 즉시 무효화할 수 없고, refresh token은 자연 만료, 명시적 `/oauth/revoke`, 또는 family 폐기 전까지 유효하다.
+- `auth.logout` 이벤트를 "세션 + 토큰 모두 무효화"로 해석해서는 안 된다. 감사 컨슈머는 refresh token 무효화 여부를 확인하려면 `auth.token_revoked` / `auth.refresh_family_revoked`를 함께 추적해야 한다.
 - RP가 로그아웃 시 토큰까지 폐기하려면 `/end_session` 호출과 별도로 `/oauth/revoke`를 호출해야 한다 (또는 두 엔드포인트가 실제로 받아들이는 인증 방식은 [Spec 004 §AS Metadata](004-mcp-login.md#authorization-server-metadata)에 광고된 그대로다).
 
 이 분리는 RFC/OIDC 사양을 따른 것이며 의도적이다. 운영상 "전부 무효화"가 필요하면 admin 도구를 별도로 배포한다.

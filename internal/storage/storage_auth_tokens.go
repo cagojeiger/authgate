@@ -258,7 +258,14 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 		return err
 	}
 	info := clientinfo.FromContext(ctx)
-	s.AuditLog(ctx, &userID, EventAuthLogout, info.IP, info.UserAgent, nil)
+	// Codex review NIT-3 on #191: emit client_id + client_name so the
+	// auth.logout event satisfies the audit-011 invariant ("any client-
+	// context event records both"). The clientID arrives from zitadel's
+	// RP-Initiated Logout dispatch.
+	s.AuditLog(ctx, &userID, EventAuthLogout, info.IP, info.UserAgent, map[string]any{
+		"client_id":   clientID,
+		"client_name": s.auditClientName(ctx, clientID),
+	})
 	return nil
 }
 
