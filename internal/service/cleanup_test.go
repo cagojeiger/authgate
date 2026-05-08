@@ -223,3 +223,79 @@ func TestCleanup_DeletionPIIScrub_Idempotent(t *testing.T) {
 		t.Fatalf("deletion_completed audit count = %d, want 1", auditCount)
 	}
 }
+
+// #182: cleanup must NOT wipe identity/session/refresh-token rows of an
+// active user. The race is between ListPendingDeletionUserIDsBefore (the
+// snapshot) and DeleteUser (the wipe TX): a browser-channel recovery can
+// transition status pending_deletion → active in between, but the
+// child-row deletes were unguarded and proceeded anyway, leaving a user
+// with status='active' but zero identities — defeating OIDC `sub`
+// continuity and producing an account that can no longer log in (signup
+// path then trips on email unique constraint).
+//
+// We model the race directly: pre-recover the user before invoking
+// DeleteUser. The fix must abort the TX entirely (no child deletes, no
+// parent UPDATE), so the row remains usable.
+func TestCleanup_DeletionRaceWithRecovery(t *testing.T) {
+	db, store, clk := setupCleanupTest(t)
+	ctx := context.Background()
+
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
+		Email: "race-recover@test.com", EmailVerified: true, Name: "Race",
+		Provider: "google", ProviderUserID: "race-recover-sub", ProviderEmail: "race@test.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if _, err := store.CreateSession(ctx, user.ID, 24*time.Hour); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// Stage the user as the cleanup pipeline would have observed them at the
+	// snapshot read: pending_deletion, scheduled in the past.
+	if _, err := db.ExecContext(ctx,
+		`UPDATE users SET status = 'pending_deletion', deletion_scheduled_at = $1 WHERE id = $2`,
+		clk.Now().Add(-1*time.Hour), user.ID,
+	); err != nil {
+		t.Fatalf("stage pending_deletion: %v", err)
+	}
+
+	// Race window: user recovers via browser-channel before DeleteUser runs.
+	if _, err := db.ExecContext(ctx,
+		`UPDATE users SET status = 'active', deletion_requested_at = NULL, deletion_scheduled_at = NULL WHERE id = $1`,
+		user.ID,
+	); err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+
+	runner := storage.NewCleanupRunner(db)
+	if err := runner.DeleteUser(ctx, user.ID, clk.Now(), nil); err != nil {
+		t.Fatalf("DeleteUser returned err = %v, want nil (skip silently when no longer eligible)", err)
+	}
+
+	// The user must remain active and intact.
+	var status string
+	if err := db.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status); err != nil {
+		t.Fatalf("re-read status: %v", err)
+	}
+	if status != "active" {
+		t.Errorf("user status = %q, want active (recovery race must not be overwritten)", status)
+	}
+
+	var identityCount, sessionCount int
+	db.QueryRowContext(ctx, `SELECT count(*) FROM user_identities WHERE user_id = $1`, user.ID).Scan(&identityCount)
+	db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE user_id = $1`, user.ID).Scan(&sessionCount)
+	if identityCount == 0 {
+		t.Errorf("user_identities row was wiped on a recovered user — OIDC sub continuity broken (this is the bug)")
+	}
+	if sessionCount == 0 {
+		t.Errorf("session row was wiped on a recovered user")
+	}
+
+	// And no spurious deletion_completed audit must have been emitted.
+	var auditCount int
+	db.QueryRowContext(ctx, `SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = 'auth.deletion_completed'`, user.ID).Scan(&auditCount)
+	if auditCount != 0 {
+		t.Errorf("auth.deletion_completed audit count = %d, want 0 (no deletion happened)", auditCount)
+	}
+}

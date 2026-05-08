@@ -94,6 +94,29 @@ func (r *CleanupRunner) DeleteUser(
 	defer tx.Rollback()
 	qtx := storeq.New(tx)
 
+	// #182: run the guarded parent UPDATE first so the child deletes only
+	// happen for a user that is still pending_deletion and still past the
+	// scheduled date. The successful UPDATE acquires a row-level lock that
+	// holds for the rest of the TX, preventing a concurrent
+	// browser-channel recovery from flipping the user back to active
+	// while we're wiping their identities.
+	rows, err := qtx.MarkUserDeletedByID(ctx, storeq.MarkUserDeletedByIDParams{
+		DeletedAt: sql.NullTime{Time: now, Valid: true},
+		UserID:    userID,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		// User is no longer eligible (recovered to active, or another
+		// cleanup tick already deleted them). Roll back and skip silently —
+		// the runner is best-effort and idempotent across ticks.
+		slog.InfoContext(ctx, "deletion cleanup skipped: user no longer eligible",
+			"user_id", userID,
+		)
+		return nil
+	}
+
 	if err := qtx.DeleteUserIdentitiesByUserID(ctx, userID); err != nil {
 		return err
 	}
@@ -107,13 +130,6 @@ func (r *CleanupRunner) DeleteUser(
 		if err := hook(ctx, userID); err != nil {
 			return err
 		}
-	}
-
-	if err := qtx.MarkUserDeletedByID(ctx, storeq.MarkUserDeletedByIDParams{
-		DeletedAt: sql.NullTime{Time: now, Valid: true},
-		UserID:    userID,
-	}); err != nil {
-		return err
 	}
 
 	if err := tx.Commit(); err != nil {

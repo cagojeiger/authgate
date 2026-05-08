@@ -164,7 +164,7 @@ func (q *Queries) ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff s
 	return items, nil
 }
 
-const markUserDeletedByID = `-- name: MarkUserDeletedByID :exec
+const markUserDeletedByID = `-- name: MarkUserDeletedByID :execrows
 UPDATE users SET
   email = 'deleted-' || id::text || '@deleted.invalid',
   name = NULL,
@@ -181,9 +181,12 @@ type MarkUserDeletedByIDParams struct {
 	UserID    string
 }
 
-func (q *Queries) MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedByIDParams) error {
-	_, err := q.db.ExecContext(ctx, markUserDeletedByID, arg.DeletedAt, arg.UserID)
-	return err
+func (q *Queries) MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedByIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markUserDeletedByID, arg.DeletedAt, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const tryCleanupAdvisoryLock = `-- name: TryCleanupAdvisoryLock :one
