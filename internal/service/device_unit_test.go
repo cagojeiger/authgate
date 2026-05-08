@@ -127,6 +127,66 @@ func TestDevice_HandleDeviceApprove_ApproveError(t *testing.T) {
 	}
 }
 
+// countingProvider is an upstream.Provider that records Exchange call
+// count so tests can assert "Exchange must not be called when local
+// state is invalid" — the load-bearing invariant for #186 (and the
+// matching browser fix #171).
+type countingProvider struct {
+	exchangeCalls int
+	user          *upstream.UserInfo
+}
+
+func (c *countingProvider) Name() string                 { return "counting" }
+func (c *countingProvider) AuthURL(state string) string  { return "/auth?state=" + state }
+func (c *countingProvider) Exchange(_ context.Context, _ string) (*upstream.UserInfo, error) {
+	c.exchangeCalls++
+	if c.user == nil {
+		return nil, errors.New("counting provider: no user")
+	}
+	return c.user, nil
+}
+
+// #186: device callback must NOT call provider.Exchange before
+// validating the local user_code state. An attacker hammering
+// /device/auth/callback?code=X&state=BOGUS otherwise amplifies traffic
+// to the upstream IdP and can drive token-endpoint quota burn for free.
+//
+// Three local-state failure modes — not_found, expired, non-pending —
+// must each fail fast without an outbound IdP call.
+func TestDevice_HandleDeviceCallback_RejectsBeforeExchange(t *testing.T) {
+	clk := &clock.FixedClock{T: time.Date(2026, 4, 3, 0, 0, 0, 0, time.UTC)}
+	cases := []struct {
+		name string
+		dc   *storage.DeviceCodeModel
+		err  error
+	}{
+		{name: "not_found", err: storage.ErrNotFound},
+		{name: "expired", dc: &storage.DeviceCodeModel{UserCode: "UCODE", State: "pending", ExpiresAt: clk.Now().Add(-1 * time.Minute)}},
+		{name: "consumed", dc: &storage.DeviceCodeModel{UserCode: "UCODE", State: "consumed", ExpiresAt: clk.Now().Add(5 * time.Minute)}},
+		{name: "approved", dc: &storage.DeviceCodeModel{UserCode: "UCODE", State: "approved", ExpiresAt: clk.Now().Add(5 * time.Minute)}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeDeviceStore{
+				getDeviceCodeByUserCodeFn: func(context.Context, string) (*storage.DeviceCodeModel, error) {
+					return tc.dc, tc.err
+				},
+			}
+			provider := &countingProvider{user: &upstream.UserInfo{Sub: "sub"}}
+			svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clk)
+
+			result := svc.HandleDeviceCallback(context.Background(), "code", "UCODE", "127.0.0.1", "ua")
+
+			if result.Action != DeviceError {
+				t.Errorf("action = %v, want DeviceError", result.Action)
+			}
+			if provider.exchangeCalls != 0 {
+				t.Errorf("provider.Exchange called %d times, want 0 (must validate local state first)", provider.exchangeCalls)
+			}
+		})
+	}
+}
+
 func TestDevice_HandleDeviceCallback_AuditLogIncludesSessionAndClient(t *testing.T) {
 	var gotEventType string
 	var gotMetadata map[string]any

@@ -301,7 +301,7 @@ func TestAudit009_InactiveUser(t *testing.T) {
 }
 
 func TestAuditSecurity003_DeviceInactiveUser(t *testing.T) {
-	svc, store, _ := setupDeviceExtTest(t, "audit-device-inactive-sub")
+	svc, store, clk := setupDeviceExtTest(t, "audit-device-inactive-sub")
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device-inactive@test.com", EmailVerified: true, Name: "Inactive Device", AvatarURL: "", Provider: "google", ProviderUserID: "audit-device-inactive-sub", ProviderEmail: "audit-device-inactive@test.com"})
@@ -311,6 +311,7 @@ func TestAuditSecurity003_DeviceInactiveUser(t *testing.T) {
 	if err := store.SetUserStatus(ctx, user.ID, "disabled"); err != nil {
 		t.Fatalf("disable user: %v", err)
 	}
+	insertDeviceCode(t, store, "AUDT-INAC", clk)
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "AUDT-INAC", "127.0.0.1", "device-inactive-agent")
 	if result.Action != DeviceError {
@@ -324,7 +325,7 @@ func TestAuditSecurity003_DeviceInactiveUser(t *testing.T) {
 }
 
 func TestAuditSecurity_DevicePendingDeletionInactiveUser(t *testing.T) {
-	svc, store, _ := setupDeviceExtTest(t, "audit-device-pending-sub")
+	svc, store, clk := setupDeviceExtTest(t, "audit-device-pending-sub")
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device-pending@test.com", EmailVerified: true, Name: "Pending Device", AvatarURL: "", Provider: "google", ProviderUserID: "audit-device-pending-sub", ProviderEmail: "audit-device-pending@test.com"})
@@ -334,6 +335,7 @@ func TestAuditSecurity_DevicePendingDeletionInactiveUser(t *testing.T) {
 	if err := store.SetUserStatus(ctx, user.ID, "pending_deletion"); err != nil {
 		t.Fatalf("set pending_deletion: %v", err)
 	}
+	insertDeviceCode(t, store, "AUDT-PEND", clk)
 
 	result := svc.HandleDeviceCallback(ctx, "fake-code", "AUDT-PEND", "127.0.0.1", "device-pending-agent")
 	if result.Action != DeviceError {
