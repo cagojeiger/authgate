@@ -139,29 +139,39 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 	// last_polled_at to `now` so the next poll is measured against this
 	// attempt — clients that ignore slow_down keep tripping the gate. Only
 	// the `pending` branch returns slow_down because §3.5 frames slow_down
-	// as the "polling too fast while waiting" response; terminal states
-	// (denied/expired/consumed) and one-shot approved→consumed transitions
-	// keep their canonical RFC responses.
+	// as the "polling too fast while waiting" response; the approved branch
+	// is a one-shot `approved → consumed` transition that mustn't be
+	// throttled, and terminal states (denied/consumed) keep their canonical
+	// RFC responses regardless of cadence.
+	//
+	// last_polled_at is skipped on definitively-terminal states (denied,
+	// consumed) because cadence enforcement on a finished code is moot and
+	// the row would otherwise absorb an UPDATE per misbehaving poll.
 	now := s.clock.Now()
-	tooSoon := dc.LastPolledAt != nil && now.Sub(*dc.LastPolledAt) < s.devicePollInterval
-	if err := qtx.UpdateDeviceCodeLastPolledAt(ctx, storeq.UpdateDeviceCodeLastPolledAtParams{
-		LastPolledAt: sql.NullTime{Time: now, Valid: true},
-		ID:           dc.ID,
-	}); err != nil {
-		return nil, err
-	}
-	if tooSoon && dc.State == "pending" {
-		if err := tx.Commit(); err != nil {
+	if dc.State != "denied" && dc.State != "consumed" {
+		tooSoon := dc.LastPolledAt != nil && now.Sub(*dc.LastPolledAt) < s.devicePollInterval
+		if err := qtx.UpdateDeviceCodeLastPolledAt(ctx, storeq.UpdateDeviceCodeLastPolledAtParams{
+			LastPolledAt: sql.NullTime{Time: now, Valid: true},
+			ID:           dc.ID,
+		}); err != nil {
 			return nil, err
 		}
-		// zitadel/oidc op.CheckDeviceAuthorizationState only converts errors
-		// that satisfy `errors.Is(err, context.DeadlineExceeded)` into the
-		// RFC 8628 §3.5 `slow_down` response; every other error is wrapped
-		// as `access_denied`. Wrap the sentinel so the client receives the
-		// canonical slow_down it must back off on, not access_denied which
-		// signals a permanent rejection. (See pkg/op/device.go around the
-		// CheckDeviceAuthorizationState branch in zitadel/oidc/v3.)
-		return nil, fmt.Errorf("device polling too fast: %w", context.DeadlineExceeded)
+		if tooSoon && dc.State == "pending" {
+			if err := tx.Commit(); err != nil {
+				return nil, err
+			}
+			// zitadel/oidc op.CheckDeviceAuthorizationState (v3.45.5
+			// pkg/op/device.go) only converts errors that satisfy
+			// `errors.Is(err, context.DeadlineExceeded)` into the RFC 8628
+			// §3.5 `slow_down` response — every other error from
+			// GetDeviceAuthorizatonState is wrapped as `access_denied`.
+			// Wrapping the deadline sentinel surfaces the cadence violation
+			// as the canonical slow_down the client must back off on rather
+			// than a permanent rejection. If the upstream library ever
+			// changes that translation, the EnforcesSlowDown integration
+			// test will fail and pin the regression.
+			return nil, fmt.Errorf("device polling too fast: %w", context.DeadlineExceeded)
+		}
 	}
 
 	// #185: defense-in-depth — when an approved device code's bound subject

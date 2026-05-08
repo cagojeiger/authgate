@@ -278,6 +278,52 @@ func TestIntegration_DevicePolling_EnforcesSlowDown(t *testing.T) {
 	}
 }
 
+// #188 follow-up: slow_down must scope to `pending` polls only. After the
+// user approves, the very next poll — even if it arrives within the same
+// `interval` window that just produced a slow_down — must consume the
+// device code and return tokens. This pins the pending-only scoping in
+// GetDeviceAuthorizatonState so a future refactor cannot silently widen
+// the gate to the approved branch.
+func TestIntegration_DevicePolling_SlowDownThenApprove_Succeeds(t *testing.T) {
+	ts := SetupTestServer(t)
+	ctx := context.Background()
+
+	user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
+		Email: "device-slow-then-approve@test.com", EmailVerified: true, Name: "Slow Then Approve",
+		AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "device-slow-then-approve@test.com",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	authz := startDeviceAuthorization(t, ts)
+
+	first := pollDeviceToken(t, ts, authz.DeviceCode)
+	if !strings.Contains(first.RawBody, "authorization_pending") {
+		t.Fatalf("poll #1 want authorization_pending, got status=%d body=%s", first.StatusCode, first.RawBody)
+	}
+	second := pollDeviceToken(t, ts, authz.DeviceCode)
+	if !strings.Contains(second.RawBody, "slow_down") {
+		t.Fatalf("poll #2 want slow_down, got status=%d body=%s", second.StatusCode, second.RawBody)
+	}
+
+	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID); err != nil {
+		t.Fatalf("approve device code: %v", err)
+	}
+
+	// Poll without advancing the clock — last_polled_at is still inside
+	// the 5s interval from poll #2. The slow_down branch must not fire
+	// because the row is now `approved`, and the consume transition must
+	// proceed.
+	third := pollDeviceToken(t, ts, authz.DeviceCode)
+	if third.StatusCode != http.StatusOK {
+		t.Fatalf("post-approve poll within interval should succeed, got status=%d body=%s", third.StatusCode, third.RawBody)
+	}
+	if third.AccessToken == "" {
+		t.Fatal("post-approve poll should return access_token")
+	}
+}
+
 // security-001: /device/approve rejects non-POST methods
 func TestIntegration_DeviceApprove_GetRejected(t *testing.T) {
 	ts := SetupTestServer(t)
