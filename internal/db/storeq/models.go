@@ -41,16 +41,17 @@ type AuthRequest struct {
 }
 
 type DeviceCode struct {
-	ID         string
-	DeviceCode string
-	UserCode   string
-	ClientID   string
-	Scopes     []string
-	State      string
-	Subject    sql.NullString
-	ExpiresAt  time.Time
-	AuthTime   sql.NullTime
-	CreatedAt  time.Time
+	ID           string
+	DeviceCode   string
+	UserCode     string
+	ClientID     string
+	Scopes       []string
+	State        string
+	Subject      sql.NullString
+	ExpiresAt    time.Time
+	AuthTime     sql.NullTime
+	CreatedAt    time.Time
+	LastPolledAt sql.NullTime
 }
 
 type RefreshToken struct {

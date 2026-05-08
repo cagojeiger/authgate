@@ -193,6 +193,10 @@ type DeviceCodeModel struct {
 	Subject    *string
 	ExpiresAt  time.Time
 	AuthTime   *time.Time
+	// LastPolledAt is the timestamp of the last token-endpoint poll for
+	// this device_code, used by GetDeviceAuthorizatonState to enforce
+	// the RFC 8628 §3.5 `slow_down` cadence. NULL until the first poll.
+	LastPolledAt *time.Time
 }
 
 // --- Key Models ---

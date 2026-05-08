@@ -26,6 +26,11 @@ import (
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
+// devicePollInterval mirrors the production constant in cmd/authgate/main.go
+// so the integration server advertises and enforces the same RFC 8628 §3.5
+// poll cadence the binary ships with.
+const devicePollInterval = 5 * time.Second
+
 // TestServer holds everything needed for integration tests.
 type TestServer struct {
 	Server  *httptest.Server
@@ -60,6 +65,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	}
 
 	store := storage.New(db, clk, gen, stateChecker, 15*time.Minute, 30*24*time.Hour)
+	store.SetDevicePollInterval(devicePollInterval)
 	if opts.EnableMCP {
 		cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
 		clientPolicy := mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher)
@@ -116,7 +122,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 		SupportedScopes:       []string{"openid", "profile", "email", "offline_access"},
 		DeviceAuthorization: op.DeviceAuthorizationConfig{
 			Lifetime:     5 * time.Minute,
-			PollInterval: 5 * time.Second,
+			PollInterval: devicePollInterval,
 			UserFormPath: "/device",
 		},
 	}

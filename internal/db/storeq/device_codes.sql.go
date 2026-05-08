@@ -45,7 +45,7 @@ func (q *Queries) DenyDeviceCodeByUserCode(ctx context.Context, userCode string)
 }
 
 const getDeviceAuthorizationForUpdate = `-- name: GetDeviceAuthorizationForUpdate :one
-SELECT id, client_id, scopes, state, subject, expires_at, auth_time
+SELECT id, client_id, scopes, state, subject, expires_at, auth_time, last_polled_at
 FROM device_codes
 WHERE device_code = $1 AND client_id = $2
 FOR UPDATE
@@ -57,13 +57,14 @@ type GetDeviceAuthorizationForUpdateParams struct {
 }
 
 type GetDeviceAuthorizationForUpdateRow struct {
-	ID        string
-	ClientID  string
-	Scopes    []string
-	State     string
-	Subject   sql.NullString
-	ExpiresAt time.Time
-	AuthTime  sql.NullTime
+	ID           string
+	ClientID     string
+	Scopes       []string
+	State        string
+	Subject      sql.NullString
+	ExpiresAt    time.Time
+	AuthTime     sql.NullTime
+	LastPolledAt sql.NullTime
 }
 
 func (q *Queries) GetDeviceAuthorizationForUpdate(ctx context.Context, arg GetDeviceAuthorizationForUpdateParams) (GetDeviceAuthorizationForUpdateRow, error) {
@@ -77,6 +78,7 @@ func (q *Queries) GetDeviceAuthorizationForUpdate(ctx context.Context, arg GetDe
 		&i.Subject,
 		&i.ExpiresAt,
 		&i.AuthTime,
+		&i.LastPolledAt,
 	)
 	return i, err
 }
@@ -141,6 +143,22 @@ func (q *Queries) InsertDeviceCode(ctx context.Context, arg InsertDeviceCodePara
 		arg.ExpiresAt,
 		arg.CreatedAt,
 	)
+	return err
+}
+
+const updateDeviceCodeLastPolledAt = `-- name: UpdateDeviceCodeLastPolledAt :exec
+UPDATE device_codes
+SET last_polled_at = $1
+WHERE id = $2
+`
+
+type UpdateDeviceCodeLastPolledAtParams struct {
+	LastPolledAt sql.NullTime
+	ID           string
+}
+
+func (q *Queries) UpdateDeviceCodeLastPolledAt(ctx context.Context, arg UpdateDeviceCodeLastPolledAtParams) error {
+	_, err := q.db.ExecContext(ctx, updateDeviceCodeLastPolledAt, arg.LastPolledAt, arg.ID)
 	return err
 }
 

@@ -61,9 +61,14 @@ type Storage struct {
 	previousKeyID   string
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
-	clients         sync.Map // map[string]*ClientModel (client_id → client)
-	clientPolicy    ClientResolutionPolicy
-	resourcePolicy  ResourceBindingPolicy
+	// devicePollInterval is the minimum gap between successive device-flow
+	// token polls before the AS responds with `slow_down` (RFC 8628 §3.5).
+	// Defaults to 5s in New() to match the value advertised in
+	// `op.DeviceAuthorizationConfig.PollInterval`.
+	devicePollInterval time.Duration
+	clients            sync.Map // map[string]*ClientModel (client_id → client)
+	clientPolicy       ClientResolutionPolicy
+	resourcePolicy     ResourceBindingPolicy
 	// issuer is the expected `iss` claim for bearer-token validation on
 	// console APIs. Wired from cfg.PublicURL via SetIssuer at startup; empty
 	// string falls back to clock-only validation for backward compatibility
@@ -73,16 +78,25 @@ type Storage struct {
 
 func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
 	s := &Storage{
-		db:              db,
-		clock:           clk,
-		idgen:           gen,
-		stateChecker:    checker,
-		accessTokenTTL:  accessTTL,
-		refreshTokenTTL: refreshTTL,
+		db:                 db,
+		clock:              clk,
+		idgen:              gen,
+		stateChecker:       checker,
+		accessTokenTTL:     accessTTL,
+		refreshTokenTTL:    refreshTTL,
+		devicePollInterval: 5 * time.Second,
 	}
 	s.clientPolicy = NewCoreClientResolutionPolicy(s)
 	s.resourcePolicy = NewCoreResourceBindingPolicy()
 	return s
+}
+
+// SetDevicePollInterval overrides the device-flow poll interval used for
+// `slow_down` enforcement. main.go calls this with the same value advertised
+// in op.DeviceAuthorizationConfig.PollInterval so a single config flow drives
+// both the response shape and the server-side throttle.
+func (s *Storage) SetDevicePollInterval(d time.Duration) {
+	s.devicePollInterval = d
 }
 
 // SetSigningKey sets the current RSA signing key used for JWT issuance.
