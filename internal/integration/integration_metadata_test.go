@@ -45,6 +45,17 @@ func TestIntegration_ASMetadata_AdvertisesAllAcceptedAuthMethods(t *testing.T) {
 	if !sortedEqual(revokeMethods, expected) {
 		t.Errorf("revocation_endpoint_auth_methods_supported = %v, want %v", revokeMethods, expected)
 	}
+
+	// /oauth/introspect is mounted by zitadel by default but only authenticates
+	// confidential clients via Basic; the metadata MUST advertise the
+	// endpoint and its narrower auth-method set so RFC 8414 §2 holds.
+	if got, _ := metadata["introspection_endpoint"].(string); got == "" {
+		t.Errorf("introspection_endpoint missing from metadata")
+	}
+	introspectMethods := stringSlice(t, metadata, "introspection_endpoint_auth_methods_supported")
+	if !sortedEqual(introspectMethods, []string{"client_secret_basic"}) {
+		t.Errorf("introspection_endpoint_auth_methods_supported = %v, want [client_secret_basic]", introspectMethods)
+	}
 }
 
 func stringSlice(t *testing.T, metadata map[string]any, key string) []string {

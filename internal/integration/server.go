@@ -160,23 +160,27 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	// Routes
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 		metadata := map[string]any{
-			"issuer":                                srv.URL,
-			"authorization_endpoint":                srv.URL + "/authorize",
-			"token_endpoint":                        srv.URL + "/oauth/token",
-			"revocation_endpoint":                   srv.URL + "/oauth/revoke",
-			"device_authorization_endpoint":         srv.URL + "/oauth/device/authorize",
-			"userinfo_endpoint":                     srv.URL + "/userinfo",
-			"end_session_endpoint":                  srv.URL + "/end_session",
-			"jwks_uri":                              srv.URL + "/keys",
-			"response_types_supported":              []string{"code"},
-			"grant_types_supported":                 []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
+			"issuer":                        srv.URL,
+			"authorization_endpoint":        srv.URL + "/authorize",
+			"token_endpoint":                srv.URL + "/oauth/token",
+			"revocation_endpoint":           srv.URL + "/oauth/revoke",
+			"introspection_endpoint":        srv.URL + "/oauth/introspect",
+			"device_authorization_endpoint": srv.URL + "/oauth/device/authorize",
+			"userinfo_endpoint":             srv.URL + "/userinfo",
+			"end_session_endpoint":          srv.URL + "/end_session",
+			"jwks_uri":                      srv.URL + "/keys",
+			"response_types_supported":      []string{"code"},
+			"grant_types_supported":         []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
 			"code_challenge_methods_supported": []string{"S256"},
 			// Mirror the production metadata contract: advertise every auth
 			// method the underlying op accepts (#189 / RFC 8414 §2).
-			"token_endpoint_auth_methods_supported":      []string{"none", "client_secret_basic", "client_secret_post"},
-			"revocation_endpoint_auth_methods_supported": []string{"none", "client_secret_basic", "client_secret_post"},
-			"scopes_supported":                           []string{"openid", "profile", "email", "offline_access"},
-			"client_id_metadata_document_supported":      opts.EnableMCP,
+			// Introspection only authenticates via Basic (see comment in
+			// cmd/authgate/main.go), so its set is narrower.
+			"token_endpoint_auth_methods_supported":         []string{"none", "client_secret_basic", "client_secret_post"},
+			"revocation_endpoint_auth_methods_supported":    []string{"none", "client_secret_basic", "client_secret_post"},
+			"introspection_endpoint_auth_methods_supported": []string{"client_secret_basic"},
+			"scopes_supported":                              []string{"openid", "profile", "email", "offline_access"},
+			"client_id_metadata_document_supported":         opts.EnableMCP,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)
