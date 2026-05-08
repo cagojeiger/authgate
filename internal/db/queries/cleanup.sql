@@ -41,7 +41,7 @@ WHERE user_id = $1;
 DELETE FROM refresh_tokens
 WHERE user_id = $1;
 
--- name: MarkUserDeletedByID :exec
+-- name: MarkUserDeletedByID :execrows
 UPDATE users SET
   email = 'deleted-' || id::text || '@deleted.invalid',
   name = NULL,
