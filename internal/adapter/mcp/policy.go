@@ -26,7 +26,8 @@ func (p *clientResolutionPolicy) ResolveClient(ctx context.Context, clientID str
 }
 
 type resourceBindingPolicy struct {
-	base storage.ResourceBindingPolicy
+	base     storage.ResourceBindingPolicy
+	resolver storage.ClientResolutionPolicy
 }
 
 // ValidateAuthorizeRequest enforces the channel × resource matrix per
@@ -56,7 +57,32 @@ func (p *resourceBindingPolicy) ValidateAuthorizeRequest(ctx context.Context, cl
 	return p.base.ValidateAuthorizeRequest(ctx, client, requestResource)
 }
 
+// ValidateTokenRequest enforces the channel × resource matrix at the
+// token endpoint. The /authorize gate is the primary enforcement point;
+// this hook makes the fix self-healing for any data minted before the
+// gate landed and is a defense-in-depth pass for direct token requests.
+//
+//   - A non-empty `storedResource` on a non-MCP client is a refresh
+//     token (or auth_request) created before #184 closed the gate.
+//     Reject with `invalid_grant` so the legacy binding fails closed
+//     on first reuse rather than continuing to mint MCP-aud tokens
+//     forever.
+//   - A non-empty `requestResource` on a non-MCP client mirrors the
+//     /authorize check on the off chance the request bypassed the
+//     primary gate.
+//
+// `resolver` may be nil; in that case the wrapper degrades to base
+// behavior (used by tests that don't need legacy-data coverage).
 func (p *resourceBindingPolicy) ValidateTokenRequest(ctx context.Context, clientID, storedResource, requestResource string) error {
+	if (storedResource != "" || requestResource != "") && p.resolver != nil {
+		client, err := p.resolver.ResolveClient(ctx, clientID)
+		if err == nil && client != nil && client.LoginChannel != "mcp" {
+			if storedResource != "" {
+				return &oidc.Error{ErrorType: "invalid_grant", Description: "persisted resource binding invalid for client channel"}
+			}
+			return &oidc.Error{ErrorType: "invalid_target", Description: "resource parameter not permitted for this client"}
+		}
+	}
 	return p.base.ValidateTokenRequest(ctx, clientID, storedResource, requestResource)
 }
 
@@ -64,7 +90,11 @@ func NewClientResolutionPolicy(base storage.ClientResolutionPolicy, fetcher stor
 	return &clientResolutionPolicy{base: base, fetcher: fetcher}
 }
 
-func NewResourceBindingPolicy(base storage.ResourceBindingPolicy) storage.ResourceBindingPolicy {
-	return &resourceBindingPolicy{base: base}
+// NewResourceBindingPolicy returns the MCP-aware wrapper. `resolver` is
+// used to look up the client's login_channel for the legacy-data and
+// defense-in-depth checks at the token endpoint; it may be nil when the
+// caller has no client registry (test-only).
+func NewResourceBindingPolicy(base storage.ResourceBindingPolicy, resolver storage.ClientResolutionPolicy) storage.ResourceBindingPolicy {
+	return &resourceBindingPolicy{base: base, resolver: resolver}
 }
 

@@ -197,8 +197,9 @@ func configureMCPPoliciesIfEnabled(cfg *config.Config, store *storage.Storage) {
 		return
 	}
 	cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
-	store.SetClientResolutionPolicy(mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher))
-	store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy()))
+	clientPolicy := mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher)
+	store.SetClientResolutionPolicy(clientPolicy)
+	store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy(), clientPolicy))
 }
 
 func mustBuildOIDCProvider(cfg *config.Config, store *storage.Storage) http.Handler {
