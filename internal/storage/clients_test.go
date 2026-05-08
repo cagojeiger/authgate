@@ -54,6 +54,42 @@ clients:
 	}
 }
 
+// #190 / Codex NIT-1: leading/trailing whitespace on client_id is rejected
+// up front so the IsCIMDClientID guard — which delegates to
+// url.ParseRequestURI and fails on space — cannot be tricked into admitting
+// a CIMD-shaped value as an opaque static ID.
+func TestLoadClientConfig_RejectsWhitespaceClientID(t *testing.T) {
+	cases := []struct {
+		name     string
+		clientID string
+	}{
+		{"leading", " https-shaped"},
+		{"trailing", "my-app "},
+		{"both", " my-app "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeClientConfigFile(t, `
+clients:
+  - client_id: "`+tc.clientID+`"
+    client_type: public
+    login_channel: browser
+    name: Whitespace
+    redirect_uris: ["https://app.example.com/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+			_, err := LoadClientConfig(path)
+			if err == nil {
+				t.Fatalf("expected whitespace client_id to be rejected, got nil")
+			}
+			if !strings.Contains(err.Error(), "whitespace") {
+				t.Fatalf("expected whitespace rejection error, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoadClientConfig_DuplicateClientID(t *testing.T) {
 	path := writeClientConfigFile(t, `
 clients:
@@ -203,5 +239,25 @@ func TestValidateClientChannels_MCPEnabledAllowsMCPClient(t *testing.T) {
 
 	if err := ValidateClientChannels(clients, true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// #190 / Codex NIT-3: LoadClients itself is a setter normally fed by the
+// validated output of LoadClientConfig. As a belt-and-suspenders, the
+// setter must drop URL-form client_ids if a future caller bypasses
+// LoadClientConfig — otherwise the static-vs-dynamic invariant breaks
+// silently for whatever test or admin path constructed the slice.
+func TestLoadClients_DropsCIMDShapedClientID(t *testing.T) {
+	s := &Storage{}
+	s.LoadClients([]ClientConfigEntry{
+		{ClientID: "static-ok", LoginChannel: "browser"},
+		{ClientID: "https://app.example.com/oauth/client.json", LoginChannel: "mcp"},
+	})
+
+	if _, ok := s.clients.Load("static-ok"); !ok {
+		t.Errorf("non-URL static-ok client should be loaded")
+	}
+	if _, ok := s.clients.Load("https://app.example.com/oauth/client.json"); ok {
+		t.Errorf("URL-form client_id should NOT be loaded into static registry")
 	}
 }

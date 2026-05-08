@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -57,6 +58,13 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		if c.ClientID == "" {
 			return nil, fmt.Errorf("client[%d]: client_id is required", i)
 		}
+		// #190: surrounding whitespace is rejected up front so the
+		// IsCIMDClientID check below — which delegates to url.ParseRequestURI
+		// and fails on leading/trailing space — cannot be tricked into
+		// admitting a CIMD-shaped value as an opaque static ID.
+		if strings.TrimSpace(c.ClientID) != c.ClientID {
+			return nil, fmt.Errorf("client[%d] %q: client_id must not have leading or trailing whitespace", i, c.ClientID)
+		}
 		if len(c.ClientID) > maxYAMLClientIDLength {
 			return nil, fmt.Errorf("client[%d] %q: client_id exceeds %d chars", i, c.ClientID, maxYAMLClientIDLength)
 		}
@@ -64,7 +72,9 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		// statically. ResolveClient consults the in-memory map before the
 		// CIMD fetcher fallback, so a static URL-form entry would bypass
 		// every HTTPS / content-type / redirect / size validation that
-		// CIMDFetcher applies on dynamic resolution.
+		// CIMDFetcher applies on dynamic resolution. The check runs before
+		// the duplicate-id guard so the actionable "use dynamic CIMD"
+		// message wins over the generic "duplicate" error.
 		if IsCIMDClientID(c.ClientID) {
 			return nil, fmt.Errorf("client[%d] %q: URL-form (CIMD-shaped) client_id cannot be registered statically; remove this entry and rely on dynamic CIMD resolution", i, c.ClientID)
 		}
@@ -136,8 +146,20 @@ func ValidateClientChannels(clients []ClientConfigEntry, enableMCP bool) error {
 }
 
 // LoadClients loads client config entries into the in-memory client store.
+//
+// Production startup runs LoadClientConfig first, which already rejects
+// URL-form (CIMD-shaped) client_ids per #190. The defense-in-depth
+// re-check here protects test helpers and any future caller that bypasses
+// LoadClientConfig — a URL-form entry in the static map would bypass
+// every CIMDFetcher validation, so we log and skip rather than silently
+// admit it.
 func (s *Storage) LoadClients(clients []ClientConfigEntry) {
 	for _, c := range clients {
+		if IsCIMDClientID(c.ClientID) {
+			slog.Warn("LoadClients: dropping URL-form client_id from static registry — use dynamic CIMD resolution instead",
+				"client_id", c.ClientID)
+			continue
+		}
 		cm := &ClientModel{
 			ID:                   c.ClientID,
 			SecretHash:           c.ClientSecretHash,
