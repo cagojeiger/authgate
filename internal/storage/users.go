@@ -187,13 +187,17 @@ func (s *Storage) SetUserStatus(ctx context.Context, userID, status string) erro
 //   - `pending_deletion` → idempotent success (already in target state)
 //   - `disabled` / `deleted` → ErrUserAccountClosed (caller emits 403)
 //   - any other state → an error
-func (s *Storage) RequestDeletion(ctx context.Context, userID string) error {
+//
+// Returns the live status read inside the TX when ErrUserAccountClosed is
+// returned, so the caller can record the *actual* state in audit logs
+// rather than the stale session-snapshot status. Empty string otherwise.
+func (s *Storage) RequestDeletion(ctx context.Context, userID string) (string, error) {
 	now := s.clock.Now()
 	scheduledAt := now.Add(30 * 24 * time.Hour)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer tx.Rollback()
 
@@ -201,13 +205,13 @@ func (s *Storage) RequestDeletion(ctx context.Context, userID string) error {
 
 	rows, err := markUserPendingDeletion(ctx, qtx, userID, now, scheduledAt)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if rows == 0 {
 		current, err := s.getUserByID(ctx, tx, userID)
 		if err != nil {
-			return err
+			return "", err
 		}
 		switch current.Status {
 		case "pending_deletion":
@@ -216,21 +220,21 @@ func (s *Storage) RequestDeletion(ctx context.Context, userID string) error {
 			// the case where the previous transition crashed between the
 			// status flip and the token revoke.
 			if err := revokeActiveRefreshTokensForDeletion(ctx, qtx, userID, now); err != nil {
-				return err
+				return "", err
 			}
-			return tx.Commit()
+			return "", tx.Commit()
 		case "disabled", "deleted":
-			return ErrUserAccountClosed
+			return current.Status, ErrUserAccountClosed
 		default:
-			return errors.New("unexpected user status for deletion: " + current.Status)
+			return current.Status, errors.New("unexpected user status for deletion: " + current.Status)
 		}
 	}
 
 	if err := revokeActiveRefreshTokensForDeletion(ctx, qtx, userID, now); err != nil {
-		return err
+		return "", err
 	}
 
-	return tx.Commit()
+	return "", tx.Commit()
 }
 
 func markUserPendingDeletion(ctx context.Context, qtx *storeq.Queries, userID string, now, scheduledAt time.Time) (int64, error) {

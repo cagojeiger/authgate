@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -341,9 +342,12 @@ func TestRequestDeletion_RejectsClosedAccount(t *testing.T) {
 				t.Fatalf("flip status: %v", err)
 			}
 
-			err = s.RequestDeletion(ctx, user.ID)
+			liveStatus, err := s.RequestDeletion(ctx, user.ID)
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("RequestDeletion err = %v, want %v", err, tc.wantErr)
+			}
+			if liveStatus != tc.wantFinalState {
+				t.Errorf("liveStatus = %q, want %q (caller must see actual closed-account state for audit)", liveStatus, tc.wantFinalState)
 			}
 
 			got, err := s.GetUserByID(ctx, user.ID)
@@ -359,11 +363,18 @@ func TestRequestDeletion_RejectsClosedAccount(t *testing.T) {
 
 // #183 (companion): pending_deletion must remain idempotent — calling
 // RequestDeletion again returns nil and does not error, since the user is
-// already in the target state. The UPDATE must not double-bump
-// deletion_requested_at because that would extend the recovery window.
+// already in the target state. Critically, the UPDATE must NOT bump
+// deletion_requested_at on retry because that would extend the 30-day
+// recovery window every time a client retries — a vulnerability of its
+// own (the user could keep the account in indefinite "pending" by
+// hammering DELETE /account).
 func TestRequestDeletion_PendingDeletionIsIdempotent(t *testing.T) {
 	ctx := context.Background()
-	s := testStorage(t)
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	gen := idgen.CryptoGenerator{}
+	noopChecker := func(user *User) error { return nil }
+	db := testutil.SetupPostgres(t)
+	s := New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
 
 	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{
 		Email: "del-idem@test.com", EmailVerified: true, Name: "Del Idem",
@@ -373,7 +384,7 @@ func TestRequestDeletion_PendingDeletionIsIdempotent(t *testing.T) {
 		t.Fatalf("create user: %v", err)
 	}
 
-	if err := s.RequestDeletion(ctx, user.ID); err != nil {
+	if _, err := s.RequestDeletion(ctx, user.ID); err != nil {
 		t.Fatalf("first RequestDeletion: %v", err)
 	}
 
@@ -381,13 +392,30 @@ func TestRequestDeletion_PendingDeletionIsIdempotent(t *testing.T) {
 	if got1.Status != "pending_deletion" {
 		t.Fatalf("first call status = %q, want pending_deletion", got1.Status)
 	}
+	var firstReq, firstSched sql.NullTime
+	if err := db.QueryRowContext(ctx, `SELECT deletion_requested_at, deletion_scheduled_at FROM users WHERE id = $1`, user.ID).Scan(&firstReq, &firstSched); err != nil {
+		t.Fatalf("read first deletion timestamps: %v", err)
+	}
 
-	// Second call: must succeed without changing deletion_requested_at.
-	if err := s.RequestDeletion(ctx, user.ID); err != nil {
+	// Advance clock so a buggy double-bump would be observable.
+	clk.T = clk.T.Add(48 * time.Hour)
+
+	if _, err := s.RequestDeletion(ctx, user.ID); err != nil {
 		t.Fatalf("second RequestDeletion: %v", err)
 	}
 	got2, _ := s.GetUserByID(ctx, user.ID)
 	if got2.Status != "pending_deletion" {
 		t.Errorf("second call status = %q, want pending_deletion", got2.Status)
+	}
+
+	var secondReq, secondSched sql.NullTime
+	if err := db.QueryRowContext(ctx, `SELECT deletion_requested_at, deletion_scheduled_at FROM users WHERE id = $1`, user.ID).Scan(&secondReq, &secondSched); err != nil {
+		t.Fatalf("read second deletion timestamps: %v", err)
+	}
+	if !secondReq.Time.Equal(firstReq.Time) {
+		t.Errorf("deletion_requested_at bumped on retry: first=%v second=%v (recovery window must not extend)", firstReq.Time, secondReq.Time)
+	}
+	if !secondSched.Time.Equal(firstSched.Time) {
+		t.Errorf("deletion_scheduled_at bumped on retry: first=%v second=%v", firstSched.Time, secondSched.Time)
 	}
 }
