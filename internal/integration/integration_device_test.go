@@ -161,6 +161,68 @@ func TestIntegration_DeviceConcurrentPolling_ExactlyOneSuccess(t *testing.T) {
 	}
 }
 
+// device-008 / #185: tokens MUST NOT be issued for a user whose status flipped
+// away from active (disabled, pending_deletion, deleted) between approve and
+// poll. The device code MUST remain in "approved" rather than transitioning
+// to "consumed", so polling continues to return an error rather than minting
+// tokens once after the account is reactivated within the code's TTL.
+func TestIntegration_DevicePolling_RechecksUserStatus(t *testing.T) {
+	cases := []struct {
+		name       string
+		flipStatus string
+	}{
+		{"disabled", "disabled"},
+		{"pending_deletion", "pending_deletion"},
+		{"deleted", "deleted"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := SetupTestServer(t)
+			ctx := context.Background()
+
+			user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
+				Email: "device-" + tc.flipStatus + "@test.com", EmailVerified: true, Name: "Flipped Mid-Flow", AvatarURL: "",
+				Provider: "google", ProviderUserID: "test-google-sub-" + tc.flipStatus, ProviderEmail: "device-" + tc.flipStatus + "@test.com",
+			})
+			if err != nil {
+				t.Fatalf("create user: %v", err)
+			}
+
+			authz := startDeviceAuthorization(t, ts)
+			if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID); err != nil {
+				t.Fatalf("approve device code: %v", err)
+			}
+
+			// Operator flips the user status AFTER approval, BEFORE poll.
+			if err := ts.Store.SetUserStatus(ctx, user.ID, tc.flipStatus); err != nil {
+				t.Fatalf("set status %s: %v", tc.flipStatus, err)
+			}
+
+			result := pollDeviceToken(t, ts, authz.DeviceCode)
+			if result.StatusCode == http.StatusOK {
+				t.Fatalf("token exchange should reject %s user, got 200 body=%s", tc.flipStatus, result.RawBody)
+			}
+			// zitadel/oidc wraps our invalid_grant into access_denied at the
+			// device endpoint (RFC 8628 §3.5 lists access_denied as a valid
+			// device-grant error). Either signals the closed-account rejection.
+			if !strings.Contains(result.RawBody, "invalid_grant") && !strings.Contains(result.RawBody, "access_denied") {
+				t.Fatalf("expected invalid_grant or access_denied, got body=%s", result.RawBody)
+			}
+
+			// Device code MUST still be in "approved" — not silently consumed,
+			// so the operator can still revoke or extend the approval, and the
+			// caller is not locked out for the remainder of the code's TTL.
+			dc, err := ts.Store.GetDeviceCodeByUserCode(ctx, authz.UserCode)
+			if err != nil {
+				t.Fatalf("re-read device code: %v", err)
+			}
+			if dc.State != "approved" {
+				t.Errorf("device code state = %q, want %q (closed-account check must preserve approval)", dc.State, "approved")
+			}
+		})
+	}
+}
+
 // security-001: /device/approve rejects non-POST methods
 func TestIntegration_DeviceApprove_GetRejected(t *testing.T) {
 	ts := SetupTestServer(t)
