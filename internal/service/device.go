@@ -179,12 +179,19 @@ func (s *DeviceService) HandleDeviceApprove(ctx context.Context, userCode, actio
 		return &DeviceApproveResult{Success: false, Message: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
 
+	// Resolve client metadata from device code for audit trail
+	deviceCode, err := s.store.GetDeviceCodeByUserCode(ctx, userCode)
+	clientMeta := map[string]any{}
+	if err == nil && deviceCode != nil {
+		clientMeta["client_id"] = deviceCode.ClientID
+	}
+
 	if action == "deny" {
-		s.denyDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
+		s.denyDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent, clientMeta)
 		return &DeviceApproveResult{Success: false, Message: "You denied the authorization request. You can close this window."}
 	}
 
-	return s.approveDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
+	return s.approveDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent, clientMeta)
 }
 
 func (s *DeviceService) validateDevicePage(ctx context.Context, userCode string) *DevicePageResult {
@@ -241,16 +248,16 @@ func (s *DeviceService) ensureDeviceCallbackAccess(ctx context.Context, user *st
 	return &DevicePageResult{Action: DeviceError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 }
 
-func (s *DeviceService) denyDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) {
+func (s *DeviceService) denyDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string, clientMeta map[string]any) {
 	s.store.DenyDeviceCode(ctx, userCode)
-	s.store.AuditLog(ctx, &userID, "auth.device_denied", ipAddress, userAgent, nil)
+	s.store.AuditLog(ctx, &userID, "auth.device_denied", ipAddress, userAgent, clientMeta)
 }
 
-func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) *DeviceApproveResult {
+func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string, clientMeta map[string]any) *DeviceApproveResult {
 	if err := s.store.ApproveDeviceCode(ctx, userCode, userID); err != nil {
 		return &DeviceApproveResult{Success: false, Message: "Device code expired or already processed.", ErrorCode: http.StatusBadRequest}
 	}
 
-	s.store.AuditLog(ctx, &userID, "auth.device_approved", ipAddress, userAgent, nil)
+	s.store.AuditLog(ctx, &userID, "auth.device_approved", ipAddress, userAgent, clientMeta)
 	return &DeviceApproveResult{Success: true, Message: "You have successfully authorized the CLI application. You can close this window."}
 }
