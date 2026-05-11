@@ -94,6 +94,8 @@ func main() {
 	var isShuttingDown atomic.Bool
 	mux := http.NewServeMux()
 	httpMetrics := observability.NewHTTPMetrics()
+	auditMetrics := observability.NewAuditMetrics(httpMetrics.Registry())
+	store.SetAuditFailureRecorder(auditMetrics)
 	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, httpMetrics, &isShuttingDown)
 
 	trustedProxies, err := clientinfo.ParseTrustedProxies(cfg.TrustedProxies)

@@ -321,6 +321,29 @@ SELECT * FROM audit_log WHERE event_type = 'auth.inactive_user' ORDER BY created
 | cleanup 고루틴 | audit_log에 `auth.deletion_completed` 확인 | 30일+ pending_deletion 유저 존재 |
 | signing_key | JWKS 엔드포인트 체크 | 키 0개 반환 |
 | 디스크 | signing_key.pem 파일 존재 확인 | 파일 없음 → 재시작마다 키 변경 |
+| audit 쓰기 실패 | `authgate_audit_log_write_failures_total` counter | 5분 내 증가 → 침해 탐지 인프라 silent broken (#208) |
+
+### audit_log 쓰기 실패 모니터링 (#208)
+
+`Storage.AuditLog`는 best-effort write이므로 marshal/insert 실패가 비즈니스 트랜잭션을 차단하지 않는다. 그러나 감사 로그가 silent하게 누락되면 침해 탐지 능력 자체가 무력화되므로 Prometheus counter로 노출되어 alert으로 감지한다.
+
+| Metric | Labels | 설명 |
+|--------|--------|------|
+| `authgate_audit_log_write_failures_total` | `stage="marshal"` | `json.Marshal(metadata)` 실패 — 호출자 입력 형상 버그 |
+| `authgate_audit_log_write_failures_total` | `stage="insert"` | `audit_log INSERT` 실패 — DB outage / 권한 / 디스크 |
+
+PrometheusRule 예시:
+
+```yaml
+- alert: AuthgateAuditWriteFailures
+  expr: increase(authgate_audit_log_write_failures_total[5m]) > 0
+  for: 1m
+  labels:
+    severity: critical
+  annotations:
+    summary: "authgate audit log writes are failing (stage={{ $labels.stage }})"
+    description: "감사 로그 쓰기가 silent하게 실패 중. 침해 탐지 인프라가 broken — 즉시 점검."
+```
 
 ## 백업/복구
 
