@@ -241,7 +241,13 @@ func TestAudit004_DeviceApproved(t *testing.T) {
 		t.Fatalf("approve failed: %s", result.Message)
 	}
 
-	requireSingleAuditEvent(t, store.DB(), user.ID, "auth.device_approved")
+	event := requireSingleAuditEvent(t, store.DB(), user.ID, "auth.device_approved")
+	if event.Metadata["client_id"] != "test-client" {
+		t.Fatalf("client_id = %v, want test-client (#205)", event.Metadata["client_id"])
+	}
+	if event.Metadata["client_name"] != "Test Device Client" {
+		t.Fatalf("client_name = %v, want Test Device Client (#205)", event.Metadata["client_name"])
+	}
 }
 
 func TestAudit005_DeviceDenied(t *testing.T) {
@@ -260,7 +266,13 @@ func TestAudit005_DeviceDenied(t *testing.T) {
 		t.Fatalf("deny should fail")
 	}
 
-	requireSingleAuditEvent(t, store.DB(), user.ID, "auth.device_denied")
+	event := requireSingleAuditEvent(t, store.DB(), user.ID, "auth.device_denied")
+	if event.Metadata["client_id"] != "test-client" {
+		t.Fatalf("client_id = %v, want test-client (#205)", event.Metadata["client_id"])
+	}
+	if event.Metadata["client_name"] != "Test Device Client" {
+		t.Fatalf("client_name = %v, want Test Device Client (#205)", event.Metadata["client_name"])
+	}
 }
 
 func TestAudit006_DeletionRequested(t *testing.T) {

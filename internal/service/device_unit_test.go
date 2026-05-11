@@ -23,6 +23,9 @@ type fakeDeviceStore struct {
 }
 
 func (f *fakeDeviceStore) GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*storage.DeviceCodeModel, error) {
+	if f.getDeviceCodeByUserCodeFn == nil {
+		return nil, storage.ErrNotFound
+	}
 	return f.getDeviceCodeByUserCodeFn(ctx, userCode)
 }
 
@@ -87,6 +90,9 @@ func TestDevice_HandleDeviceApprove_Deny(t *testing.T) {
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
 			return &storage.User{ID: "u1", Status: "active"}, nil
 		},
+		getDeviceCodeByUserCodeFn: func(context.Context, string) (*storage.DeviceCodeModel, error) {
+			return &storage.DeviceCodeModel{UserCode: "UCODE", ClientID: "test-client", State: "pending"}, nil
+		},
 		denyDeviceCodeFn: func(context.Context, string) error {
 			denyCalled = true
 			return nil
@@ -105,10 +111,93 @@ func TestDevice_HandleDeviceApprove_Deny(t *testing.T) {
 	}
 }
 
+// TestDevice_HandleDeviceApprove_Deny_NotPending_SkipsMutation asserts that
+// denyDeviceCode aborts when the device_code is no longer pending — the deny
+// mutation must not run and no auth.device_denied audit row may be emitted
+// (#205, Codex review blocker).
+func TestDevice_HandleDeviceApprove_Deny_NotPending_SkipsMutation(t *testing.T) {
+	denyCalled := false
+	auditCalled := false
+	store := &fakeDeviceStore{
+		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
+			return &storage.User{ID: "u1", Status: "active"}, nil
+		},
+		getDeviceCodeByUserCodeFn: func(context.Context, string) (*storage.DeviceCodeModel, error) {
+			return &storage.DeviceCodeModel{UserCode: "UCODE", ClientID: "test-client", State: "approved"}, nil
+		},
+		denyDeviceCodeFn: func(context.Context, string) error {
+			denyCalled = true
+			return nil
+		},
+		auditLogFn: func(context.Context, *string, string, string, string, map[string]any) {
+			auditCalled = true
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
+	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clock.RealClock{})
+
+	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "deny", "sess", "127.0.0.1", "ua")
+
+	if result.Success {
+		t.Fatal("deny on non-pending should still return success=false to the user")
+	}
+	if denyCalled {
+		t.Fatal("DenyDeviceCode must not be called when state != pending")
+	}
+	if auditCalled {
+		t.Fatal("auth.device_denied audit must not be emitted when state != pending")
+	}
+}
+
+// TestDevice_HandleDeviceApprove_InvalidAction asserts that any action value
+// outside {approve, deny} returns 400 without running any mutation or audit
+// (#205, Codex review blocker — strict consent surface).
+func TestDevice_HandleDeviceApprove_InvalidAction(t *testing.T) {
+	approveCalled := false
+	denyCalled := false
+	auditCalled := false
+	store := &fakeDeviceStore{
+		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
+			return &storage.User{ID: "u1", Status: "active"}, nil
+		},
+		approveDeviceCodeFn: func(context.Context, string, string) error {
+			approveCalled = true
+			return nil
+		},
+		denyDeviceCodeFn: func(context.Context, string) error {
+			denyCalled = true
+			return nil
+		},
+		auditLogFn: func(context.Context, *string, string, string, string, map[string]any) {
+			auditCalled = true
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
+	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clock.RealClock{})
+
+	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "bogus", "sess", "127.0.0.1", "ua")
+
+	if result.Success {
+		t.Fatal("invalid action must not return success")
+	}
+	if result.ErrorCode != 400 {
+		t.Fatalf("errorCode = %d, want 400", result.ErrorCode)
+	}
+	if approveCalled || denyCalled {
+		t.Fatal("invalid action must not run approve or deny mutations")
+	}
+	if auditCalled {
+		t.Fatal("invalid action must not emit audit rows")
+	}
+}
+
 func TestDevice_HandleDeviceApprove_ApproveError(t *testing.T) {
 	store := &fakeDeviceStore{
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
 			return &storage.User{ID: "u1", Status: "active"}, nil
+		},
+		getDeviceCodeByUserCodeFn: func(context.Context, string) (*storage.DeviceCodeModel, error) {
+			return &storage.DeviceCodeModel{UserCode: "UCODE", ClientID: "test-client", State: "pending"}, nil
 		},
 		approveDeviceCodeFn: func(context.Context, string, string) error {
 			return errors.New("expired")

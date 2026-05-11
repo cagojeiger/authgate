@@ -38,6 +38,9 @@ func setupDeviceService(t *testing.T) (*DeviceService, *storage.Storage, clock.C
 func insertDeviceCode(t *testing.T, store *storage.Storage, userCode string, clk clock.Clock) {
 	t.Helper()
 	ctx := context.Background()
+	// Register the test client so audit-row metadata (#205) can carry both
+	// client_id and the human-readable client_name resolved via ResolveClient.
+	store.LoadClients([]storage.ClientConfigEntry{{ClientID: "test-client", Name: "Test Device Client", LoginChannel: "browser"}})
 	err := store.StoreDeviceAuthorization(ctx, "test-client", "dc-"+userCode, userCode,
 		clk.Now().Add(5*time.Minute), []string{"openid"})
 	if err != nil {
