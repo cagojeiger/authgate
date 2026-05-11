@@ -25,6 +25,11 @@ func NewAuditMetrics(reg *prometheus.Registry) *AuditMetrics {
 		[]string{"stage"},
 	)
 	reg.MustRegister(cv)
+	// Pre-create the known label series so increase()/rate() see a baseline
+	// of 0 from the first scrape — otherwise the alert in
+	// docs/spec/009-operations.md would miss the very first failure.
+	cv.WithLabelValues("marshal")
+	cv.WithLabelValues("insert")
 	return &AuditMetrics{writeFailures: cv}
 }
 
