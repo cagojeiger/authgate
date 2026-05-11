@@ -75,7 +75,16 @@ func TestAudit001_BrowserSignup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
-	requireSingleAuditEvent(t, store.DB(), user.ID, "auth.signup")
+	event := requireSingleAuditEvent(t, store.DB(), user.ID, "auth.signup")
+	if event.Metadata["channel"] != "browser" {
+		t.Fatalf("channel = %v, want browser", event.Metadata["channel"])
+	}
+	if event.Metadata["client_id"] != "test-app" {
+		t.Fatalf("client_id = %v, want test-app (#204)", event.Metadata["client_id"])
+	}
+	if event.Metadata["client_name"] != "Test App" {
+		t.Fatalf("client_name = %v, want Test App (#204)", event.Metadata["client_name"])
+	}
 }
 
 func TestAudit002_LoginChannels(t *testing.T) {
