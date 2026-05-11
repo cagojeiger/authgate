@@ -271,7 +271,7 @@ func (s *Storage) setUserStatus(ctx context.Context, userID, status string) erro
 // The auth_request is bound to client_id "test-app" (registered with
 // login_channel="browser" so the channel-binding guard accepts it).
 func (s *Storage) CreateTestAuthRequest(ctx context.Context, label string) (string, error) {
-	s.LoadClients([]ClientConfigEntry{{ClientID: "test-app", LoginChannel: "browser"}})
+	s.LoadClients([]ClientConfigEntry{{ClientID: "test-app", Name: "Test App", LoginChannel: "browser"}})
 	id := s.idgen.NewUUID()
 	err := storeq.New(s.db).InsertTestAuthRequest(ctx, storeq.InsertTestAuthRequestParams{
 		ID:        id,
@@ -288,7 +288,7 @@ func (s *Storage) CreateTestAuthRequest(ctx context.Context, label string) (stri
 // The auth_request is bound to client_id "test-mcp-app" (registered with
 // login_channel="mcp" so the channel-binding guard accepts it).
 func (s *Storage) CreateTestAuthRequestWithResource(ctx context.Context, label, resource string) (string, error) {
-	s.LoadClients([]ClientConfigEntry{{ClientID: "test-mcp-app", LoginChannel: "mcp"}})
+	s.LoadClients([]ClientConfigEntry{{ClientID: "test-mcp-app", Name: "Test MCP App", LoginChannel: "mcp"}})
 	id := s.idgen.NewUUID()
 	now := s.clock.Now()
 	err := storeq.New(s.db).InsertTestAuthRequestWithResource(ctx, storeq.InsertTestAuthRequestWithResourceParams{

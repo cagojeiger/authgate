@@ -219,7 +219,7 @@ func (s *LoginService) prepareBrowserCallbackUser(ctx context.Context, userInfo 
 		if result != nil {
 			return nil, false, nil, result
 		}
-		user, result := s.signupBrowserUser(ctx, providerName, userInfo, ipAddress, userAgent)
+		user, result := s.signupBrowserUser(ctx, providerName, userInfo, authReq, ipAddress, userAgent)
 		return user, true, authReq, result
 	}
 	if err != nil {
@@ -260,7 +260,7 @@ func (s *LoginService) recoverUser(ctx context.Context, userID, ipAddress, userA
 	return nil
 }
 
-func (s *LoginService) signupBrowserUser(ctx context.Context, providerName string, userInfo *upstream.UserInfo, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
+func (s *LoginService) signupBrowserUser(ctx context.Context, providerName string, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
 	user, err := s.store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 		Email:          userInfo.Email,
 		EmailVerified:  userInfo.EmailVerified,
@@ -277,7 +277,13 @@ func (s *LoginService) signupBrowserUser(ctx context.Context, providerName strin
 		return nil, &CallbackResult{Action: ActionError, Error: fmt.Sprintf("signup failed: %v", err), ErrorCode: http.StatusInternalServerError}
 	}
 
-	s.store.AuditLog(ctx, &user.ID, "auth.signup", ipAddress, userAgent, map[string]any{"channel": "browser"})
+	// audit-011 (#204): signup always happens inside an auth_request, so the
+	// originating client_id / client_name must be carried on the audit row.
+	s.store.AuditLog(ctx, &user.ID, "auth.signup", ipAddress, userAgent, map[string]any{
+		"channel":     "browser",
+		"client_id":   authReq.ClientID,
+		"client_name": resolveClientName(ctx, s.store, authReq.ClientID),
+	})
 	return user, nil
 }
 
