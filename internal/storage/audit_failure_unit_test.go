@@ -111,6 +111,83 @@ func TestAuditLog_MarshalFailure_DoesNotPropagateAndIsLogged(t *testing.T) {
 	}
 }
 
+// fakeAuditFailureRecorder counts RecordWriteFailure calls per stage so tests
+// can assert that AuditLog increments the right counter on each failure mode.
+type fakeAuditFailureRecorder struct {
+	marshalFailures int
+	insertFailures  int
+	otherFailures   int
+}
+
+func (f *fakeAuditFailureRecorder) RecordWriteFailure(stage string) {
+	switch stage {
+	case "marshal":
+		f.marshalFailures++
+	case "insert":
+		f.insertFailures++
+	default:
+		f.otherFailures++
+	}
+}
+
+// TestAuditLog_InsertFailure_IncrementsMetric asserts that an INSERT failure
+// causes the audit-failure recorder to see exactly one "insert"-stage event
+// (and no spurious "marshal" or other-stage events).
+func TestAuditLog_InsertFailure_IncrementsMetric(t *testing.T) {
+	captureSlog(t)
+	store := newClosedAuditStorage(t)
+	rec := &fakeAuditFailureRecorder{}
+	store.SetAuditFailureRecorder(rec)
+
+	uid := "33333333-3333-4333-8333-333333333333"
+	store.AuditLog(context.Background(), &uid, "auth.login", "", "", map[string]any{"k": "v"})
+
+	if rec.insertFailures != 1 {
+		t.Fatalf("insertFailures = %d, want 1", rec.insertFailures)
+	}
+	if rec.marshalFailures != 0 {
+		t.Fatalf("marshalFailures = %d, want 0", rec.marshalFailures)
+	}
+	if rec.otherFailures != 0 {
+		t.Fatalf("otherFailures = %d, want 0", rec.otherFailures)
+	}
+}
+
+// TestAuditLog_MarshalFailure_IncrementsMetric asserts that a marshal failure
+// (unsupported chan type) increments only the "marshal" counter and skips
+// the INSERT path entirely.
+func TestAuditLog_MarshalFailure_IncrementsMetric(t *testing.T) {
+	captureSlog(t)
+	store := newClosedAuditStorage(t)
+	rec := &fakeAuditFailureRecorder{}
+	store.SetAuditFailureRecorder(rec)
+
+	uid := "44444444-4444-4444-8444-444444444444"
+	store.AuditLog(context.Background(), &uid, "auth.signup", "", "", map[string]any{
+		"unmarshalable": make(chan int),
+	})
+
+	if rec.marshalFailures != 1 {
+		t.Fatalf("marshalFailures = %d, want 1", rec.marshalFailures)
+	}
+	if rec.insertFailures != 0 {
+		t.Fatalf("insertFailures = %d, want 0", rec.insertFailures)
+	}
+}
+
+// TestAuditLog_SetAuditFailureRecorder_NilResetsToNoop asserts that passing
+// nil restores the no-op recorder so call sites never need a nil guard.
+func TestAuditLog_SetAuditFailureRecorder_NilResetsToNoop(t *testing.T) {
+	captureSlog(t)
+	store := newClosedAuditStorage(t)
+	store.SetAuditFailureRecorder(&fakeAuditFailureRecorder{})
+	store.SetAuditFailureRecorder(nil)
+
+	uid := "55555555-5555-4555-8555-555555555555"
+	// Must not panic; noop recorder swallows the call.
+	store.AuditLog(context.Background(), &uid, "auth.login", "", "", nil)
+}
+
 // TestAuditLog_NilUserID_LogsEmpty asserts the signature change is safe when
 // userID is nil — the failure log emits an empty user_id rather than panicking.
 func TestAuditLog_NilUserID_LogsEmpty(t *testing.T) {

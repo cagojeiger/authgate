@@ -68,6 +68,13 @@ func (m *HTTPMetrics) MetricsHandler() http.Handler {
 	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
 }
 
+// Registry exposes the shared Prometheus registry so adjacent metric groups
+// (e.g., observability.AuditMetrics) can register into the same /metrics
+// scrape target without spinning up a second endpoint.
+func (m *HTTPMetrics) Registry() *prometheus.Registry {
+	return m.registry
+}
+
 func (m *HTTPMetrics) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
