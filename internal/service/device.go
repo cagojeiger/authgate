@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -179,12 +180,18 @@ func (s *DeviceService) HandleDeviceApprove(ctx context.Context, userCode, actio
 		return &DeviceApproveResult{Success: false, Message: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
 
-	if action == "deny" {
+	switch action {
+	case "approve":
+		return s.approveDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
+	case "deny":
 		s.denyDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
 		return &DeviceApproveResult{Success: false, Message: "You denied the authorization request. You can close this window."}
+	default:
+		// Reject any other form value to keep the device-consent surface
+		// strict. A blank-or-typo "action" must not silently fall through to
+		// approve and generate an auth.device_approved audit row (#205).
+		return &DeviceApproveResult{Success: false, Message: "invalid action", ErrorCode: http.StatusBadRequest}
 	}
-
-	return s.approveDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
 }
 
 func (s *DeviceService) validateDevicePage(ctx context.Context, userCode string) *DevicePageResult {
@@ -242,13 +249,48 @@ func (s *DeviceService) ensureDeviceCallbackAccess(ctx context.Context, user *st
 }
 
 func (s *DeviceService) denyDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) {
-	metadata := s.deviceAuditMetadata(ctx, userCode)
-	s.store.DenyDeviceCode(ctx, userCode)
+	dc, metadata, err := s.loadDeviceAuditContext(ctx, userCode)
+	if err != nil {
+		slog.WarnContext(ctx, "device deny: skipping audit (context lookup failed)",
+			"user_id", userID,
+			"error", err,
+		)
+		return
+	}
+	// DenyDeviceCodeByUserCode is `:exec` (no rows-affected check available),
+	// so guard against issuing audit when the row is already terminal — the
+	// underlying UPDATE would no-op and we must not record auth.device_denied
+	// for a code that was already approved/denied/consumed (#205).
+	if dc.State != "pending" {
+		slog.WarnContext(ctx, "device deny: skipping audit (state not pending)",
+			"user_id", userID,
+			"state", dc.State,
+		)
+		return
+	}
+	if err := s.store.DenyDeviceCode(ctx, userCode); err != nil {
+		slog.WarnContext(ctx, "device deny: skipping audit (mutation failed)",
+			"user_id", userID,
+			"error", err,
+		)
+		return
+	}
 	s.store.AuditLog(ctx, &userID, "auth.device_denied", ipAddress, userAgent, metadata)
 }
 
 func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) *DeviceApproveResult {
-	metadata := s.deviceAuditMetadata(ctx, userCode)
+	_, metadata, err := s.loadDeviceAuditContext(ctx, userCode)
+	if err != nil {
+		// audit-011 requires client_id on the auth.device_approved row, so a
+		// failed lookup must abort the mutation+audit pair rather than emit a
+		// metadataless row (#205). Surface the same user-facing message as a
+		// stale code so the consent page does not leak the lookup failure.
+		slog.WarnContext(ctx, "device approve: aborting (context lookup failed)",
+			"user_id", userID,
+			"error", err,
+		)
+		return &DeviceApproveResult{Success: false, Message: "Device code expired or already processed.", ErrorCode: http.StatusBadRequest}
+	}
 	if err := s.store.ApproveDeviceCode(ctx, userCode, userID); err != nil {
 		return &DeviceApproveResult{Success: false, Message: "Device code expired or already processed.", ErrorCode: http.StatusBadRequest}
 	}
@@ -257,21 +299,24 @@ func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode, userID,
 	return &DeviceApproveResult{Success: true, Message: "You have successfully authorized the CLI application. You can close this window."}
 }
 
-// deviceAuditMetadata loads client context for the device_code so the
+// loadDeviceAuditContext loads the device_code and resolves its client so the
 // auth.device_approved / auth.device_denied audit rows can identify which
-// CLI/client was acted upon (audit-011, #205). The lookup is done before the
-// approve/deny state mutation so the metadata reflects the same client_id
-// the user saw on the consent page. Returns nil when the device_code is
-// missing — audit is best-effort and a missing client should not block the
-// row.
-func (s *DeviceService) deviceAuditMetadata(ctx context.Context, userCode string) map[string]any {
+// CLI/client was acted upon (audit-011, #205). It returns the device_code
+// (callers may inspect State for additional guards) alongside a metadata map
+// suitable for AuditLog. A non-nil error means the row should not be audited
+// — audit-011 requires client_id, so we prefer skipping the audit (with a
+// warn log) over emitting a row with no client identification.
+func (s *DeviceService) loadDeviceAuditContext(ctx context.Context, userCode string) (*storage.DeviceCodeModel, map[string]any, error) {
 	dc, err := s.store.GetDeviceCodeByUserCode(ctx, userCode)
-	if err != nil || dc == nil {
-		return nil
+	if err != nil {
+		return nil, nil, err
+	}
+	if dc == nil {
+		return nil, nil, storage.ErrNotFound
 	}
 	md := map[string]any{"client_id": dc.ClientID}
 	if c, err := s.store.ResolveClient(ctx, dc.ClientID); err == nil && c != nil {
 		md["client_name"] = c.Name
 	}
-	return md
+	return dc, md, nil
 }
