@@ -37,7 +37,7 @@
 |----|------|------|---------------|
 | `audit-login-001` | browser | Browser 로그인 성공 | `{channel: "browser", client_id, client_name}` |
 | `audit-login-002` | device | Device 로그인 성공 | `{channel: "device", client_id, client_name}` |
-| `audit-login-003` | mcp | MCP 로그인 성공 (신규 callback 및 활성 세션 자동 승인 모두) | `{channel: "mcp", client_id, client_name}`; 세션 재사용 경로는 추가로 `reused_session: true`, `session_id` 포함 (#206, 브라우저 #131 mirror) |
+| `audit-login-003` | mcp | MCP 로그인 성공 (신규 callback 및 활성 세션 자동 승인 모두) | 공통 `{channel: "mcp", session_id, client_id, client_name}`; 세션 재사용 경로는 추가로 `reused_session: true` 포함 (#206, 브라우저 #131 mirror) |
 
 ## 보안 이벤트 검증
 
