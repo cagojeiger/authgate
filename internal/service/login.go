@@ -187,7 +187,7 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 		return &CallbackResult{Action: ActionError, Error: "upstream_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	user, signedUp, _, result := s.prepareBrowserCallbackUser(ctx, userInfo, authRequestID, ipAddress, userAgent)
+	user, signedUp, result := s.prepareBrowserCallbackUser(ctx, userInfo, authReq, ipAddress, userAgent)
 	if result != nil {
 		return result
 	}
@@ -211,30 +211,28 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 	return &CallbackResult{Action: ActionAutoApprove, AuthRequestID: authRequestID, SessionID: sessionID}
 }
 
-func (s *LoginService) prepareBrowserCallbackUser(ctx context.Context, userInfo *upstream.UserInfo, authRequestID, ipAddress, userAgent string) (*storage.User, bool, *storage.AuthRequestModel, *CallbackResult) {
+// prepareBrowserCallbackUser performs the user-lookup or signup half of the
+// browser callback flow. The caller passes the already-fetched authReq so that
+// the signup audit row and the subsequent auth.login row reference the same
+// request context — duplicate getCallbackAuthRequest calls would otherwise
+// race against expiration/cleanup between fetch and audit (Codex review NIT
+// on PR #218).
+func (s *LoginService) prepareBrowserCallbackUser(ctx context.Context, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, ipAddress, userAgent string) (*storage.User, bool, *CallbackResult) {
 	providerName := s.browserProvider.Name()
 	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
-		authReq, result := s.getCallbackAuthRequest(ctx, authRequestID)
-		if result != nil {
-			return nil, false, nil, result
-		}
 		user, result := s.signupBrowserUser(ctx, providerName, userInfo, authReq, ipAddress, userAgent)
-		return user, true, authReq, result
+		return user, true, result
 	}
 	if err != nil {
-		return nil, false, nil, &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+		return nil, false, &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
 	user, result := s.ensureBrowserAccess(ctx, user, ipAddress, userAgent)
 	if result != nil {
-		return nil, false, nil, result
+		return nil, false, result
 	}
-	authReq, result := s.getCallbackAuthRequest(ctx, authRequestID)
-	if result != nil {
-		return nil, false, nil, result
-	}
-	return user, false, authReq, nil
+	return user, false, nil
 }
 
 func (s *LoginService) getCallbackAuthRequest(ctx context.Context, authRequestID string) (*storage.AuthRequestModel, *CallbackResult) {

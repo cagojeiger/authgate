@@ -196,6 +196,9 @@ func TestLogin_HandleCallback_SignupAuditLogIncludesChannel(t *testing.T) {
 		completeAuthRequestFn: func(context.Context, string, string) error {
 			return nil
 		},
+		resolveClientFn: func(context.Context, string) (*storage.ClientModel, error) {
+			return &storage.ClientModel{ID: "client-a", Name: "Client A", LoginChannel: "browser"}, nil
+		},
 		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 			gotEvents = append(gotEvents, auditEntry{eventType: eventType, metadata: metadata})
 		},
@@ -219,7 +222,13 @@ func TestLogin_HandleCallback_SignupAuditLogIncludesChannel(t *testing.T) {
 		t.Fatalf("auth.signup event not found in %v", gotEvents)
 	}
 	if signupEvent.metadata["channel"] != "browser" {
-		t.Fatalf("signup metadata = %#v", signupEvent.metadata)
+		t.Fatalf("signup channel = %v, want browser; metadata = %#v", signupEvent.metadata["channel"], signupEvent.metadata)
+	}
+	if signupEvent.metadata["client_id"] != "client-a" {
+		t.Fatalf("signup client_id = %v, want client-a (#204); metadata = %#v", signupEvent.metadata["client_id"], signupEvent.metadata)
+	}
+	if signupEvent.metadata["client_name"] != "Client A" {
+		t.Fatalf("signup client_name = %v, want \"Client A\" (#204); metadata = %#v", signupEvent.metadata["client_name"], signupEvent.metadata)
 	}
 }
 
