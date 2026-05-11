@@ -242,15 +242,36 @@ func (s *DeviceService) ensureDeviceCallbackAccess(ctx context.Context, user *st
 }
 
 func (s *DeviceService) denyDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) {
+	metadata := s.deviceAuditMetadata(ctx, userCode)
 	s.store.DenyDeviceCode(ctx, userCode)
-	s.store.AuditLog(ctx, &userID, "auth.device_denied", ipAddress, userAgent, nil)
+	s.store.AuditLog(ctx, &userID, "auth.device_denied", ipAddress, userAgent, metadata)
 }
 
 func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) *DeviceApproveResult {
+	metadata := s.deviceAuditMetadata(ctx, userCode)
 	if err := s.store.ApproveDeviceCode(ctx, userCode, userID); err != nil {
 		return &DeviceApproveResult{Success: false, Message: "Device code expired or already processed.", ErrorCode: http.StatusBadRequest}
 	}
 
-	s.store.AuditLog(ctx, &userID, "auth.device_approved", ipAddress, userAgent, nil)
+	s.store.AuditLog(ctx, &userID, "auth.device_approved", ipAddress, userAgent, metadata)
 	return &DeviceApproveResult{Success: true, Message: "You have successfully authorized the CLI application. You can close this window."}
+}
+
+// deviceAuditMetadata loads client context for the device_code so the
+// auth.device_approved / auth.device_denied audit rows can identify which
+// CLI/client was acted upon (audit-011, #205). The lookup is done before the
+// approve/deny state mutation so the metadata reflects the same client_id
+// the user saw on the consent page. Returns nil when the device_code is
+// missing — audit is best-effort and a missing client should not block the
+// row.
+func (s *DeviceService) deviceAuditMetadata(ctx context.Context, userCode string) map[string]any {
+	dc, err := s.store.GetDeviceCodeByUserCode(ctx, userCode)
+	if err != nil || dc == nil {
+		return nil
+	}
+	md := map[string]any{"client_id": dc.ClientID}
+	if c, err := s.store.ResolveClient(ctx, dc.ClientID); err == nil && c != nil {
+		md["client_name"] = c.Name
+	}
+	return md
 }
