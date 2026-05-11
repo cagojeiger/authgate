@@ -55,6 +55,13 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 			if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
 				return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 			}
+			s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
+				"channel":        "mcp",
+				"session_id":     sessionID,
+				"client_id":      authReq.ClientID,
+				"client_name":    resolveClientName(ctx, s.store, authReq.ClientID),
+				"reused_session": true,
+			})
 			return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
 		}
 	}
