@@ -181,6 +181,50 @@ func TestAudit_ReusedSession_AuthLoginRecorded(t *testing.T) {
 	}
 }
 
+// Issue #206: MCP reused-session auto-approve was missing auth.login.
+// Mirrors TestAudit_ReusedSession_AuthLoginRecorded (browser, #131) — the MCP
+// flow must also emit auth.login with reused_session=true so audit history is
+// symmetric across channels.
+func TestAudit_ReusedSession_MCP_AuthLoginRecorded(t *testing.T) {
+	svc, store := setupMCPExtTest(t, "audit-mcp-reuse-sub")
+	ctx := context.Background()
+
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp-reuse@test.com", EmailVerified: true, Name: "MCP Reuse", AvatarURL: "", Provider: "google", ProviderUserID: "audit-mcp-reuse-sub", ProviderEmail: "audit-mcp-reuse@test.com"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sessionID, err := store.CreateSession(ctx, user.ID, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	arID, err := store.CreateTestAuthRequestWithResource(ctx, "audit-mcp-reuse", "http://localhost/mcp")
+	if err != nil {
+		t.Fatalf("create auth request: %v", err)
+	}
+
+	result := svc.HandleLogin(ctx, arID, sessionID, "127.0.0.1", "mcp-reuse-agent")
+	if result.Action != ActionAutoApprove {
+		t.Fatalf("action = %v, want AutoApprove", result.Action)
+	}
+
+	event := requireSingleAuditEvent(t, store.DB(), user.ID, "auth.login")
+	if event.Metadata["channel"] != "mcp" {
+		t.Fatalf("channel = %v, want mcp", event.Metadata["channel"])
+	}
+	if event.Metadata["reused_session"] != true {
+		t.Fatalf("reused_session = %v, want true", event.Metadata["reused_session"])
+	}
+	if event.Metadata["session_id"] != sessionID {
+		t.Fatalf("session_id = %v, want %s", event.Metadata["session_id"], sessionID)
+	}
+	if event.Metadata["client_id"] != "test-mcp-app" {
+		t.Fatalf("client_id = %v, want test-mcp-app", event.Metadata["client_id"])
+	}
+	if _, ok := event.Metadata["client_name"]; !ok {
+		t.Fatalf("client_name key missing in metadata: %v", event.Metadata)
+	}
+}
+
 func TestAudit004_DeviceApproved(t *testing.T) {
 	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
