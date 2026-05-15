@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/testutil"
@@ -96,6 +97,57 @@ func TestAuditLog_AppendOnlyGuardAllowsPIIRedactionOnly(t *testing.T) {
 	}
 	if ip.Valid || ua.Valid {
 		t.Fatalf("PII not redacted: ip=%v ua=%v", ip, ua)
+	}
+}
+
+func TestAuditDeviceCodeIssued(t *testing.T) {
+	db := testutil.SetupPostgres(t)
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	store := New(db, clk, idgen.CryptoGenerator{}, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour)
+	store.LoadClients([]ClientConfigEntry{{
+		ClientID: "device-client",
+		Name:     "Device Client",
+	}})
+	ctx := clientinfo.WithContext(context.Background(), clientinfo.Info{IP: "198.51.100.31", UserAgent: "device-cli/1.0"})
+
+	if err := store.StoreDeviceAuthorization(ctx, "device-client", "secret-device-code", "USER-CODE", clk.Now().Add(5*time.Minute), []string{"openid"}); err != nil {
+		t.Fatalf("store device authorization: %v", err)
+	}
+
+	var userID sql.NullString
+	var ip sql.NullString
+	var ua sql.NullString
+	var raw []byte
+	if err := db.QueryRowContext(context.Background(),
+		`SELECT user_id::text, host(ip_address), user_agent, metadata
+		 FROM audit_log
+		 WHERE event_type = $1`,
+		EventAuthDeviceCodeIssued,
+	).Scan(&userID, &ip, &ua, &raw); err != nil {
+		t.Fatalf("query device code audit: %v", err)
+	}
+	if userID.Valid {
+		t.Fatalf("user_id valid = true, want NULL before user approval")
+	}
+	if !ip.Valid || ip.String != "198.51.100.31" {
+		t.Fatalf("ip = %v, want 198.51.100.31", ip)
+	}
+	if !ua.Valid || ua.String != "device-cli/1.0" {
+		t.Fatalf("user_agent = %v, want device-cli/1.0", ua)
+	}
+
+	var metadata map[string]any
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	if metadata["client_id"] != "device-client" || metadata["client_name"] != "Device Client" {
+		t.Fatalf("metadata = %#v, want client identity", metadata)
+	}
+	if _, ok := metadata["device_code"]; ok {
+		t.Fatalf("metadata must not include device_code: %#v", metadata)
+	}
+	if _, ok := metadata["user_code"]; ok {
+		t.Fatalf("metadata must not include user_code: %#v", metadata)
 	}
 }
 

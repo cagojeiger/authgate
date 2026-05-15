@@ -96,6 +96,7 @@ audit_log
 | `auth.login` | Browser/Device/MCP 로그인 성공 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name`, `reused_session`, `signup` | `internal/service/login.go`, `internal/service/device.go`, `internal/service/mcp_login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.channel_mismatch` | auth_request 채널 불일치 차단 | user_id, IP, UA, created_at | `expected_channel`, `actual_channel`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/login_unit_test.go` | DONE |
 | `auth.inactive_user` | disabled/pending_deletion/deleted 접근 차단 | user_id, IP, UA, created_at | `status`, `channel`, `phase` | `internal/service/account.go`, `internal/service/login.go`, `internal/service/device.go`, `internal/service/mcp_login.go` | `internal/service/audit_test.go` | DONE |
+| `auth.device_code_issued` | Device code 발급 | user_id(NULL), IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_oidc_device.go` | `internal/storage/audit_test.go` | DONE |
 | `auth.device_approved` | Device code 승인 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/service/device.go` | `internal/service/audit_test.go` | DONE |
 | `auth.device_denied` | Device code 거부 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/service/device.go` | `internal/service/audit_test.go` | DONE |
 | `auth.deletion_requested` | `DELETE /account` 성공 | user_id, IP, UA, created_at | 없음 | `internal/service/account.go` | `internal/service/audit_test.go` | DONE |
@@ -126,7 +127,7 @@ audit_log
 | `POST /oauth/token` | 토큰 발급/갱신 | `token.refresh`, reuse events | token limiter | DONE |
 | `POST /oauth/revoke` | 토큰 폐기 | `auth.token_revoked` when matching refresh token | token limiter | DONE |
 | `POST /oauth/introspect` | 토큰 상태 검증 | `authgate_http_requests_total{method="POST",route="/oauth/introspect",status}` metric | token limiter | DONE |
-| `POST /oauth/device/authorize` | Device code 발급 | provider 처리, 별도 audit 없음 | token limiter | PARTIAL |
+| `POST /oauth/device/authorize` | Device code 발급 | `auth.device_code_issued` | token limiter | DONE |
 | `GET /device` | Device 승인 화면 | 없음 | 없음 | N/A |
 | `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
 | `POST /device/approve` | Device 승인/거부 | `auth.device_approved`, `auth.device_denied`, `auth.inactive_user` | token limiter | DONE |
@@ -147,7 +148,6 @@ audit_log
 
 | GAP | 설명 | 다음 작업 후보 |
 |-----|------|----------------|
-| GAP-AUD-002 | `oauth/device/authorize`의 device code 발급 자체는 provider 내부 처리라 authgate audit event가 없다. 승인/거부/로그인은 기록된다. | device code 발급 hook 가능성 검토 |
 | GAP-OPS-001 | SOC 2 운영 evidence(PR 리뷰, access review, backup restore test)는 GitHub/운영 시스템에 존재해야 하며 authgate DB에는 저장하지 않는다. | 운영 evidence export/checklist 문서 |
 
 ## 완료 기준

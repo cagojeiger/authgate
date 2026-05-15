@@ -246,6 +246,7 @@ MCP
 | `auth.deletion_requested` | 탈퇴 요청 | — |
 | `auth.deletion_cancelled` | 탈퇴 취소 (로그인 복구) | — |
 | `auth.deletion_completed` | PII 스크러빙 완료 | TX 커밋 이후 best-effort 기록 |
+| `auth.device_code_issued` | 디바이스 코드 발급 | `{client_id, client_name}` |
 | `auth.device_approved` | 디바이스 승인 | `{client_id, client_name}` |
 | `auth.device_denied` | 디바이스 거부 | `{client_id, client_name}` |
 | `token.refresh` | refresh token rotation 성공 | `{client_id, client_name, family_id}` |

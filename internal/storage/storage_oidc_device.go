@@ -11,6 +11,7 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/db/storeq"
 )
 
@@ -110,7 +111,7 @@ func (s *Storage) Health(ctx context.Context) error {
 // --- DeviceAuthorizationStorage ---
 
 func (s *Storage) StoreDeviceAuthorization(ctx context.Context, clientID, deviceCode, userCode string, expires time.Time, scopes []string) error {
-	return storeq.New(s.db).InsertDeviceCode(ctx, storeq.InsertDeviceCodeParams{
+	if err := storeq.New(s.db).InsertDeviceCode(ctx, storeq.InsertDeviceCodeParams{
 		ID:         s.idgen.NewUUID(),
 		DeviceCode: deviceCode,
 		UserCode:   userCode,
@@ -118,7 +119,16 @@ func (s *Storage) StoreDeviceAuthorization(ctx context.Context, clientID, device
 		Scopes:     scopes,
 		ExpiresAt:  expires,
 		CreatedAt:  s.clock.Now(),
+	}); err != nil {
+		return err
+	}
+
+	info := clientinfo.FromContext(ctx)
+	s.AuditLog(ctx, nil, EventAuthDeviceCodeIssued, info.IP, info.UserAgent, map[string]any{
+		"client_id":   clientID,
+		"client_name": s.auditClientName(ctx, clientID),
 	})
+	return nil
 }
 
 func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, deviceCode string) (*op.DeviceAuthorizationState, error) {
