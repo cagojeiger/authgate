@@ -142,15 +142,26 @@ erDiagram
 | event_type | 설명 | 발생 위치 |
 |------------|------|----------|
 | `auth.signup` | 신규 가입 완료 | 브라우저 로그인 (신규 유저) |
-| `auth.login` | 로그인 성공 (callback 기반) | 브라우저/Device/MCP callback 로그인 |
+| `auth.login` | 로그인 성공 | 브라우저/Device/MCP 로그인 |
+| `auth.channel_mismatch` | auth_request 채널 불일치 차단 | 브라우저/MCP 로그인 |
 | `auth.inactive_user` | 비활성 유저 로그인 시도 차단 | 브라우저/Device/MCP 로그인 |
 | `auth.device_approved` | Device 코드 승인 | Device 승인 페이지 |
 | `auth.device_denied` | Device 코드 거부 | Device 승인 페이지 |
 | `auth.deletion_requested` | 계정 삭제 요청 | 계정 삭제 API |
 | `auth.deletion_cancelled` | 삭제 예정 계정 복구 (재로그인) | 브라우저 로그인 |
 | `auth.deletion_completed` | PII 스크러빙 완료 | cleanup 배치 |
+| `token.refresh` | refresh token rotation 성공 | 토큰 갱신 |
+| `auth.logout` | RP-Initiated Logout | OIDC end_session |
+| `auth.token_revoked` | refresh token 폐기 | RFC 7009 revoke |
 | `auth.refresh_reuse_detected` | refresh token 재사용 감지 | 토큰 갱신 |
 | `auth.refresh_family_revoked` | refresh token 패밀리 전체 폐기 | 토큰 갱신 (재사용 시) |
+| `auth.connection_revoked` | 연결 앱 refresh token 폐기 | Console 연결 관리 |
+| `auth.session_revoked` | 개별 세션 폐기 | Console 세션 관리 |
+| `auth.other_sessions_revoked` | 현재 세션 외 전체 폐기 | Console 세션 관리 |
+| `console.clients_listed` | 연결 앱 목록 조회 | Console 조회 |
+| `console.connections_listed` | 연결/권한 목록 조회 | Console 조회 |
+| `console.sessions_listed` | 세션 목록 조회 | Console 조회 |
+| `console.audit_log_viewed` | 감사 로그 조회 | Console 조회 |
 
 ## 인덱스
 
@@ -228,13 +239,27 @@ MCP
 
 | 이벤트 | 시점 | metadata |
 |--------|------|----------|
-| `auth.signup` | 가입 | — |
-| `auth.login` | callback 기반 로그인 | `{channel: "browser\|device\|mcp"}` |
+| `auth.signup` | 가입 | `{channel, client_id, client_name}` |
+| `auth.login` | 로그인 | `{channel, session_id, client_id, client_name, reused_session, signup}` |
+| `auth.channel_mismatch` | auth_request 채널 불일치 | `{expected_channel, actual_channel, client_id, client_name}` |
 | `auth.deletion_requested` | 탈퇴 요청 | — |
 | `auth.deletion_cancelled` | 탈퇴 취소 (로그인 복구) | — |
 | `auth.deletion_completed` | PII 스크러빙 완료 | TX 커밋 이후 best-effort 기록 |
-| `auth.device_approved` | 디바이스 승인 | — |
-| `auth.device_denied` | 디바이스 거부 | — |
+| `auth.device_approved` | 디바이스 승인 | `{client_id, client_name}` |
+| `auth.device_denied` | 디바이스 거부 | `{client_id, client_name}` |
+| `token.refresh` | refresh token rotation 성공 | `{client_id, client_name, family_id}` |
+| `auth.logout` | RP-Initiated Logout | `{client_id, client_name}` |
+| `auth.token_revoked` | refresh token revoke | `{client_id, client_name}` |
 | `auth.refresh_reuse_detected` | 폐기된 refresh_token 재사용 탐지 | `{family_id}` |
 | `auth.refresh_family_revoked` | family 전체 revoke (탈취 의심) | `{family_id}` |
-| `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 | `{status, channel}` |
+| `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 | `{status, channel, phase}` |
+| `auth.connection_revoked` | Console 연결 폐기 | `{client_id, client_name}` |
+| `auth.session_revoked` | Console 세션 폐기 | `{session_id}` |
+| `auth.other_sessions_revoked` | Console 현재 세션 외 폐기 | `{current_session_id}` |
+| `console.clients_listed` | Console 연결 앱 조회 | `{result_count}` |
+| `console.connections_listed` | Console 연결/권한 조회 | `{result_count}` |
+| `console.sessions_listed` | Console 세션 조회 | `{result_count}` |
+| `console.audit_log_viewed` | Console audit log 조회 | `{page, limit, result_count}` |
+
+`metadata`는 `Storage.AuditLog`에서 event별 allowlist를 통과한 key만 저장한다.
+allowlist에 없는 email, token, secret, raw request payload 등은 저장하지 않는다.
