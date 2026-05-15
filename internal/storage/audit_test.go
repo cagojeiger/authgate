@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,6 +101,70 @@ func TestAuditLog_AppendOnlyGuardAllowsPIIRedactionOnly(t *testing.T) {
 	}
 }
 
+func TestAuditLogIndexes(t *testing.T) {
+	db := testutil.SetupPostgres(t)
+	ctx := context.Background()
+
+	wantIndexes := map[string]string{
+		"audit_log_user_created_idx":  "btree (user_id, created_at DESC)",
+		"audit_log_event_created_idx": "btree (event_type, created_at DESC)",
+		"audit_log_created_brin_idx":  "brin (created_at)",
+	}
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT indexname, indexdef
+		 FROM pg_indexes
+		 WHERE schemaname = 'public'
+		   AND tablename = 'audit_log'
+		   AND indexname IN (
+		       'audit_log_user_created_idx',
+		       'audit_log_event_created_idx',
+		       'audit_log_created_brin_idx'
+		   )`,
+	)
+	if err != nil {
+		t.Fatalf("query audit_log indexes: %v", err)
+	}
+	defer rows.Close()
+
+	found := map[string]string{}
+	for rows.Next() {
+		var name, def string
+		if err := rows.Scan(&name, &def); err != nil {
+			t.Fatalf("scan index: %v", err)
+		}
+		found[name] = def
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate indexes: %v", err)
+	}
+
+	for name, fragment := range wantIndexes {
+		def, ok := found[name]
+		if !ok {
+			t.Fatalf("missing index %s; found %#v", name, found)
+		}
+		if !strings.Contains(def, fragment) {
+			t.Fatalf("index %s definition = %q, want fragment %q", name, def, fragment)
+		}
+	}
+
+	assertPlanUsesIndex(t, db,
+		`SELECT * FROM audit_log
+		 WHERE user_id = '00000000-0000-0000-0000-000000000001'::uuid
+		 ORDER BY created_at DESC
+		 LIMIT 50`,
+		"audit_log_user_created_idx",
+	)
+	assertPlanUsesIndex(t, db,
+		`SELECT * FROM audit_log
+		 WHERE event_type = 'auth.login'
+		 ORDER BY created_at DESC
+		 LIMIT 50`,
+		"audit_log_event_created_idx",
+	)
+}
+
 func TestAuditDeviceCodeIssued(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
@@ -148,6 +213,43 @@ func TestAuditDeviceCodeIssued(t *testing.T) {
 	}
 	if _, ok := metadata["user_code"]; ok {
 		t.Fatalf("metadata must not include user_code: %#v", metadata)
+	}
+}
+
+func assertPlanUsesIndex(t *testing.T, db *sql.DB, query, indexName string) {
+	t.Helper()
+
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin explain tx: %v", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(context.Background(), `SET LOCAL enable_seqscan = off`); err != nil {
+		t.Fatalf("disable seqscan: %v", err)
+	}
+
+	rows, err := tx.QueryContext(context.Background(), "EXPLAIN (ANALYZE, COSTS OFF) "+query)
+	if err != nil {
+		t.Fatalf("explain query: %v", err)
+	}
+	defer rows.Close()
+
+	var plan []string
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatalf("scan explain: %v", err)
+		}
+		plan = append(plan, line)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate explain: %v", err)
+	}
+
+	joined := strings.Join(plan, "\n")
+	if !strings.Contains(joined, indexName) {
+		t.Fatalf("plan did not use %s:\n%s", indexName, joined)
 	}
 }
 
