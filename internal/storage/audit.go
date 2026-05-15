@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -33,6 +35,8 @@ const (
 	EventAuthRefreshReuseDetected = "auth.refresh_reuse_detected"
 	EventAuthRefreshFamilyRevoked = "auth.refresh_family_revoked"
 	EventAuthTokenRefreshed       = "auth.token_refreshed"
+	EventAuthDeletionRequested    = "auth.deletion_requested"
+	EventAuthDeletionCancelled    = "auth.deletion_cancelled"
 	EventAuthDeletionCompleted    = "auth.deletion_completed"
 	EventAuthLogout               = "auth.logout"
 	EventAuthTokenRevoked         = "auth.token_revoked"
@@ -73,6 +77,21 @@ var auditMetadataAllowlist = map[string]map[string]struct{}{
 		"status":  {},
 		"channel": {},
 		"phase":   {},
+	},
+	EventAuthDeletionRequested: {
+		"channel":     {},
+		"client_id":   {},
+		"client_name": {},
+		"session_id":  {},
+	},
+	EventAuthDeletionCancelled: {
+		"channel":     {},
+		"client_id":   {},
+		"client_name": {},
+		"session_id":  {},
+	},
+	EventAuthDeletionCompleted: {
+		"reason": {},
 	},
 	"auth.device_denied": {
 		"client_id":   {},
@@ -174,6 +193,25 @@ func (s *Storage) auditClientName(ctx context.Context, clientID string) string {
 		return ""
 	}
 	return c.Name
+}
+
+type AuditClientContext struct {
+	ClientID   string
+	ClientName string
+}
+
+func (s *Storage) GetAuditClientContextBySessionID(ctx context.Context, userID, sessionID string) (AuditClientContext, error) {
+	row, err := storeq.New(s.db).GetAuditClientContextBySessionID(ctx, storeq.GetAuditClientContextBySessionIDParams{
+		UserID:    userID,
+		SessionID: sessionID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return AuditClientContext{}, ErrNotFound
+	}
+	if err != nil {
+		return AuditClientContext{}, err
+	}
+	return AuditClientContext{ClientID: row.ClientID, ClientName: row.ClientName}, nil
 }
 
 // AuditLog records a security/audit event on a best-effort basis. Failures are

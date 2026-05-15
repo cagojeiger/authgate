@@ -8,3 +8,14 @@ VALUES (
   sqlc.arg(metadata)::jsonb,
   sqlc.arg(created_at)
 );
+
+-- name: GetAuditClientContextBySessionID :one
+SELECT
+  COALESCE(metadata->>'client_id', '')::text AS client_id,
+  COALESCE(metadata->>'client_name', '')::text AS client_name
+FROM audit_log
+WHERE user_id = NULLIF(sqlc.arg(user_id)::text, '')::uuid
+  AND event_type = 'auth.login'
+  AND metadata->>'session_id' = sqlc.arg(session_id)::text
+ORDER BY created_at DESC
+LIMIT 1;

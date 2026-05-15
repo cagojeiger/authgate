@@ -124,17 +124,23 @@ func (q *Queries) DeleteUserIdentitiesByUserID(ctx context.Context, userID strin
 }
 
 const insertDeletionCompletedAudit = `-- name: InsertDeletionCompletedAudit :exec
-INSERT INTO audit_log (user_id, event_type, created_at)
-VALUES (NULLIF($1::text, '')::uuid, 'auth.deletion_completed', $2)
+INSERT INTO audit_log (user_id, event_type, metadata, created_at)
+VALUES (
+  NULLIF($1::text, '')::uuid,
+  'auth.deletion_completed',
+  jsonb_build_object('reason', $2::text),
+  $3
+)
 `
 
 type InsertDeletionCompletedAuditParams struct {
 	UserID    string
+	Reason    string
 	CreatedAt time.Time
 }
 
 func (q *Queries) InsertDeletionCompletedAudit(ctx context.Context, arg InsertDeletionCompletedAuditParams) error {
-	_, err := q.db.ExecContext(ctx, insertDeletionCompletedAudit, arg.UserID, arg.CreatedAt)
+	_, err := q.db.ExecContext(ctx, insertDeletionCompletedAudit, arg.UserID, arg.Reason, arg.CreatedAt)
 	return err
 }
 

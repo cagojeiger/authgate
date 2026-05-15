@@ -243,9 +243,9 @@ MCP
 | `auth.signup` | 가입 | `{channel, client_id, client_name}` |
 | `auth.login` | 로그인 | `{channel, session_id, client_id, client_name, reused_session, signup}` |
 | `auth.channel_mismatch` | auth_request 채널 불일치 | `{expected_channel, actual_channel, client_id, client_name}` |
-| `auth.deletion_requested` | 탈퇴 요청 | — |
-| `auth.deletion_cancelled` | 탈퇴 취소 (로그인 복구) | — |
-| `auth.deletion_completed` | PII 스크러빙 완료 | TX 커밋 이후 best-effort 기록 |
+| `auth.deletion_requested` | 탈퇴 요청 | `{channel, session_id, client_id, client_name}` |
+| `auth.deletion_cancelled` | 탈퇴 취소 (로그인 복구) | `{channel, session_id, client_id, client_name}` |
+| `auth.deletion_completed` | PII 스크러빙 완료 | `{reason}` |
 | `auth.device_code_issued` | 디바이스 코드 발급 | `{client_id, client_name}` |
 | `auth.device_approved` | 디바이스 승인 | `{client_id, client_name}` |
 | `auth.device_denied` | 디바이스 거부 | `{client_id, client_name}` |

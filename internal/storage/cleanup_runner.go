@@ -145,6 +145,7 @@ func (r *CleanupRunner) DeleteUser(
 
 	if err := storeq.New(r.db).InsertDeletionCompletedAudit(ctx, storeq.InsertDeletionCompletedAuditParams{
 		UserID:    userID,
+		Reason:    "pending_deletion_expired",
 		CreatedAt: now,
 	}); err != nil {
 		slog.ErrorContext(ctx, "audit log: insert deletion_completed",
