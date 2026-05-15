@@ -44,6 +44,7 @@ const (
 	EventConsoleConnectionsListed = "console.connections_listed"
 	EventConsoleSessionsListed    = "console.sessions_listed"
 	EventConsoleAuditLogViewed    = "console.audit_log_viewed"
+	EventConsoleAccessDenied      = "console.access_denied"
 
 	EventTokenRefresh   = "token.refresh"
 	EventTokenRevoked   = "token.revoked"
@@ -126,6 +127,12 @@ var auditMetadataAllowlist = map[string]map[string]struct{}{
 		"page":         {},
 		"limit":        {},
 		"result_count": {},
+	},
+	EventConsoleAccessDenied: {
+		"operation":   {},
+		"status_code": {},
+		"reason":      {},
+		"user_status": {},
 	},
 }
 
