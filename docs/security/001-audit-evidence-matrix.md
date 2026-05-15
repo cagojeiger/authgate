@@ -87,6 +87,7 @@ audit_log
 | SOC2-CC7-002 | abuse 방어가 있는가 | per-IP rate limit for auth/token/callback/console endpoints, CIMD failure rate limit | `cmd/authgate/main.go`, `internal/middleware/ratelimit.go`, `internal/adapter/mcp/cimd.go` | `cmd/authgate/main_test.go`, `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/*ratelimit*_test.go` | DONE |
 | SOC2-CC8-001 | 변경관리 evidence를 확보할 수 있는가 | GitHub PR, CI checks, vulnerability check | GitHub repository / Actions | PR checks | DONE |
 | SOC2-CC8-002 | dependency vulnerability evidence가 있는가 | `govulncheck` local/CI 실행 | GitHub Actions, PR body | CI `Vulnerability Check` | DONE |
+| SOC2-OPS-001 | 운영 evidence 보관 기준이 정의되어 있는가 | PR 리뷰, access review, backup restore test, incident drill 체크리스트 | `docs/security/002-operational-evidence-checklist.md` | 문서 리뷰 | DONE |
 
 ## Event Coverage Matrix
 
@@ -142,9 +143,7 @@ audit_log
 
 ## 남은 GAP
 
-| GAP | 설명 | 다음 작업 후보 |
-|-----|------|----------------|
-| GAP-OPS-001 | SOC 2 운영 evidence(PR 리뷰, access review, backup restore test)는 GitHub/운영 시스템에 존재해야 하며 authgate DB에는 저장하지 않는다. | 운영 evidence export/checklist 문서 |
+현재 authgate 서버 코드와 보안 문서 기준으로 추적 중인 미해결 GAP은 없다.
 
 ## 완료 기준
 

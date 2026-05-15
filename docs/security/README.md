@@ -14,6 +14,7 @@ authgate 밖의 조직 운영 절차(법무 판단, 고객 통지, 접근권한 
 | # | 문서 | 목적 |
 |---|------|------|
 | 001 | [Audit Evidence Matrix](001-audit-evidence-matrix.md) | 한국 PIPA/통비법/SOC 2 관점에서 authgate가 생성하는 감사 증거와 현재 구현 상태 매핑 |
+| 002 | [Operational Evidence Checklist](002-operational-evidence-checklist.md) | SOC 2/PIPA 운영 증적 중 authgate DB 밖에 남겨야 하는 체크리스트와 보관 위치 |
 
 ## 관계
 
