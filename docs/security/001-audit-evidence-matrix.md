@@ -84,7 +84,7 @@ audit_log
 | SOC2-CC6-001 | 민감한 console 조회 접근을 추적하는가 | console read access audit events | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 | SOC2-CC6-002 | session/connection revoke 같은 권한성 작업을 추적하는가 | `auth.connection_revoked`, `auth.session_revoked`, `auth.other_sessions_revoked` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 | SOC2-CC7-001 | 보안 이상징후를 탐지할 이벤트가 있는가 | inactive user access, refresh reuse detection, channel mismatch | `internal/service/*`, `internal/storage/storage_auth_tokens.go` | `internal/service/audit_test.go`, `internal/service/login_unit_test.go` | DONE |
-| SOC2-CC7-002 | abuse 방어가 있는가 | per-IP rate limit for auth/token/device approve, CIMD failure rate limit | `cmd/authgate/main.go`, `internal/middleware/ratelimit.go`, `internal/adapter/mcp/cimd.go` | `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/*ratelimit*_test.go` | PARTIAL |
+| SOC2-CC7-002 | abuse 방어가 있는가 | per-IP rate limit for auth/token/callback/console endpoints, CIMD failure rate limit | `cmd/authgate/main.go`, `internal/middleware/ratelimit.go`, `internal/adapter/mcp/cimd.go` | `cmd/authgate/main_test.go`, `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/*ratelimit*_test.go` | DONE |
 | SOC2-CC8-001 | 변경관리 evidence를 확보할 수 있는가 | GitHub PR, CI checks, vulnerability check | GitHub repository / Actions | PR checks | DONE |
 | SOC2-CC8-002 | dependency vulnerability evidence가 있는가 | `govulncheck` local/CI 실행 | GitHub Actions, PR body | CI `Vulnerability Check` | DONE |
 
@@ -119,24 +119,24 @@ audit_log
 | Endpoint | 민감도 | Audit evidence | Rate limit | 상태 |
 |----------|--------|----------------|------------|------|
 | `GET /login` | 인증 시작 | `auth.login` 재사용 세션, `auth.channel_mismatch`, `auth.deletion_cancelled` 일부 경로 | auth limiter | DONE |
-| `GET /login/callback` | 인증 완료/가입 | `auth.signup`, `auth.login`, `auth.inactive_user` | 없음 | PARTIAL |
-| `GET /mcp/login` | MCP 인증 시작 | `auth.inactive_user`, `auth.login` 일부 경로 | 없음 | PARTIAL |
-| `GET /mcp/callback` | MCP 인증 완료 | `auth.login`, `auth.inactive_user` | 없음 | PARTIAL |
+| `GET /login/callback` | 인증 완료/가입 | `auth.signup`, `auth.login`, `auth.inactive_user` | auth limiter | DONE |
+| `GET /mcp/login` | MCP 인증 시작 | `auth.inactive_user`, `auth.login` 일부 경로 | auth limiter | DONE |
+| `GET /mcp/callback` | MCP 인증 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
 | `POST /oauth/token` | 토큰 발급/갱신 | `token.refresh`, reuse events | token limiter | DONE |
-| `POST /oauth/revoke` | 토큰 폐기 | `auth.token_revoked` when matching refresh token | 없음 | PARTIAL |
-| `POST /oauth/introspect` | 토큰 상태 검증 | provider 처리, 별도 audit 없음 | 없음 | PARTIAL |
+| `POST /oauth/revoke` | 토큰 폐기 | `auth.token_revoked` when matching refresh token | token limiter | DONE |
+| `POST /oauth/introspect` | 토큰 상태 검증 | provider 처리, 별도 audit 없음 | token limiter | PARTIAL |
 | `POST /oauth/device/authorize` | Device code 발급 | provider 처리, 별도 audit 없음 | token limiter | PARTIAL |
 | `GET /device` | Device 승인 화면 | 없음 | 없음 | N/A |
-| `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user` | 없음 | PARTIAL |
+| `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
 | `POST /device/approve` | Device 승인/거부 | `auth.device_approved`, `auth.device_denied`, `auth.inactive_user` | token limiter | DONE |
-| `DELETE /account` | 계정 삭제 요청 | `auth.deletion_requested`, inactive user block | 없음 | PARTIAL |
-| `GET /console/clients` | 연결 앱 조회 | `console.clients_listed` | 없음 | PARTIAL |
-| `GET /console/me/connections` | 연결/권한 조회 | `console.connections_listed` | 없음 | PARTIAL |
-| `DELETE /console/me/connections/{client_id}` | 연결 폐기 | `auth.connection_revoked` | 없음 | PARTIAL |
-| `GET /console/me/sessions` | 세션/IP/UA 조회 | `console.sessions_listed` | 없음 | PARTIAL |
-| `DELETE /console/me/sessions/{id}` | 세션 폐기 | `auth.session_revoked` | 없음 | PARTIAL |
-| `POST /console/me/sessions/revoke-others` | 세션 일괄 폐기 | `auth.other_sessions_revoked` | 없음 | PARTIAL |
-| `GET /console/me/audit-log` | 감사 로그 조회 | `console.audit_log_viewed` | 없음 | PARTIAL |
+| `DELETE /account` | 계정 삭제 요청 | `auth.deletion_requested`, inactive user block | auth limiter | DONE |
+| `GET /console/clients` | 연결 앱 조회 | `console.clients_listed` | auth limiter | DONE |
+| `GET /console/me/connections` | 연결/권한 조회 | `console.connections_listed` | auth limiter | DONE |
+| `DELETE /console/me/connections/{client_id}` | 연결 폐기 | `auth.connection_revoked` | auth limiter | DONE |
+| `GET /console/me/sessions` | 세션/IP/UA 조회 | `console.sessions_listed` | auth limiter | DONE |
+| `DELETE /console/me/sessions/{id}` | 세션 폐기 | `auth.session_revoked` | auth limiter | DONE |
+| `POST /console/me/sessions/revoke-others` | 세션 일괄 폐기 | `auth.other_sessions_revoked` | auth limiter | DONE |
+| `GET /console/me/audit-log` | 감사 로그 조회 | `console.audit_log_viewed` | auth limiter | DONE |
 
 `PARTIAL`은 audit evidence가 전혀 없다는 뜻이 아니다. 현재 서버가 생성하는
 증거와 방어가 있지만, rate limit 또는 실패 접근 audit 같은 추가 보강 여지가
@@ -149,7 +149,6 @@ audit_log
 | GAP-AUD-001 | console API의 401/403 실패 접근은 별도 audit event로 남기지 않는다. 성공 조회/변경은 기록된다. | 실패 접근 event 추가 여부 결정 |
 | GAP-AUD-002 | `oauth/device/authorize`의 device code 발급 자체는 provider 내부 처리라 authgate audit event가 없다. 승인/거부/로그인은 기록된다. | device code 발급 hook 가능성 검토 |
 | GAP-AUD-003 | `/oauth/introspect`는 provider 기본 라우트로 처리되며 authgate audit event가 없다. 고빈도 검증 endpoint라 audit_log 대상인지 별도 결정 필요. | metrics 중심 유지 또는 sampled audit 검토 |
-| GAP-RATE-001 | console/account/revoke/callback 계열에는 아직 명시 rate limit이 없다. | endpoint별 rate limit 정책 PR |
 | GAP-OPS-001 | SOC 2 운영 evidence(PR 리뷰, access review, backup restore test)는 GitHub/운영 시스템에 존재해야 하며 authgate DB에는 저장하지 않는다. | 운영 evidence export/checklist 문서 |
 
 ## 완료 기준

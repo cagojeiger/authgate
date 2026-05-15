@@ -367,7 +367,7 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 		}
 		tokenWithAtJWT.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
 	})))
-	mux.Handle("/oauth/revoke", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/oauth/revoke", tokenLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !cfg.EnableMCP {
 			provider.ServeHTTP(w, r)
 			return
@@ -382,7 +382,8 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 			}
 		}
 		provider.ServeHTTP(w, r)
-	}))
+	})))
+	mux.Handle("/oauth/introspect", tokenLimiter(provider))
 	mux.Handle("/oauth/device/authorize", tokenLimiter(provider))
 	mux.Handle("/", provider)
 }
@@ -400,22 +401,22 @@ func registerAuthgateRoutes(
 	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
 
 	mux.Handle("/login", authLimiter(http.HandlerFunc(loginHandler.HandleLogin)))
-	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
+	mux.Handle("/login/callback", authLimiter(http.HandlerFunc(loginHandler.HandleCallback)))
 	if cfg.EnableMCP {
-		mux.HandleFunc("/mcp/login", mcpLoginHandler.HandleLogin)
-		mux.HandleFunc("/mcp/callback", mcpLoginHandler.HandleCallback)
+		mux.Handle("/mcp/login", authLimiter(http.HandlerFunc(mcpLoginHandler.HandleLogin)))
+		mux.Handle("/mcp/callback", authLimiter(http.HandlerFunc(mcpLoginHandler.HandleCallback)))
 	}
-	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
+	mux.Handle("/account", authLimiter(http.HandlerFunc(accountHandler.HandleDeleteAccount)))
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
 	mux.Handle("/device/approve", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
-	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
-	mux.HandleFunc("/console/clients", consoleHandler.HandleListClients)
-	mux.HandleFunc("/console/me/connections", consoleHandler.HandleListConnections)
-	mux.HandleFunc("/console/me/connections/{client_id}", consoleHandler.HandleRevokeConnection)
-	mux.HandleFunc("/console/me/sessions", consoleHandler.HandleListSessions)
-	mux.HandleFunc("/console/me/sessions/{id}", consoleHandler.HandleRevokeSession)
-	mux.HandleFunc("/console/me/sessions/revoke-others", consoleHandler.HandleRevokeOtherSessions)
-	mux.HandleFunc("/console/me/audit-log", consoleHandler.HandleGetAuditLog)
+	mux.Handle("/device/auth/callback", authLimiter(http.HandlerFunc(deviceHandler.HandleDeviceCallback)))
+	mux.Handle("/console/clients", authLimiter(http.HandlerFunc(consoleHandler.HandleListClients)))
+	mux.Handle("/console/me/connections", authLimiter(http.HandlerFunc(consoleHandler.HandleListConnections)))
+	mux.Handle("/console/me/connections/{client_id}", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeConnection)))
+	mux.Handle("/console/me/sessions", authLimiter(http.HandlerFunc(consoleHandler.HandleListSessions)))
+	mux.Handle("/console/me/sessions/{id}", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeSession)))
+	mux.Handle("/console/me/sessions/revoke-others", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeOtherSessions)))
+	mux.Handle("/console/me/audit-log", authLimiter(http.HandlerFunc(consoleHandler.HandleGetAuditLog)))
 }
 
 func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool, httpMetrics *observability.HTTPMetrics) {
