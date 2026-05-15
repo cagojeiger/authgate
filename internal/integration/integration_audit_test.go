@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestAuditEvents verifies that token.refresh, token.revoked, and auth.token_revoked events
+// TestAuditEvents verifies that auth.token_refreshed and auth.token_revoked events
 // are recorded in audit_log after the corresponding operations.
 func TestAuditEvents(t *testing.T) {
 	ts := SetupTestServer(t)
@@ -30,7 +30,7 @@ func TestAuditEvents(t *testing.T) {
 		t.Fatalf("get user: %v", err)
 	}
 
-	t.Run("token.refresh recorded after refresh grant", func(t *testing.T) {
+	t.Run("auth.token_refreshed recorded after refresh grant", func(t *testing.T) {
 		client := NewOAuthClient(t, ts.BaseURL)
 		refreshed := client.RefreshToken(tokens.RefreshToken)
 		if refreshed.StatusCode != 200 {
@@ -39,14 +39,14 @@ func TestAuditEvents(t *testing.T) {
 
 		var count int
 		err := ts.DB.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM audit_log WHERE user_id = $1::uuid AND event_type = 'token.refresh'`,
+			`SELECT COUNT(*) FROM audit_log WHERE user_id = $1::uuid AND event_type = 'auth.token_refreshed'`,
 			user.ID,
 		).Scan(&count)
 		if err != nil {
-			t.Fatalf("query audit_log for token.refresh: %v", err)
+			t.Fatalf("query audit_log for auth.token_refreshed: %v", err)
 		}
 		if count == 0 {
-			t.Error("expected at least one token.refresh audit_log row, got 0")
+			t.Error("expected at least one auth.token_refreshed audit_log row, got 0")
 		}
 	})
 

@@ -102,7 +102,7 @@ audit_log
 | `auth.deletion_requested` | `DELETE /account` 성공 | user_id, IP, UA, created_at | 없음 | `internal/service/account.go` | `internal/service/audit_test.go` | DONE |
 | `auth.deletion_cancelled` | pending_deletion 유저 브라우저 재로그인 복구 | user_id, IP, UA, created_at | 없음 | `internal/service/login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.deletion_completed` | cleanup PII scrub 완료 | user_id, created_at | 없음 | `internal/storage/cleanup_runner.go` | `internal/service/cleanup_test.go` | DONE |
-| `token.refresh` | refresh token rotation 성공 | user_id, IP, UA, created_at | `client_id`, `client_name`, `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
+| `auth.token_refreshed` | refresh token rotation 성공 | user_id, IP, UA, created_at | `client_id`, `client_name`, `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
 | `auth.logout` | RP-Initiated Logout | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/storage/storage_integration_test.go` | DONE |
 | `auth.token_revoked` | RFC 7009 revoke에서 refresh token 매칭 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
 | `auth.refresh_reuse_detected` | 폐기 refresh token 재사용 | user_id, IP, UA, created_at | `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
@@ -124,7 +124,7 @@ audit_log
 | `GET /login/callback` | 인증 완료/가입 | `auth.signup`, `auth.login`, `auth.inactive_user` | auth limiter | DONE |
 | `GET /mcp/login` | MCP 인증 시작 | `auth.inactive_user`, `auth.login` 일부 경로 | auth limiter | DONE |
 | `GET /mcp/callback` | MCP 인증 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
-| `POST /oauth/token` | 토큰 발급/갱신 | `token.refresh`, reuse events | token limiter | DONE |
+| `POST /oauth/token` | 토큰 발급/갱신 | `auth.token_refreshed`, reuse events | token limiter | DONE |
 | `POST /oauth/revoke` | 토큰 폐기 | `auth.token_revoked` when matching refresh token | token limiter | DONE |
 | `POST /oauth/introspect` | 토큰 상태 검증 | `authgate_http_requests_total{method="POST",route="/oauth/introspect",status}` metric | token limiter | DONE |
 | `POST /oauth/device/authorize` | Device code 발급 | `auth.device_code_issued` | token limiter | DONE |
