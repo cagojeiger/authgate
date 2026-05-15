@@ -150,7 +150,7 @@ erDiagram
 | `auth.deletion_requested` | 계정 삭제 요청 | 계정 삭제 API |
 | `auth.deletion_cancelled` | 삭제 예정 계정 복구 (재로그인) | 브라우저 로그인 |
 | `auth.deletion_completed` | PII 스크러빙 완료 | cleanup 배치 |
-| `token.refresh` | refresh token rotation 성공 | 토큰 갱신 |
+| `auth.token_refreshed` | refresh token rotation 성공 | 토큰 갱신 |
 | `auth.logout` | RP-Initiated Logout | OIDC end_session |
 | `auth.token_revoked` | refresh token 폐기 | RFC 7009 revoke |
 | `auth.refresh_reuse_detected` | refresh token 재사용 감지 | 토큰 갱신 |
@@ -249,7 +249,7 @@ MCP
 | `auth.device_code_issued` | 디바이스 코드 발급 | `{client_id, client_name}` |
 | `auth.device_approved` | 디바이스 승인 | `{client_id, client_name}` |
 | `auth.device_denied` | 디바이스 거부 | `{client_id, client_name}` |
-| `token.refresh` | refresh token rotation 성공 | `{client_id, client_name, family_id}` |
+| `auth.token_refreshed` | refresh token rotation 성공 | `{client_id, client_name, family_id}` |
 | `auth.logout` | RP-Initiated Logout | `{client_id, client_name}` |
 | `auth.token_revoked` | refresh token revoke | `{client_id, client_name}` |
 | `auth.refresh_reuse_detected` | 폐기된 refresh_token 재사용 탐지 | `{family_id}` |

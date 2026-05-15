@@ -178,10 +178,10 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		return "", "", time.Time{}, err
 	}
 
-	// Audit token.refresh only when this is a refresh-token grant (not the initial code exchange).
+	// Audit token refresh only when this is a refresh-token grant (not the initial code exchange).
 	if currentRefreshToken != "" {
 		info := clientinfo.FromContext(ctx)
-		s.AuditLog(ctx, &derived.userID, EventTokenRefresh, info.IP, info.UserAgent, map[string]any{
+		s.AuditLog(ctx, &derived.userID, EventAuthTokenRefreshed, info.IP, info.UserAgent, map[string]any{
 			"client_id":   derived.clientID,
 			"client_name": s.auditClientName(ctx, derived.clientID),
 			"family_id":   derived.familyID,
@@ -441,8 +441,8 @@ func revokeRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, family
 
 func (s *Storage) auditRefreshReuseDetection(ctx context.Context, userID, familyID string) {
 	info := clientinfo.FromContext(ctx)
-	s.AuditLog(ctx, &userID, "auth.refresh_reuse_detected", info.IP, info.UserAgent, map[string]any{"family_id": familyID})
-	s.AuditLog(ctx, &userID, "auth.refresh_family_revoked", info.IP, info.UserAgent, map[string]any{"family_id": familyID})
+	s.AuditLog(ctx, &userID, EventAuthRefreshReuseDetected, info.IP, info.UserAgent, map[string]any{"family_id": familyID})
+	s.AuditLog(ctx, &userID, EventAuthRefreshFamilyRevoked, info.IP, info.UserAgent, map[string]any{"family_id": familyID})
 }
 
 func (s *Storage) validateRefreshTokenRequest(ctx context.Context, tx *sql.Tx, rt *RefreshTokenModel, now time.Time) error {

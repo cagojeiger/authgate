@@ -32,6 +32,7 @@ import (
 const (
 	EventAuthRefreshReuseDetected = "auth.refresh_reuse_detected"
 	EventAuthRefreshFamilyRevoked = "auth.refresh_family_revoked"
+	EventAuthTokenRefreshed       = "auth.token_refreshed"
 	EventAuthDeletionCompleted    = "auth.deletion_completed"
 	EventAuthLogout               = "auth.logout"
 	EventAuthTokenRevoked         = "auth.token_revoked"
@@ -46,11 +47,6 @@ const (
 	EventConsoleSessionsListed    = "console.sessions_listed"
 	EventConsoleAuditLogViewed    = "console.audit_log_viewed"
 	EventConsoleAccessDenied      = "console.access_denied"
-
-	EventTokenRefresh   = "token.refresh"
-	EventTokenRevoked   = "token.revoked"
-	EventSessionRevoked = "session.revoked"
-	EventAccountDeleted = "account.deleted"
 )
 
 var auditMetadataAllowlist = map[string]map[string]struct{}{
@@ -100,7 +96,7 @@ var auditMetadataAllowlist = map[string]map[string]struct{}{
 	EventAuthOtherSessionsRevoked: {
 		"current_session_id": {},
 	},
-	EventTokenRefresh: {
+	EventAuthTokenRefreshed: {
 		"client_id":   {},
 		"client_name": {},
 		"family_id":   {},
