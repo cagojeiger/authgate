@@ -12,8 +12,6 @@ import (
 	"github.com/kangheeyong/authgate/internal/middleware"
 )
 
-
-
 type HTTPMetrics struct {
 	registry       *prometheus.Registry
 	requestsTotal  *prometheus.CounterVec

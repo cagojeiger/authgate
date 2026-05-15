@@ -58,9 +58,20 @@ type AuditFailureRecorder interface {
 	RecordWriteFailure(stage string)
 }
 
+// AuditEventRecorder receives an event after an audit-log row is successfully
+// persisted. main.go wires observability.AuditMetrics so security-sensitive
+// event bursts are visible from /metrics.
+type AuditEventRecorder interface {
+	RecordEvent(eventType, channel string)
+}
+
 type noopAuditFailureRecorder struct{}
 
 func (noopAuditFailureRecorder) RecordWriteFailure(string) {}
+
+type noopAuditEventRecorder struct{}
+
+func (noopAuditEventRecorder) RecordEvent(string, string) {}
 
 type Storage struct {
 	db              *sql.DB
@@ -90,6 +101,9 @@ type Storage struct {
 	// or insert. Defaults to a no-op in New() so call sites never need a nil
 	// guard; main.go installs observability.AuditMetrics at startup.
 	auditFailureRec AuditFailureRecorder
+	// auditEventRec receives a signal after a successful AuditLog insert.
+	// Defaults to a no-op for tests that construct Storage directly.
+	auditEventRec AuditEventRecorder
 }
 
 func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
@@ -102,6 +116,7 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 		refreshTokenTTL:    refreshTTL,
 		devicePollInterval: 5 * time.Second,
 		auditFailureRec:    noopAuditFailureRecorder{},
+		auditEventRec:      noopAuditEventRecorder{},
 	}
 	s.clientPolicy = NewCoreClientResolutionPolicy(s)
 	s.resourcePolicy = NewCoreResourceBindingPolicy()
@@ -125,6 +140,16 @@ func (s *Storage) SetAuditFailureRecorder(r AuditFailureRecorder) {
 		return
 	}
 	s.auditFailureRec = r
+}
+
+// SetAuditEventRecorder installs a metric recorder that AuditLog invokes after
+// a successful row insert. Passing nil resets to the no-op recorder.
+func (s *Storage) SetAuditEventRecorder(r AuditEventRecorder) {
+	if r == nil {
+		s.auditEventRec = noopAuditEventRecorder{}
+		return
+	}
+	s.auditEventRec = r
 }
 
 // SetSigningKey sets the current RSA signing key used for JWT issuance.
