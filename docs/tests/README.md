@@ -15,6 +15,10 @@
 | 004 | [감사 이벤트 테스트](004-audit-events.md) | `audit_log.event_type`와 metadata 기록 검증 |
 | 005 | [Upstream Provider 테스트](005-upstream-provider.md) | OIDCProvider discovery/exchange/userinfo 검증 |
 
+보안/컴플라이언스 관점의 evidence mapping은
+[Security 001 Audit Evidence Matrix](../security/001-audit-evidence-matrix.md)를
+참조한다.
+
 ## 구조
 
 ```text
