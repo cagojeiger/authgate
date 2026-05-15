@@ -1,6 +1,10 @@
 package storage
 
-import "testing"
+import (
+	"context"
+	"reflect"
+	"testing"
+)
 
 func TestNormalizeIPAddress(t *testing.T) {
 	tests := []struct {
@@ -29,5 +33,47 @@ func TestNormalizeIPAddress(t *testing.T) {
 				t.Fatalf("normalizeIPAddress(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSanitizeAuditMetadata_AllowsKnownKeysOnly(t *testing.T) {
+	metadata := map[string]any{
+		"channel":        "browser",
+		"client_id":      "client-1",
+		"client_name":    "Client One",
+		"session_id":     "sess-1",
+		"reused_session": true,
+		"email":          "person@example.com",
+		"access_token":   "secret-token",
+	}
+
+	got := sanitizeAuditMetadata(context.Background(), "auth.login", metadata)
+	want := map[string]any{
+		"channel":        "browser",
+		"client_id":      "client-1",
+		"client_name":    "Client One",
+		"session_id":     "sess-1",
+		"reused_session": true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sanitized metadata = %#v, want %#v", got, want)
+	}
+}
+
+func TestSanitizeAuditMetadata_UnknownEventDropsMetadata(t *testing.T) {
+	got := sanitizeAuditMetadata(context.Background(), "custom.event", map[string]any{
+		"client_id": "client-1",
+	})
+	if got != nil {
+		t.Fatalf("unknown event metadata = %#v, want nil", got)
+	}
+}
+
+func TestSanitizeAuditMetadata_EmptyResultReturnsNil(t *testing.T) {
+	got := sanitizeAuditMetadata(context.Background(), "auth.login", map[string]any{
+		"email": "person@example.com",
+	})
+	if got != nil {
+		t.Fatalf("disallowed-only metadata = %#v, want nil", got)
 	}
 }

@@ -137,6 +137,11 @@ func (s *ConsoleService) resolveAuth(ctx context.Context, sessionID, authHeader 
 	return nil, errors.New("unauthenticated")
 }
 
+func (s *ConsoleService) auditConsoleAccess(ctx context.Context, userID, eventType string, metadata map[string]any) {
+	info := clientinfo.FromContext(ctx)
+	s.store.AuditLog(ctx, &userID, eventType, info.IP, info.UserAgent, metadata)
+}
+
 func (s *ConsoleService) ListClients(ctx context.Context, sessionID, authHeader string) *ClientsResult {
 	user, err := s.resolveUser(ctx, sessionID, authHeader)
 	if err != nil {
@@ -165,6 +170,9 @@ func (s *ConsoleService) ListClients(ctx context.Context, sessionID, authHeader 
 			clients = append(clients, c)
 		}
 	}
+	s.auditConsoleAccess(ctx, user.ID, storage.EventConsoleClientsListed, map[string]any{
+		"result_count": len(clients),
+	})
 	return &ClientsResult{Clients: clients}
 }
 
@@ -208,6 +216,9 @@ func (s *ConsoleService) ListConnections(ctx context.Context, sessionID, authHea
 			LastUsed: lastUsed,
 		})
 	}
+	s.auditConsoleAccess(ctx, user.ID, storage.EventConsoleConnectionsListed, map[string]any{
+		"result_count": len(views),
+	})
 	return &ConnectionsResult{Connections: views}
 }
 
@@ -239,6 +250,9 @@ func (s *ConsoleService) ListSessions(ctx context.Context, sessionID, authHeader
 			IsCurrent: auth.sessionID != "" && auth.sessionID == sess.ID,
 		})
 	}
+	s.auditConsoleAccess(ctx, auth.user.ID, storage.EventConsoleSessionsListed, map[string]any{
+		"result_count": len(views),
+	})
 	return &SessionsResult{Sessions: views}
 }
 
@@ -260,7 +274,7 @@ func (s *ConsoleService) RevokeConnection(ctx context.Context, sessionID, authHe
 		return &RevokeConnectionResult{ErrorCode: http.StatusInternalServerError}
 	}
 	info := clientinfo.FromContext(ctx)
-	s.store.AuditLog(ctx, &auth.user.ID, "auth.connection_revoked", info.IP, info.UserAgent, map[string]any{
+	s.store.AuditLog(ctx, &auth.user.ID, storage.EventAuthConnectionRevoked, info.IP, info.UserAgent, map[string]any{
 		"client_id":   clientID,
 		"client_name": resolveClientName(ctx, s.store, clientID),
 	})
@@ -282,7 +296,7 @@ func (s *ConsoleService) RevokeSession(ctx context.Context, sessionID, authHeade
 		return &RevokeSessionResult{ErrorCode: http.StatusInternalServerError}
 	}
 	info := clientinfo.FromContext(ctx)
-	s.store.AuditLog(ctx, &auth.user.ID, "auth.session_revoked", info.IP, info.UserAgent, map[string]any{"session_id": revokeSessionID})
+	s.store.AuditLog(ctx, &auth.user.ID, storage.EventAuthSessionRevoked, info.IP, info.UserAgent, map[string]any{"session_id": revokeSessionID})
 	return &RevokeSessionResult{}
 }
 
@@ -301,7 +315,7 @@ func (s *ConsoleService) RevokeOtherSessions(ctx context.Context, sessionID, aut
 		return &RevokeOtherSessionsResult{ErrorCode: http.StatusInternalServerError}
 	}
 	info := clientinfo.FromContext(ctx)
-	s.store.AuditLog(ctx, &auth.user.ID, "auth.other_sessions_revoked", info.IP, info.UserAgent, map[string]any{"current_session_id": auth.sessionID})
+	s.store.AuditLog(ctx, &auth.user.ID, storage.EventAuthOtherSessionsRevoked, info.IP, info.UserAgent, map[string]any{"current_session_id": auth.sessionID})
 	return &RevokeOtherSessionsResult{}
 }
 
@@ -342,6 +356,11 @@ func (s *ConsoleService) GetAuditLog(ctx context.Context, sessionID, authHeader 
 			CreatedAt: event.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
+	s.auditConsoleAccess(ctx, user.ID, storage.EventConsoleAuditLogViewed, map[string]any{
+		"page":         page,
+		"limit":        limit,
+		"result_count": len(events),
+	})
 	return &AuditLogResult{
 		Events: events,
 		Page:   page,

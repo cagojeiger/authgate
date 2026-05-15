@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/storage"
 )
 
@@ -98,6 +99,14 @@ func activeUserStore(clients []storage.ClientView, connIDs []string) *fakeConsol
 			return &storage.AuditLogPage{}, nil
 		},
 	}
+}
+
+type capturedAuditEvent struct {
+	userID    string
+	eventType string
+	ipAddress string
+	userAgent string
+	metadata  map[string]any
 }
 
 // --- ListClients ---
@@ -199,6 +208,38 @@ func TestConsole_ListClients_NoConnections_ReturnsEmpty(t *testing.T) {
 	}
 	if r.Clients == nil {
 		t.Fatal("want empty slice, got nil")
+	}
+}
+
+func TestConsole_ListClients_AuditLogged(t *testing.T) {
+	store := activeUserStore(
+		[]storage.ClientView{{ClientID: "app-a", Name: "App A"}, {ClientID: "app-b", Name: "App B"}},
+		[]string{"app-a"},
+	)
+	var got capturedAuditEvent
+	store.auditLogFn = func(_ context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
+		if userID != nil {
+			got.userID = *userID
+		}
+		got.eventType = eventType
+		got.ipAddress = ipAddress
+		got.userAgent = userAgent
+		got.metadata = metadata
+	}
+	ctx := clientinfo.WithContext(context.Background(), clientinfo.Info{IP: "198.51.100.10", UserAgent: "Browser"})
+	svc := NewConsoleService(store)
+	r := svc.ListClients(ctx, "sess-1", "")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if got.userID != "u1" || got.eventType != storage.EventConsoleClientsListed {
+		t.Fatalf("audit userID=%q eventType=%q", got.userID, got.eventType)
+	}
+	if got.ipAddress != "198.51.100.10" || got.userAgent != "Browser" {
+		t.Fatalf("audit client info ip=%q ua=%q", got.ipAddress, got.userAgent)
+	}
+	if got.metadata["result_count"] != 1 {
+		t.Fatalf("audit result_count=%v, want 1", got.metadata["result_count"])
 	}
 }
 
@@ -323,6 +364,29 @@ func TestConsole_ListConnections_LastUsedEmptyWhenMissing(t *testing.T) {
 	}
 	if r.Connections[0].LastUsed != "" {
 		t.Fatalf("last_used = %q, want empty string", r.Connections[0].LastUsed)
+	}
+}
+
+func TestConsole_ListConnections_AuditLogged(t *testing.T) {
+	store := activeUserStore([]storage.ClientView{{ClientID: "app-a", Name: "App A"}}, []string{"app-a"})
+	var got capturedAuditEvent
+	store.auditLogFn = func(_ context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
+		if userID != nil {
+			got.userID = *userID
+		}
+		got.eventType = eventType
+		got.metadata = metadata
+	}
+	svc := NewConsoleService(store)
+	r := svc.ListConnections(context.Background(), "sess-1", "")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if got.userID != "u1" || got.eventType != storage.EventConsoleConnectionsListed {
+		t.Fatalf("audit userID=%q eventType=%q", got.userID, got.eventType)
+	}
+	if got.metadata["result_count"] != 1 {
+		t.Fatalf("audit result_count=%v, want 1", got.metadata["result_count"])
 	}
 }
 
@@ -614,6 +678,35 @@ func TestConsole_ListSessions_MarksCurrentSession(t *testing.T) {
 	}
 }
 
+func TestConsole_ListSessions_AuditLogged(t *testing.T) {
+	store := activeUserStore(nil, nil)
+	store.getActiveSessionsFn = func(context.Context, string) ([]storage.SessionInfo, error) {
+		return []storage.SessionInfo{
+			{ID: "sess-1", ExpiresAt: time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)},
+			{ID: "sess-2", ExpiresAt: time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)},
+		}, nil
+	}
+	var got capturedAuditEvent
+	store.auditLogFn = func(_ context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
+		if userID != nil {
+			got.userID = *userID
+		}
+		got.eventType = eventType
+		got.metadata = metadata
+	}
+	svc := NewConsoleService(store)
+	r := svc.ListSessions(context.Background(), "sess-1", "")
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if got.userID != "u1" || got.eventType != storage.EventConsoleSessionsListed {
+		t.Fatalf("audit userID=%q eventType=%q", got.userID, got.eventType)
+	}
+	if got.metadata["result_count"] != 2 {
+		t.Fatalf("audit result_count=%v, want 2", got.metadata["result_count"])
+	}
+}
+
 func TestConsole_ListSessions_BearerAuth_NeverMarksCurrent(t *testing.T) {
 	store := bearerStore(&storage.User{ID: "u1", Status: "active"}, nil)
 	store.getActiveSessionsFn = func(context.Context, string) ([]storage.SessionInfo, error) {
@@ -745,6 +838,38 @@ func TestConsole_GetAuditLog_DefaultsAndFormats(t *testing.T) {
 	}
 	if len(r.Events) != 1 || r.Events[0].CreatedAt != "2026-04-24T01:11:12Z" {
 		t.Fatalf("unexpected events: %+v", r.Events)
+	}
+}
+
+func TestConsole_GetAuditLog_AuditLogged(t *testing.T) {
+	store := activeUserStore(nil, nil)
+	store.getAuditLogFn = func(ctx context.Context, userID string, limit, offset int) (*storage.AuditLogPage, error) {
+		return &storage.AuditLogPage{
+			Events: []storage.AuditEventInfo{
+				{ID: 1, EventType: "auth.login", CreatedAt: time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)},
+				{ID: 2, EventType: "auth.logout", CreatedAt: time.Date(2026, 4, 24, 11, 0, 0, 0, time.UTC)},
+			},
+			Total: 2,
+		}, nil
+	}
+	var got capturedAuditEvent
+	store.auditLogFn = func(_ context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
+		if userID != nil {
+			got.userID = *userID
+		}
+		got.eventType = eventType
+		got.metadata = metadata
+	}
+	svc := NewConsoleService(store)
+	r := svc.GetAuditLog(context.Background(), "sess-1", "", 2, 50)
+	if r.ErrorCode != 0 {
+		t.Fatalf("want success, got %d", r.ErrorCode)
+	}
+	if got.userID != "u1" || got.eventType != storage.EventConsoleAuditLogViewed {
+		t.Fatalf("audit userID=%q eventType=%q", got.userID, got.eventType)
+	}
+	if got.metadata["page"] != 2 || got.metadata["limit"] != 50 || got.metadata["result_count"] != 2 {
+		t.Fatalf("audit metadata=%#v, want page=2 limit=50 result_count=2", got.metadata)
 	}
 }
 

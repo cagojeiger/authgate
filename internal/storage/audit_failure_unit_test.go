@@ -85,7 +85,7 @@ func TestAuditLog_MarshalFailure_DoesNotPropagateAndIsLogged(t *testing.T) {
 
 	uid := "22222222-2222-4222-8222-222222222222"
 	store.AuditLog(context.Background(), &uid, "auth.signup", "", "", map[string]any{
-		"unmarshalable": make(chan int),
+		"client_id": make(chan int),
 	})
 
 	logs := buf.String()
@@ -106,7 +106,7 @@ func TestAuditLog_MarshalFailure_DoesNotPropagateAndIsLogged(t *testing.T) {
 		t.Fatalf("insert log should not appear when marshal fails: %s", logs)
 	}
 	// Sanity: confirm the chan value never made it past json.Marshal.
-	if _, err := json.Marshal(map[string]any{"unmarshalable": make(chan int)}); err == nil {
+	if _, err := json.Marshal(map[string]any{"client_id": make(chan int)}); err == nil {
 		t.Fatalf("test setup invalid: chan should be unmarshalable")
 	}
 }
@@ -164,7 +164,7 @@ func TestAuditLog_MarshalFailure_IncrementsMetric(t *testing.T) {
 
 	uid := "44444444-4444-4444-8444-444444444444"
 	store.AuditLog(context.Background(), &uid, "auth.signup", "", "", map[string]any{
-		"unmarshalable": make(chan int),
+		"client_id": make(chan int),
 	})
 
 	if rec.marshalFailures != 1 {

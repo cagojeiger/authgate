@@ -36,12 +36,98 @@ const (
 	EventAuthLogout               = "auth.logout"
 	EventAuthTokenRevoked         = "auth.token_revoked"
 	EventAuthChannelMismatch      = "auth.channel_mismatch"
+	EventAuthConnectionRevoked    = "auth.connection_revoked"
+	EventAuthSessionRevoked       = "auth.session_revoked"
+	EventAuthOtherSessionsRevoked = "auth.other_sessions_revoked"
+
+	EventConsoleClientsListed     = "console.clients_listed"
+	EventConsoleConnectionsListed = "console.connections_listed"
+	EventConsoleSessionsListed    = "console.sessions_listed"
+	EventConsoleAuditLogViewed    = "console.audit_log_viewed"
 
 	EventTokenRefresh   = "token.refresh"
 	EventTokenRevoked   = "token.revoked"
 	EventSessionRevoked = "session.revoked"
 	EventAccountDeleted = "account.deleted"
 )
+
+var auditMetadataAllowlist = map[string]map[string]struct{}{
+	EventAuthChannelMismatch: {
+		"expected_channel": {},
+		"actual_channel":   {},
+		"client_id":        {},
+		"client_name":      {},
+	},
+	"auth.login": {
+		"channel":        {},
+		"session_id":     {},
+		"client_id":      {},
+		"client_name":    {},
+		"reused_session": {},
+		"signup":         {},
+	},
+	"auth.signup": {
+		"channel":     {},
+		"client_id":   {},
+		"client_name": {},
+	},
+	"auth.inactive_user": {
+		"status":  {},
+		"channel": {},
+		"phase":   {},
+	},
+	"auth.device_denied": {
+		"client_id":   {},
+		"client_name": {},
+	},
+	"auth.device_approved": {
+		"client_id":   {},
+		"client_name": {},
+	},
+	EventAuthConnectionRevoked: {
+		"client_id":   {},
+		"client_name": {},
+	},
+	EventAuthSessionRevoked: {
+		"session_id": {},
+	},
+	EventAuthOtherSessionsRevoked: {
+		"current_session_id": {},
+	},
+	EventTokenRefresh: {
+		"client_id":   {},
+		"client_name": {},
+		"family_id":   {},
+	},
+	EventAuthLogout: {
+		"client_id":   {},
+		"client_name": {},
+	},
+	EventAuthTokenRevoked: {
+		"client_id":   {},
+		"client_name": {},
+	},
+	EventAuthRefreshReuseDetected: {
+		"family_id": {},
+	},
+	EventAuthRefreshFamilyRevoked: {
+		"family_id": {},
+	},
+	EventConsoleClientsListed: {
+		"result_count": {},
+	},
+	EventConsoleConnectionsListed: {
+		"result_count": {},
+	},
+	EventConsoleSessionsListed: {
+		"result_count": {},
+	},
+	EventConsoleAuditLogViewed: {
+		"page":         {},
+		"limit":        {},
+		"result_count": {},
+	},
+}
 
 // normalizeIPAddress returns a bare IP address acceptable for PostgreSQL inet.
 func normalizeIPAddress(addr string) string {
@@ -89,6 +175,7 @@ func (s *Storage) auditClientName(ctx context.Context, clientID string) string {
 // included in failure logs to avoid leaking session/family identifiers.
 func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 	ipAddress = normalizeIPAddress(ipAddress)
+	metadata = sanitizeAuditMetadata(ctx, eventType, metadata)
 	var metaJSON []byte
 	if metadata != nil {
 		marshaled, err := json.Marshal(metadata)
@@ -119,6 +206,41 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 			"error", err,
 		)
 	}
+}
+
+func sanitizeAuditMetadata(ctx context.Context, eventType string, metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	allowed, ok := auditMetadataAllowlist[eventType]
+	if !ok || len(allowed) == 0 {
+		slog.WarnContext(ctx, "audit log: metadata dropped for unknown event type",
+			"event_type", eventType,
+			"dropped_count", len(metadata),
+		)
+		return nil
+	}
+
+	sanitized := make(map[string]any, len(metadata))
+	dropped := 0
+	for key, value := range metadata {
+		if _, ok := allowed[key]; !ok {
+			dropped++
+			continue
+		}
+		sanitized[key] = value
+	}
+	if dropped > 0 {
+		slog.WarnContext(ctx, "audit log: metadata keys dropped",
+			"event_type", eventType,
+			"dropped_count", dropped,
+		)
+	}
+	if len(sanitized) == 0 {
+		return nil
+	}
+	return sanitized
 }
 
 func userIDLogValue(userID *string) string {
