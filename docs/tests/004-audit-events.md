@@ -34,6 +34,7 @@
 | `audit-015` | Console client/connection/session 조회 | `console.clients_listed`, `console.connections_listed`, `console.sessions_listed` | 성공 응답 후 `metadata.result_count` 기록. 응답의 IP/UA/세션 상세 자체는 metadata에 넣지 않음 |
 | `audit-016` | Console audit log 조회 | `console.audit_log_viewed` | 성공 응답 후 `metadata.page`, `metadata.limit`, `metadata.result_count` 기록 |
 | `audit-017` | Console 401/403 접근 거부 | `console.access_denied` | 401은 `user_id=NULL`, 403은 식별된 `user_id` + `metadata.user_status` 기록. `metadata.operation`, `status_code`, `reason` 포함 |
+| `audit-018` | Device code 발급 | `auth.device_code_issued` | 승인 전 단계라 `user_id=NULL`. `metadata.client_id` + `metadata.client_name`만 기록하고 `device_code`/`user_code`는 저장하지 않음 |
 
 ## 채널별 auth.login 검증
 

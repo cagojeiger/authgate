@@ -36,6 +36,7 @@ const (
 	EventAuthLogout               = "auth.logout"
 	EventAuthTokenRevoked         = "auth.token_revoked"
 	EventAuthChannelMismatch      = "auth.channel_mismatch"
+	EventAuthDeviceCodeIssued     = "auth.device_code_issued"
 	EventAuthConnectionRevoked    = "auth.connection_revoked"
 	EventAuthSessionRevoked       = "auth.session_revoked"
 	EventAuthOtherSessionsRevoked = "auth.other_sessions_revoked"
@@ -82,6 +83,10 @@ var auditMetadataAllowlist = map[string]map[string]struct{}{
 		"client_name": {},
 	},
 	"auth.device_approved": {
+		"client_id":   {},
+		"client_name": {},
+	},
+	EventAuthDeviceCodeIssued: {
 		"client_id":   {},
 		"client_name": {},
 	},
