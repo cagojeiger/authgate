@@ -125,7 +125,7 @@ audit_log
 | `GET /mcp/callback` | MCP 인증 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
 | `POST /oauth/token` | 토큰 발급/갱신 | `token.refresh`, reuse events | token limiter | DONE |
 | `POST /oauth/revoke` | 토큰 폐기 | `auth.token_revoked` when matching refresh token | token limiter | DONE |
-| `POST /oauth/introspect` | 토큰 상태 검증 | provider 처리, 별도 audit 없음 | token limiter | PARTIAL |
+| `POST /oauth/introspect` | 토큰 상태 검증 | `authgate_http_requests_total{method="POST",route="/oauth/introspect",status}` metric | token limiter | DONE |
 | `POST /oauth/device/authorize` | Device code 발급 | provider 처리, 별도 audit 없음 | token limiter | PARTIAL |
 | `GET /device` | Device 승인 화면 | 없음 | 없음 | N/A |
 | `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
@@ -148,7 +148,6 @@ audit_log
 | GAP | 설명 | 다음 작업 후보 |
 |-----|------|----------------|
 | GAP-AUD-002 | `oauth/device/authorize`의 device code 발급 자체는 provider 내부 처리라 authgate audit event가 없다. 승인/거부/로그인은 기록된다. | device code 발급 hook 가능성 검토 |
-| GAP-AUD-003 | `/oauth/introspect`는 provider 기본 라우트로 처리되며 authgate audit event가 없다. 고빈도 검증 endpoint라 audit_log 대상인지 별도 결정 필요. | metrics 중심 유지 또는 sampled audit 검토 |
 | GAP-OPS-001 | SOC 2 운영 evidence(PR 리뷰, access review, backup restore test)는 GitHub/운영 시스템에 존재해야 하며 authgate DB에는 저장하지 않는다. | 운영 evidence export/checklist 문서 |
 
 ## 완료 기준

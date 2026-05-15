@@ -321,7 +321,17 @@ SELECT * FROM audit_log WHERE event_type = 'auth.inactive_user' ORDER BY created
 | cleanup 고루틴 | audit_log에 `auth.deletion_completed` 확인 | 30일+ pending_deletion 유저 존재 |
 | signing_key | JWKS 엔드포인트 체크 | 키 0개 반환 |
 | 디스크 | signing_key.pem 파일 존재 확인 | 파일 없음 → 재시작마다 키 변경 |
+| token introspection | `authgate_http_requests_total{route="/oauth/introspect"}` | 4xx/5xx 급증 또는 비정상 트래픽 급증 |
 | audit 쓰기 실패 | `authgate_audit_log_write_failures_total` counter | 5분 내 증가 → 침해 탐지 인프라 silent broken (#208) |
+
+### token introspection 증적
+
+`/oauth/introspect`는 리소스 서버가 access token 상태를 자주 검증하는 고빈도 endpoint다. 호출마다 `audit_log` row를 만들면 저장량과 PII 노출면이 커지므로, 행 단위 감사 로그 대신 HTTP metric을 운영 증적으로 사용한다.
+
+| Metric | Labels | 설명 |
+|--------|--------|------|
+| `authgate_http_requests_total` | `method="POST", route="/oauth/introspect", status` | introspection 요청 수와 결과 상태 |
+| `authgate_http_request_duration_seconds` | `method="POST", route="/oauth/introspect", status` | introspection 지연 시간 |
 
 ### audit_log 쓰기 실패 모니터링 (#208)
 

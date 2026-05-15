@@ -81,3 +81,38 @@ func TestMiddleware_UsesInboundRequestID(t *testing.T) {
 		t.Fatalf("X-Request-ID = %q, want req-123", got)
 	}
 }
+
+func TestMiddleware_RecordsOAuthIntrospectionRouteEvidence(t *testing.T) {
+	m := NewHTTPMetrics()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth/introspect", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := wrapWithRequestID(m.Middleware(mux))
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth/introspect", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	metrics, err := m.registry.Gather()
+	if err != nil {
+		t.Fatalf("gather metrics: %v", err)
+	}
+
+	for _, mf := range metrics {
+		if mf.GetName() != "authgate_http_requests_total" {
+			continue
+		}
+		for _, metric := range mf.GetMetric() {
+			labels := map[string]string{}
+			for _, lp := range metric.GetLabel() {
+				labels[lp.GetName()] = lp.GetValue()
+			}
+			if labels["method"] == http.MethodPost && labels["route"] == "/oauth/introspect" && labels["status"] == "200" {
+				return
+			}
+		}
+	}
+
+	t.Fatal("authgate_http_requests_total did not include POST /oauth/introspect 200 evidence")
+}
