@@ -56,7 +56,17 @@ WHERE id = sqlc.arg(user_id) AND status = 'pending_deletion' AND deletion_schedu
 INSERT INTO audit_log (user_id, event_type, created_at)
 VALUES (NULLIF(sqlc.arg(user_id)::text, '')::uuid, 'auth.deletion_completed', sqlc.arg(created_at));
 
+-- name: RedactAuditLogPIIByUserID :execrows
+UPDATE audit_log
+SET ip_address = NULL,
+    user_agent = NULL
+WHERE user_id = NULLIF(sqlc.arg(user_id)::text, '')::uuid
+  AND (ip_address IS NOT NULL OR user_agent IS NOT NULL);
+
 -- name: AnonymizeAuditLogBefore :execrows
 UPDATE audit_log
-SET user_id = NULL
-WHERE created_at < sqlc.arg(cutoff) AND user_id IS NOT NULL;
+SET user_id = NULL,
+    ip_address = NULL,
+    user_agent = NULL
+WHERE created_at < sqlc.arg(cutoff)
+  AND (user_id IS NOT NULL OR ip_address IS NOT NULL OR user_agent IS NOT NULL);

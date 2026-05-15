@@ -21,17 +21,25 @@ type cleanupRunner interface {
 }
 
 type CleanupService struct {
-	runner         cleanupRunner
-	clock          clock.Clock
-	interval       time.Duration
-	deleteUserHook func(ctx context.Context, userID string) error
+	runner            cleanupRunner
+	clock             clock.Clock
+	interval          time.Duration
+	auditPIIRetention time.Duration
+	deleteUserHook    func(ctx context.Context, userID string) error
 }
 
 func NewCleanupService(runner cleanupRunner, clk clock.Clock, interval time.Duration) *CleanupService {
 	return &CleanupService{
-		runner:   runner,
-		clock:    clk,
-		interval: interval,
+		runner:            runner,
+		clock:             clk,
+		interval:          interval,
+		auditPIIRetention: 3 * 365 * 24 * time.Hour,
+	}
+}
+
+func (c *CleanupService) SetAuditLogPIIRetention(retention time.Duration) {
+	if retention > 0 {
+		c.auditPIIRetention = retention
 	}
 }
 
@@ -117,8 +125,8 @@ func (c *CleanupService) runAllLocked(ctx context.Context) error {
 		}
 	}
 
-	// 6. Audit log anonymization: user_id NULL after 3 years (Spec 007)
-	if n, err := c.runner.AnonymizeAuditLogBefore(ctx, now.Add(-3*365*24*time.Hour)); err != nil {
+	// 6. Audit log PII anonymization: user_id/IP/User-Agent NULL after the configured retention.
+	if n, err := c.runner.AnonymizeAuditLogBefore(ctx, now.Add(-c.auditPIIRetention)); err != nil {
 		slog.Error("audit_log anonymization", "error", err)
 	} else if n > 0 {
 		slog.Info("audit_log anonymization", "anonymized", n)

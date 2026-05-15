@@ -13,8 +13,11 @@ import (
 
 const anonymizeAuditLogBefore = `-- name: AnonymizeAuditLogBefore :execrows
 UPDATE audit_log
-SET user_id = NULL
-WHERE created_at < $1 AND user_id IS NOT NULL
+SET user_id = NULL,
+    ip_address = NULL,
+    user_agent = NULL
+WHERE created_at < $1
+  AND (user_id IS NOT NULL OR ip_address IS NOT NULL OR user_agent IS NOT NULL)
 `
 
 func (q *Queries) AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
@@ -183,6 +186,22 @@ type MarkUserDeletedByIDParams struct {
 
 func (q *Queries) MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedByIDParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markUserDeletedByID, arg.DeletedAt, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const redactAuditLogPIIByUserID = `-- name: RedactAuditLogPIIByUserID :execrows
+UPDATE audit_log
+SET ip_address = NULL,
+    user_agent = NULL
+WHERE user_id = NULLIF($1::text, '')::uuid
+  AND (ip_address IS NOT NULL OR user_agent IS NOT NULL)
+`
+
+func (q *Queries) RedactAuditLogPIIByUserID(ctx context.Context, userID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, redactAuditLogPIIByUserID, userID)
 	if err != nil {
 		return 0, err
 	}

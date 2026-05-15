@@ -11,15 +11,15 @@ import (
 )
 
 type Config struct {
-	Port                  int
-	DatabaseURL           string
-	DBMaxOpenConns        int
-	DBMaxIdleConns        int
-	DBConnMaxLifetime     time.Duration
-	DBConnMaxIdleTime     time.Duration
-	SessionSecret         string
-	PublicURL             string
-	OIDCIssuerURL         string
+	Port              int
+	DatabaseURL       string
+	DBMaxOpenConns    int
+	DBMaxIdleConns    int
+	DBConnMaxLifetime time.Duration
+	DBConnMaxIdleTime time.Duration
+	SessionSecret     string
+	PublicURL         string
+	OIDCIssuerURL     string
 	// OIDCIssuerHostAllowlist is an optional comma-separated list of hosts the
 	// OIDC_ISSUER_URL is allowed to point at. When non-empty, the issuer URL's
 	// host must match an entry exactly (host:port if a non-default port is in
@@ -28,67 +28,75 @@ type Config struct {
 	// fail-fast on misconfigured/compromised env vars that would otherwise
 	// redirect every login through an attacker-controlled IdP.
 	OIDCIssuerHostAllowlist []string
-	OIDCInternalURL       string // optional: internal base URL for server-to-server OIDC calls (Docker/K8s)
-	OIDCHTTPTimeout       time.Duration
-	OIDCClientID          string
-	OIDCClientSecret      string
-	SessionTTL            time.Duration
-	AccessTokenTTL        time.Duration
-	RefreshTokenTTL       time.Duration
-	DevMode               bool
-	EnableMCP             bool
-	ClientConfigPath      string
-	MigrationsPath        string
-	BrandName             string
-	HTTPReadHeaderTimeout time.Duration
-	HTTPReadTimeout       time.Duration
-	HTTPWriteTimeout      time.Duration
-	HTTPIdleTimeout       time.Duration
-	ShutdownTimeout       time.Duration
-	RateLimitTokenRPS     float64
-	RateLimitTokenBurst   int
-	RateLimitAuthRPS      float64
-	RateLimitAuthBurst    int
+	OIDCInternalURL         string // optional: internal base URL for server-to-server OIDC calls (Docker/K8s)
+	OIDCHTTPTimeout         time.Duration
+	OIDCClientID            string
+	OIDCClientSecret        string
+	SessionTTL              time.Duration
+	AccessTokenTTL          time.Duration
+	RefreshTokenTTL         time.Duration
+	AuditLogPIIRetention    time.Duration
+	DevMode                 bool
+	EnableMCP               bool
+	ClientConfigPath        string
+	MigrationsPath          string
+	SigningKeyPath          string
+	BrandName               string
+	HTTPReadHeaderTimeout   time.Duration
+	HTTPReadTimeout         time.Duration
+	HTTPWriteTimeout        time.Duration
+	HTTPIdleTimeout         time.Duration
+	ShutdownTimeout         time.Duration
+	RateLimitTokenRPS       float64
+	RateLimitTokenBurst     int
+	RateLimitAuthRPS        float64
+	RateLimitAuthBurst      int
 	// TrustedProxies is a comma-separated list of CIDRs whose source addresses
 	// are allowed to set X-Forwarded-For. Empty means no proxy is trusted —
 	// the safe default for a deployment without an explicitly configured edge.
-	TrustedProxies        string
+	TrustedProxies string
 }
 
 func Load() (*Config, error) {
+	if err := validateParseableEnv(); err != nil {
+		return nil, err
+	}
+
 	c := &Config{
-		Port:                  envInt("PORT", 8080),
-		DatabaseURL:           os.Getenv("DATABASE_URL"),
-		DBMaxOpenConns:        envInt("DB_MAX_OPEN_CONNS", 25),
-		DBMaxIdleConns:        envInt("DB_MAX_IDLE_CONNS", 25),
-		DBConnMaxLifetime:     time.Duration(envInt("DB_CONN_MAX_LIFETIME_SEC", 300)) * time.Second,
-		DBConnMaxIdleTime:     time.Duration(envInt("DB_CONN_MAX_IDLE_TIME_SEC", 120)) * time.Second,
-		SessionSecret:         os.Getenv("SESSION_SECRET"),
-		PublicURL:             os.Getenv("PUBLIC_URL"),
-		OIDCIssuerURL:         envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
+		Port:                    envInt("PORT", 8080),
+		DatabaseURL:             os.Getenv("DATABASE_URL"),
+		DBMaxOpenConns:          envInt("DB_MAX_OPEN_CONNS", 25),
+		DBMaxIdleConns:          envInt("DB_MAX_IDLE_CONNS", 25),
+		DBConnMaxLifetime:       time.Duration(envInt("DB_CONN_MAX_LIFETIME_SEC", 300)) * time.Second,
+		DBConnMaxIdleTime:       time.Duration(envInt("DB_CONN_MAX_IDLE_TIME_SEC", 120)) * time.Second,
+		SessionSecret:           os.Getenv("SESSION_SECRET"),
+		PublicURL:               os.Getenv("PUBLIC_URL"),
+		OIDCIssuerURL:           envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
 		OIDCIssuerHostAllowlist: envCommaList("OIDC_ISSUER_HOST_ALLOWLIST"),
-		OIDCInternalURL:       os.Getenv("OIDC_INTERNAL_URL"),
-		OIDCHTTPTimeout:       time.Duration(envInt("OIDC_HTTP_TIMEOUT_SEC", 10)) * time.Second,
-		OIDCClientID:          envDefault("OIDC_CLIENT_ID", "authgate"),
-		OIDCClientSecret:      os.Getenv("OIDC_CLIENT_SECRET"),
-		SessionTTL:            time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
-		AccessTokenTTL:        time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
-		RefreshTokenTTL:       time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
-		DevMode:               envBool("DEV_MODE", false),
-		EnableMCP:             envBool("ENABLE_MCP", true),
-		ClientConfigPath:      envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
-		MigrationsPath:        envDefault("MIGRATIONS_PATH", "/migrations"),
-		BrandName:             envDefault("BRAND_NAME", "authgate"),
-		HTTPReadHeaderTimeout: time.Duration(envInt("HTTP_READ_HEADER_TIMEOUT_SEC", 5)) * time.Second,
-		HTTPReadTimeout:       time.Duration(envInt("HTTP_READ_TIMEOUT_SEC", 15)) * time.Second,
-		HTTPWriteTimeout:      time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,
-		HTTPIdleTimeout:       time.Duration(envInt("HTTP_IDLE_TIMEOUT_SEC", 60)) * time.Second,
-		ShutdownTimeout:       time.Duration(envInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second,
-		RateLimitTokenRPS:     envFloat("RATE_LIMIT_TOKEN_RPS", 30),
-		RateLimitTokenBurst:   envInt("RATE_LIMIT_TOKEN_BURST", 60),
-		RateLimitAuthRPS:      envFloat("RATE_LIMIT_AUTH_RPS", 10),
-		RateLimitAuthBurst:    envInt("RATE_LIMIT_AUTH_BURST", 20),
-		TrustedProxies:        os.Getenv("TRUSTED_PROXIES"),
+		OIDCInternalURL:         os.Getenv("OIDC_INTERNAL_URL"),
+		OIDCHTTPTimeout:         time.Duration(envInt("OIDC_HTTP_TIMEOUT_SEC", 10)) * time.Second,
+		OIDCClientID:            envDefault("OIDC_CLIENT_ID", "authgate"),
+		OIDCClientSecret:        os.Getenv("OIDC_CLIENT_SECRET"),
+		SessionTTL:              time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
+		AccessTokenTTL:          time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
+		RefreshTokenTTL:         time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
+		AuditLogPIIRetention:    time.Duration(envInt("AUDIT_LOG_PII_RETENTION_DAYS", 1095)) * 24 * time.Hour,
+		DevMode:                 envBool("DEV_MODE", false),
+		EnableMCP:               envBool("ENABLE_MCP", true),
+		ClientConfigPath:        envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
+		MigrationsPath:          envDefault("MIGRATIONS_PATH", "/migrations"),
+		SigningKeyPath:          envDefault("SIGNING_KEY_PATH", "signing_key.pem"),
+		BrandName:               envDefault("BRAND_NAME", "authgate"),
+		HTTPReadHeaderTimeout:   time.Duration(envInt("HTTP_READ_HEADER_TIMEOUT_SEC", 5)) * time.Second,
+		HTTPReadTimeout:         time.Duration(envInt("HTTP_READ_TIMEOUT_SEC", 15)) * time.Second,
+		HTTPWriteTimeout:        time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,
+		HTTPIdleTimeout:         time.Duration(envInt("HTTP_IDLE_TIMEOUT_SEC", 60)) * time.Second,
+		ShutdownTimeout:         time.Duration(envInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second,
+		RateLimitTokenRPS:       envFloat("RATE_LIMIT_TOKEN_RPS", 30),
+		RateLimitTokenBurst:     envInt("RATE_LIMIT_TOKEN_BURST", 60),
+		RateLimitAuthRPS:        envFloat("RATE_LIMIT_AUTH_RPS", 10),
+		RateLimitAuthBurst:      envInt("RATE_LIMIT_AUTH_BURST", 20),
+		TrustedProxies:          os.Getenv("TRUSTED_PROXIES"),
 	}
 
 	if c.DatabaseURL == "" {
@@ -105,6 +113,9 @@ func Load() (*Config, error) {
 	}
 	if c.ShutdownTimeout <= 0 {
 		return nil, fmt.Errorf("SHUTDOWN_TIMEOUT_SEC must be > 0")
+	}
+	if c.AuditLogPIIRetention < 365*24*time.Hour {
+		return nil, fmt.Errorf("AUDIT_LOG_PII_RETENTION_DAYS must be >= 365")
 	}
 	if c.RateLimitTokenRPS <= 0 {
 		return nil, fmt.Errorf("RATE_LIMIT_TOKEN_RPS must be > 0")
@@ -161,6 +172,49 @@ func Load() (*Config, error) {
 	}
 
 	return c, nil
+}
+
+func validateParseableEnv() error {
+	for _, key := range []string{
+		"PORT",
+		"DB_MAX_OPEN_CONNS",
+		"DB_MAX_IDLE_CONNS",
+		"DB_CONN_MAX_LIFETIME_SEC",
+		"DB_CONN_MAX_IDLE_TIME_SEC",
+		"OIDC_HTTP_TIMEOUT_SEC",
+		"SESSION_TTL",
+		"ACCESS_TOKEN_TTL",
+		"REFRESH_TOKEN_TTL",
+		"AUDIT_LOG_PII_RETENTION_DAYS",
+		"HTTP_READ_HEADER_TIMEOUT_SEC",
+		"HTTP_READ_TIMEOUT_SEC",
+		"HTTP_WRITE_TIMEOUT_SEC",
+		"HTTP_IDLE_TIMEOUT_SEC",
+		"SHUTDOWN_TIMEOUT_SEC",
+		"RATE_LIMIT_TOKEN_BURST",
+		"RATE_LIMIT_AUTH_BURST",
+	} {
+		if v := os.Getenv(key); v != "" {
+			if _, err := strconv.Atoi(v); err != nil {
+				return fmt.Errorf("%s must be an integer", key)
+			}
+		}
+	}
+	for _, key := range []string{"DEV_MODE", "ENABLE_MCP"} {
+		if v := os.Getenv(key); v != "" {
+			if _, err := strconv.ParseBool(v); err != nil {
+				return fmt.Errorf("%s must be a boolean", key)
+			}
+		}
+	}
+	for _, key := range []string{"RATE_LIMIT_TOKEN_RPS", "RATE_LIMIT_AUTH_RPS"} {
+		if v := os.Getenv(key); v != "" {
+			if _, err := strconv.ParseFloat(v, 64); err != nil {
+				return fmt.Errorf("%s must be a number", key)
+			}
+		}
+	}
+	return nil
 }
 
 func envDefault(key, fallback string) string {
