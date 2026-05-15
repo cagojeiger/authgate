@@ -407,7 +407,7 @@ func registerAuthgateRoutes(
 		mux.Handle("/mcp/callback", authLimiter(http.HandlerFunc(mcpLoginHandler.HandleCallback)))
 	}
 	mux.Handle("/account", authLimiter(http.HandlerFunc(accountHandler.HandleDeleteAccount)))
-	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
+	mux.Handle("/device", authLimiter(http.HandlerFunc(deviceHandler.HandleDevicePage)))
 	mux.Handle("/device/approve", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
 	mux.Handle("/device/auth/callback", authLimiter(http.HandlerFunc(deviceHandler.HandleDeviceCallback)))
 	mux.Handle("/console/clients", authLimiter(http.HandlerFunc(consoleHandler.HandleListClients)))
