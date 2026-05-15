@@ -135,7 +135,7 @@ erDiagram
 
 | 테이블 | 목적 | 수명 | 삭제 정책 |
 |--------|------|------|----------|
-| **audit_log** | 운영 이벤트 | 3년 보존 후 user_id 익명화 | 3년 후 user_id = NULL |
+| **audit_log** | 운영 이벤트 | `AUDIT_LOG_PII_RETENTION_DAYS` 후 PII 익명화 | 기본 3년 후 user_id/IP/User-Agent = NULL, 최소 1년 |
 
 #### event_type 목록
 
@@ -222,7 +222,7 @@ MCP
 | client_secret은 bcrypt 해시로 저장 | `clients.yaml`의 `client_secret_hash` 필드 |
 | access_token(JWT)은 DB에 저장하지 않음 | stateless |
 | PII 스크러빙 시 email, name, avatar_url 제거 | `deleted` 상태 전이 시 |
-| audit_log는 3년 후 user_id 익명화 | cleanup job |
+| audit_log는 보존기간 후 user_id/IP/User-Agent 익명화 | cleanup job + `AUDIT_LOG_PII_RETENTION_DAYS` |
 
 ## 감사 이벤트 (audit_log.event_type)
 

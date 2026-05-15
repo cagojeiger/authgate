@@ -12,8 +12,9 @@ func clearEnv() {
 		"OIDC_ISSUER_URL", "OIDC_ISSUER_HOST_ALLOWLIST",
 		"OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"OIDC_HTTP_TIMEOUT_SEC",
-		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL",
+		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "AUDIT_LOG_PII_RETENTION_DAYS",
 		"DEV_MODE", "ENABLE_MCP",
+		"SIGNING_KEY_PATH",
 		"DB_MAX_OPEN_CONNS", "DB_MAX_IDLE_CONNS",
 		"DB_CONN_MAX_LIFETIME_SEC", "DB_CONN_MAX_IDLE_TIME_SEC",
 		"HTTP_READ_HEADER_TIMEOUT_SEC", "HTTP_READ_TIMEOUT_SEC",
@@ -144,6 +145,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.RefreshTokenTTL.Seconds() != 2592000 {
 		t.Errorf("RefreshTokenTTL = %v, want 2592000s", cfg.RefreshTokenTTL)
 	}
+	if cfg.AuditLogPIIRetention.Hours() != 1095*24 {
+		t.Errorf("AuditLogPIIRetention = %v, want 1095 days", cfg.AuditLogPIIRetention)
+	}
+	if cfg.SigningKeyPath != "signing_key.pem" {
+		t.Errorf("SigningKeyPath = %q, want signing_key.pem", cfg.SigningKeyPath)
+	}
 	if !cfg.EnableMCP {
 		t.Error("EnableMCP = false, want true by default")
 	}
@@ -173,6 +180,48 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.DBConnMaxIdleTime.Seconds() != 120 {
 		t.Errorf("DBConnMaxIdleTime = %v, want 120s", cfg.DBConnMaxIdleTime)
+	}
+}
+
+func TestLoad_InvalidNumericEnvFails(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("PORT", "not-a-number")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid PORT")
+	}
+	if !strings.Contains(err.Error(), "PORT") {
+		t.Errorf("error = %v, want one mentioning PORT", err)
+	}
+}
+
+func TestLoad_InvalidBoolEnvFails(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("ENABLE_MCP", "sometimes")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid ENABLE_MCP")
+	}
+	if !strings.Contains(err.Error(), "ENABLE_MCP") {
+		t.Errorf("error = %v, want one mentioning ENABLE_MCP", err)
+	}
+}
+
+func TestLoad_AuditLogPIIRetentionMinimum(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("AUDIT_LOG_PII_RETENTION_DAYS", "364")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for short audit log PII retention")
+	}
+	if !strings.Contains(err.Error(), "AUDIT_LOG_PII_RETENTION_DAYS") {
+		t.Errorf("error = %v, want one mentioning AUDIT_LOG_PII_RETENTION_DAYS", err)
 	}
 }
 

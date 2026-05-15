@@ -63,6 +63,42 @@ func TestAudit010And011_RefreshReuseAndFamilyRevoke(t *testing.T) {
 	}
 }
 
+func TestAuditLog_AppendOnlyGuardAllowsPIIRedactionOnly(t *testing.T) {
+	db := testutil.SetupPostgres(t)
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	store := New(db, clk, idgen.CryptoGenerator{}, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour)
+	ctx := context.Background()
+
+	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "audit-guard@test.com", EmailVerified: true, Name: "Audit Guard", AvatarURL: "", Provider: "google", ProviderUserID: "audit-guard-sub", ProviderEmail: "audit-guard@test.com"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	store.AuditLog(ctx, &user.ID, "auth.login", "198.51.100.9", "guard-agent", map[string]any{"session_id": "sess-1"})
+
+	if _, err := db.ExecContext(ctx, `UPDATE audit_log SET metadata = '{}'::jsonb WHERE user_id = $1`, user.ID); err == nil {
+		t.Fatal("expected immutable metadata update to fail")
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM audit_log WHERE user_id = $1`, user.ID); err == nil {
+		t.Fatal("expected audit_log delete to fail")
+	}
+
+	redacted, err := NewCleanupRunner(db).RedactAuditLogPIIByUserID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("redact audit PII: %v", err)
+	}
+	if redacted != 1 {
+		t.Fatalf("redacted rows = %d, want 1", redacted)
+	}
+
+	var ip, ua sql.NullString
+	if err := db.QueryRowContext(ctx, `SELECT ip_address::text, user_agent FROM audit_log WHERE user_id = $1`, user.ID).Scan(&ip, &ua); err != nil {
+		t.Fatalf("query redacted audit row: %v", err)
+	}
+	if ip.Valid || ua.Valid {
+		t.Fatalf("PII not redacted: ip=%v ua=%v", ip, ua)
+	}
+}
+
 func requireStorageAuditEvent(t *testing.T, db *sql.DB, userID, eventType string) map[string]any {
 	t.Helper()
 

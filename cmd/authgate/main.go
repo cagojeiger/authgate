@@ -114,7 +114,7 @@ func main() {
 	var inflightRequests int64
 	srv, addr := buildHTTPServer(cfg, requestIDHandler, httpMetrics, &inflightRequests)
 
-	cleanupCancel := startCleanupService(db, clk)
+	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention)
 	defer cleanupCancel()
 	installGracefulShutdown(srv, cfg, &inflightRequests, cleanupCancel, &isShuttingDown)
 
@@ -162,13 +162,13 @@ func mustBuildStore(cfg *config.Config, db *sql.DB, clk clock.Clock, gen idgen.C
 	store := storage.New(db, clk, gen, newStateChecker(), cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	store.SetIssuer(cfg.PublicURL)
 	store.SetDevicePollInterval(devicePollInterval)
-	mustConfigureSigningKey(store)
+	mustConfigureSigningKey(store, cfg.SigningKeyPath)
 	configureMCPPoliciesIfEnabled(cfg, store)
 	return store
 }
 
-func mustConfigureSigningKey(store *storage.Storage) {
-	key, err := storage.LoadOrGenerateKey("signing_key.pem")
+func mustConfigureSigningKey(store *storage.Storage, path string) {
+	key, err := storage.LoadOrGenerateKey(path)
 	if err != nil {
 		log.Fatalf("signing key: %v", err)
 	}
@@ -306,17 +306,17 @@ func registerRoutes(
 func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 		metadata := map[string]any{
-			"issuer":                        cfg.PublicURL,
-			"authorization_endpoint":        cfg.PublicURL + "/authorize",
-			"token_endpoint":                cfg.PublicURL + "/oauth/token",
-			"revocation_endpoint":           cfg.PublicURL + "/oauth/revoke",
-			"introspection_endpoint":        cfg.PublicURL + "/oauth/introspect",
-			"device_authorization_endpoint": cfg.PublicURL + "/oauth/device/authorize",
-			"userinfo_endpoint":             cfg.PublicURL + "/userinfo",
-			"end_session_endpoint":          cfg.PublicURL + "/end_session",
-			"jwks_uri":                      cfg.PublicURL + "/keys",
-			"response_types_supported":      []string{"code"},
-			"grant_types_supported":         []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
+			"issuer":                           cfg.PublicURL,
+			"authorization_endpoint":           cfg.PublicURL + "/authorize",
+			"token_endpoint":                   cfg.PublicURL + "/oauth/token",
+			"revocation_endpoint":              cfg.PublicURL + "/oauth/revoke",
+			"introspection_endpoint":           cfg.PublicURL + "/oauth/introspect",
+			"device_authorization_endpoint":    cfg.PublicURL + "/oauth/device/authorize",
+			"userinfo_endpoint":                cfg.PublicURL + "/userinfo",
+			"end_session_endpoint":             cfg.PublicURL + "/end_session",
+			"jwks_uri":                         cfg.PublicURL + "/keys",
+			"response_types_supported":         []string{"code"},
+			"grant_types_supported":            []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
 			"code_challenge_methods_supported": []string{"S256"},
 			// #189 / RFC 8414 §2: zitadel/oidc's /oauth/token branch always
 			// accepts `client_secret_basic` (the OIDC default), accepts
@@ -334,11 +334,11 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 			// advertise only `client_secret_basic` here — matching
 			// zitadel/oidc's own discovery default in
 			// `AuthMethodsIntrospectionEndpoint`.
-			"token_endpoint_auth_methods_supported":          []string{"none", "client_secret_basic", "client_secret_post"},
-			"revocation_endpoint_auth_methods_supported":     []string{"none", "client_secret_basic", "client_secret_post"},
-			"introspection_endpoint_auth_methods_supported":  []string{"client_secret_basic"},
-			"scopes_supported":                               []string{"openid", "profile", "email", "offline_access"},
-			"client_id_metadata_document_supported":          cfg.EnableMCP,
+			"token_endpoint_auth_methods_supported":         []string{"none", "client_secret_basic", "client_secret_post"},
+			"revocation_endpoint_auth_methods_supported":    []string{"none", "client_secret_basic", "client_secret_post"},
+			"introspection_endpoint_auth_methods_supported": []string{"client_secret_basic"},
+			"scopes_supported":                              []string{"openid", "profile", "email", "offline_access"},
+			"client_id_metadata_document_supported":         cfg.EnableMCP,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(metadata)
@@ -461,9 +461,10 @@ func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *observab
 	}, addr
 }
 
-func startCleanupService(db *sql.DB, clk clock.Clock) context.CancelFunc {
+func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration) context.CancelFunc {
 	cleanupRunner := storage.NewCleanupRunner(db)
 	cleanupSvc := service.NewCleanupService(cleanupRunner, clk, 10*time.Minute)
+	cleanupSvc.SetAuditLogPIIRetention(auditLogPIIRetention)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go cleanupSvc.Start(cleanupCtx)
 	return cleanupCancel

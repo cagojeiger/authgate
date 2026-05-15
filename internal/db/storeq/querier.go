@@ -55,6 +55,7 @@ type Querier interface {
 	MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedByIDParams) (int64, error)
 	MarkUserPendingDeletionByID(ctx context.Context, arg MarkUserPendingDeletionByIDParams) (int64, error)
 	RecoverPendingDeletionUserByID(ctx context.Context, arg RecoverPendingDeletionUserByIDParams) error
+	RedactAuditLogPIIByUserID(ctx context.Context, userID string) (int64, error)
 	RevokeActiveRefreshTokensByUserID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDParams) error
 	RevokeActiveRefreshTokensByUserIDAndClientID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDAndClientIDParams) error
 	RevokeOtherActiveSessionsByUserID(ctx context.Context, arg RevokeOtherActiveSessionsByUserIDParams) error

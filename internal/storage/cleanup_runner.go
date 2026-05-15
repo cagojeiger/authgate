@@ -81,6 +81,10 @@ func (r *CleanupRunner) AnonymizeAuditLogBefore(ctx context.Context, cutoff time
 	return storeq.New(r.db).AnonymizeAuditLogBefore(ctx, cutoff)
 }
 
+func (r *CleanupRunner) RedactAuditLogPIIByUserID(ctx context.Context, userID string) (int64, error) {
+	return storeq.New(r.db).RedactAuditLogPIIByUserID(ctx, userID)
+}
+
 func (r *CleanupRunner) DeleteUser(
 	ctx context.Context,
 	userID string,
@@ -124,6 +128,9 @@ func (r *CleanupRunner) DeleteUser(
 		return err
 	}
 	if err := qtx.DeleteRefreshTokensByUserID(ctx, userID); err != nil {
+		return err
+	}
+	if _, err := qtx.RedactAuditLogPIIByUserID(ctx, userID); err != nil {
 		return err
 	}
 	if hook != nil {
