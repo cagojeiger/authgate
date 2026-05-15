@@ -113,15 +113,17 @@ func (s *LoginService) handleSessionLogin(ctx context.Context, authRequestID, se
 }
 
 func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authRequestID, sessionID, ipAddress, userAgent string) *LoginResult {
+	recovered := false
 	switch CheckAccess(user.Status, "browser") {
 	case AccessDeny:
 		s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
 		return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 
 	case AccessRecover:
-		if err := s.recoverUser(ctx, user.ID, ipAddress, userAgent); err != nil {
+		if err := s.recoverUser(ctx, user.ID); err != nil {
 			return &LoginResult{Action: ActionError, Error: "failed to recover account", ErrorCode: http.StatusInternalServerError}
 		}
+		recovered = true
 	}
 
 	authReq, err := s.store.GetAuthRequestModel(ctx, authRequestID)
@@ -134,6 +136,9 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 
 	if errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, &user.ID); errMsg != "" {
 		return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
+	}
+	if recovered {
+		s.auditDeletionCancelled(ctx, user.ID, sessionID, authReq, ipAddress, userAgent)
 	}
 
 	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
@@ -187,7 +192,7 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 		return &CallbackResult{Action: ActionError, Error: "upstream_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	user, signedUp, result := s.prepareBrowserCallbackUser(ctx, userInfo, authReq, ipAddress, userAgent)
+	user, signedUp, recovered, result := s.prepareBrowserCallbackUser(ctx, userInfo, authReq, ipAddress, userAgent)
 	if result != nil {
 		return result
 	}
@@ -195,6 +200,9 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)
 	if err != nil {
 		return &CallbackResult{Action: ActionError, Error: "session creation failed", ErrorCode: http.StatusInternalServerError}
+	}
+	if recovered {
+		s.auditDeletionCancelled(ctx, user.ID, sessionID, authReq, ipAddress, userAgent)
 	}
 
 	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
@@ -217,22 +225,22 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 // request context — duplicate getCallbackAuthRequest calls would otherwise
 // race against expiration/cleanup between fetch and audit (Codex review NIT
 // on PR #218).
-func (s *LoginService) prepareBrowserCallbackUser(ctx context.Context, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, ipAddress, userAgent string) (*storage.User, bool, *CallbackResult) {
+func (s *LoginService) prepareBrowserCallbackUser(ctx context.Context, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, ipAddress, userAgent string) (*storage.User, bool, bool, *CallbackResult) {
 	providerName := s.browserProvider.Name()
 	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
 		user, result := s.signupBrowserUser(ctx, providerName, userInfo, authReq, ipAddress, userAgent)
-		return user, true, result
+		return user, true, false, result
 	}
 	if err != nil {
-		return nil, false, &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+		return nil, false, false, &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	user, result := s.ensureBrowserAccess(ctx, user, ipAddress, userAgent)
+	user, recovered, result := s.ensureBrowserAccess(ctx, user, ipAddress, userAgent)
 	if result != nil {
-		return nil, false, result
+		return nil, false, false, result
 	}
-	return user, false, nil
+	return user, false, recovered, nil
 }
 
 func (s *LoginService) getCallbackAuthRequest(ctx context.Context, authRequestID string) (*storage.AuthRequestModel, *CallbackResult) {
@@ -250,12 +258,8 @@ func (s *LoginService) redirectToProvider(authRequestID string) *LoginResult {
 	return &LoginResult{Action: ActionRedirectToIdP, RedirectURL: s.browserProvider.AuthURL(authRequestID)}
 }
 
-func (s *LoginService) recoverUser(ctx context.Context, userID, ipAddress, userAgent string) error {
-	if err := s.store.RecoverUser(ctx, userID); err != nil {
-		return err
-	}
-	s.store.AuditLog(ctx, &userID, "auth.deletion_cancelled", ipAddress, userAgent, nil)
-	return nil
+func (s *LoginService) recoverUser(ctx context.Context, userID string) error {
+	return s.store.RecoverUser(ctx, userID)
 }
 
 func (s *LoginService) signupBrowserUser(ctx context.Context, providerName string, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
@@ -285,24 +289,33 @@ func (s *LoginService) signupBrowserUser(ctx context.Context, providerName strin
 	return user, nil
 }
 
-func (s *LoginService) ensureBrowserAccess(ctx context.Context, user *storage.User, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
+func (s *LoginService) ensureBrowserAccess(ctx context.Context, user *storage.User, ipAddress, userAgent string) (*storage.User, bool, *CallbackResult) {
 	switch CheckAccess(user.Status, "browser") {
 	case AccessDeny:
 		s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
-		return nil, &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
+		return nil, false, &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 	case AccessRecover:
-		if err := s.recoverUser(ctx, user.ID, ipAddress, userAgent); err != nil {
-			return nil, &CallbackResult{Action: ActionError, Error: "recovery failed", ErrorCode: http.StatusInternalServerError}
+		if err := s.recoverUser(ctx, user.ID); err != nil {
+			return nil, false, &CallbackResult{Action: ActionError, Error: "recovery failed", ErrorCode: http.StatusInternalServerError}
 		}
 
 		recoveredUser, err := s.store.GetUserByID(ctx, user.ID)
 		if err != nil {
-			return nil, &CallbackResult{Action: ActionError, Error: "failed to read user after recovery", ErrorCode: http.StatusInternalServerError}
+			return nil, false, &CallbackResult{Action: ActionError, Error: "failed to read user after recovery", ErrorCode: http.StatusInternalServerError}
 		}
-		return recoveredUser, nil
+		return recoveredUser, true, nil
 	default:
-		return user, nil
+		return user, false, nil
 	}
+}
+
+func (s *LoginService) auditDeletionCancelled(ctx context.Context, userID, sessionID string, authReq *storage.AuthRequestModel, ipAddress, userAgent string) {
+	s.store.AuditLog(ctx, &userID, storage.EventAuthDeletionCancelled, ipAddress, userAgent, lifecycleAuditMetadata(
+		"browser",
+		sessionID,
+		authReq.ClientID,
+		resolveClientName(ctx, s.store, authReq.ClientID),
+	))
 }
 
 func (s *LoginService) auditInactiveUser(ctx context.Context, userID, status, ipAddress, userAgent string) {

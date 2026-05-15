@@ -35,3 +35,12 @@ func resolveClientName(ctx context.Context, store clientResolver, clientID strin
 	}
 	return c.Name
 }
+
+func lifecycleAuditMetadata(channel, sessionID, clientID, clientName string) map[string]any {
+	return map[string]any{
+		"channel":     channel,
+		"session_id":  sessionID,
+		"client_id":   clientID,
+		"client_name": clientName,
+	}
+}

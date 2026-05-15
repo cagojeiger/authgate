@@ -285,24 +285,42 @@ func TestAudit005_DeviceDenied(t *testing.T) {
 }
 
 func TestAudit006_DeletionRequested(t *testing.T) {
-	svc, store := setupAccountExtTest(t)
+	loginSvc, store := setupLoginService(t)
+	svc := NewAccountService(store)
 	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-delete@test.com", EmailVerified: true, Name: "Delete", AvatarURL: "", Provider: "google", ProviderUserID: "audit-delete-sub", ProviderEmail: "audit-delete@test.com"})
+	arID, err := store.CreateTestAuthRequest(ctx, "audit-delete")
 	if err != nil {
-		t.Fatalf("create user: %v", err)
+		t.Fatalf("create auth request: %v", err)
 	}
-	sessionID, err := store.CreateSession(ctx, user.ID, 24*time.Hour)
-	if err != nil {
-		t.Fatalf("create session: %v", err)
+	loginResult := loginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "login-agent")
+	if loginResult.Action != ActionAutoApprove {
+		t.Fatalf("login action = %v, want AutoApprove", loginResult.Action)
 	}
 
-	result := svc.RequestDeletion(ctx, sessionID, "127.0.0.1", "delete-agent")
+	user, err := store.GetUserByProviderIdentity(ctx, "google", "google-sub-123")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+
+	result := svc.RequestDeletion(ctx, loginResult.SessionID, "127.0.0.1", "delete-agent")
 	if !result.Success {
 		t.Fatalf("request deletion failed: %s", result.Message)
 	}
 
-	requireSingleAuditEvent(t, store.DB(), user.ID, "auth.deletion_requested")
+	event := requireSingleAuditEvent(t, store.DB(), user.ID, storage.EventAuthDeletionRequested)
+	if event.Metadata["channel"] != "browser" {
+		t.Fatalf("channel = %v, want browser", event.Metadata["channel"])
+	}
+	if event.Metadata["session_id"] != loginResult.SessionID {
+		t.Fatalf("session_id = %v, want %s", event.Metadata["session_id"], loginResult.SessionID)
+	}
+	if event.Metadata["client_id"] != "test-app" {
+		t.Fatalf("client_id = %v, want test-app", event.Metadata["client_id"])
+	}
+	if event.Metadata["client_name"] != "Test App" {
+		t.Fatalf("client_name = %v, want Test App", event.Metadata["client_name"])
+	}
 }
 
 func TestAudit007_DeletionCancelled(t *testing.T) {
@@ -323,7 +341,19 @@ func TestAudit007_DeletionCancelled(t *testing.T) {
 		t.Fatalf("action = %v, want AutoApprove", result.Action)
 	}
 
-	requireSingleAuditEvent(t, store.DB(), user.ID, "auth.deletion_cancelled")
+	event := requireSingleAuditEvent(t, store.DB(), user.ID, storage.EventAuthDeletionCancelled)
+	if event.Metadata["channel"] != "browser" {
+		t.Fatalf("channel = %v, want browser", event.Metadata["channel"])
+	}
+	if event.Metadata["session_id"] != result.SessionID {
+		t.Fatalf("session_id = %v, want %s", event.Metadata["session_id"], result.SessionID)
+	}
+	if event.Metadata["client_id"] != "test-app" {
+		t.Fatalf("client_id = %v, want test-app", event.Metadata["client_id"])
+	}
+	if event.Metadata["client_name"] != "Test App" {
+		t.Fatalf("client_name = %v, want Test App", event.Metadata["client_name"])
+	}
 }
 
 func TestAudit009_InactiveUser(t *testing.T) {

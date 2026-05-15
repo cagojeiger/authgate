@@ -11,6 +11,35 @@ import (
 	"time"
 )
 
+const getAuditClientContextBySessionID = `-- name: GetAuditClientContextBySessionID :one
+SELECT
+  COALESCE(metadata->>'client_id', '')::text AS client_id,
+  COALESCE(metadata->>'client_name', '')::text AS client_name
+FROM audit_log
+WHERE user_id = NULLIF($1::text, '')::uuid
+  AND event_type = 'auth.login'
+  AND metadata->>'session_id' = $2::text
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+type GetAuditClientContextBySessionIDParams struct {
+	UserID    string
+	SessionID string
+}
+
+type GetAuditClientContextBySessionIDRow struct {
+	ClientID   string
+	ClientName string
+}
+
+func (q *Queries) GetAuditClientContextBySessionID(ctx context.Context, arg GetAuditClientContextBySessionIDParams) (GetAuditClientContextBySessionIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getAuditClientContextBySessionID, arg.UserID, arg.SessionID)
+	var i GetAuditClientContextBySessionIDRow
+	err := row.Scan(&i.ClientID, &i.ClientName)
+	return i, err
+}
+
 const insertAuditLog = `-- name: InsertAuditLog :exec
 INSERT INTO audit_log (user_id, event_type, ip_address, user_agent, metadata, created_at)
 VALUES (

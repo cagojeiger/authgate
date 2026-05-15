@@ -22,6 +22,10 @@ type AccountStore interface {
 	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 }
 
+type auditSessionClientContextStore interface {
+	GetAuditClientContextBySessionID(ctx context.Context, userID, sessionID string) (storage.AuditClientContext, error)
+}
+
 func NewAccountService(store AccountStore) *AccountService {
 	return &AccountService{store: store}
 }
@@ -72,7 +76,19 @@ func (s *AccountService) RequestDeletion(ctx context.Context, sessionID, ipAddre
 		return &AccountResult{Success: false, Message: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	s.store.AuditLog(ctx, &user.ID, "auth.deletion_requested", ipAddress, userAgent, nil)
+	s.store.AuditLog(ctx, &user.ID, storage.EventAuthDeletionRequested, ipAddress, userAgent, s.deletionRequestedMetadata(ctx, user.ID, sessionID))
 
 	return &AccountResult{Success: true, Message: "Account scheduled for deletion in 30 days. Login to cancel."}
+}
+
+func (s *AccountService) deletionRequestedMetadata(ctx context.Context, userID, sessionID string) map[string]any {
+	clientID := ""
+	clientName := ""
+	if resolver, ok := s.store.(auditSessionClientContextStore); ok {
+		if clientCtx, err := resolver.GetAuditClientContextBySessionID(ctx, userID, sessionID); err == nil {
+			clientID = clientCtx.ClientID
+			clientName = clientCtx.ClientName
+		}
+	}
+	return lifecycleAuditMetadata("browser", sessionID, clientID, clientName)
 }

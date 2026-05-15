@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -122,11 +123,17 @@ func TestCleanup_DeletionPIIScrub(t *testing.T) {
 		t.Errorf("expected 0 sessions, got %d", sessionCount)
 	}
 
-	// Audit event should exist
-	var auditCount int
-	db.QueryRowContext(ctx, `SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = 'auth.deletion_completed'`, user.ID).Scan(&auditCount)
-	if auditCount != 1 {
-		t.Errorf("expected 1 deletion_completed audit, got %d", auditCount)
+	// Audit event should exist with a machine-readable cleanup reason.
+	var rawMetadata []byte
+	if err := db.QueryRowContext(ctx, `SELECT metadata FROM audit_log WHERE user_id = $1 AND event_type = 'auth.deletion_completed'`, user.ID).Scan(&rawMetadata); err != nil {
+		t.Fatalf("query deletion_completed audit metadata: %v", err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(rawMetadata, &metadata); err != nil {
+		t.Fatalf("decode deletion_completed metadata: %v", err)
+	}
+	if metadata["reason"] != "pending_deletion_expired" {
+		t.Errorf("deletion_completed reason = %v, want pending_deletion_expired", metadata["reason"])
 	}
 }
 

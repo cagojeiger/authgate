@@ -53,8 +53,13 @@ UPDATE users SET
 WHERE id = sqlc.arg(user_id) AND status = 'pending_deletion' AND deletion_scheduled_at < sqlc.arg(deleted_at);
 
 -- name: InsertDeletionCompletedAudit :exec
-INSERT INTO audit_log (user_id, event_type, created_at)
-VALUES (NULLIF(sqlc.arg(user_id)::text, '')::uuid, 'auth.deletion_completed', sqlc.arg(created_at));
+INSERT INTO audit_log (user_id, event_type, metadata, created_at)
+VALUES (
+  NULLIF(sqlc.arg(user_id)::text, '')::uuid,
+  'auth.deletion_completed',
+  jsonb_build_object('reason', sqlc.arg(reason)::text),
+  sqlc.arg(created_at)
+);
 
 -- name: RedactAuditLogPIIByUserID :execrows
 UPDATE audit_log

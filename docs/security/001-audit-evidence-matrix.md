@@ -99,9 +99,9 @@ audit_log
 | `auth.device_code_issued` | Device code 발급 | user_id(NULL), IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_oidc_device.go` | `internal/storage/audit_test.go` | DONE |
 | `auth.device_approved` | Device code 승인 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/service/device.go` | `internal/service/audit_test.go` | DONE |
 | `auth.device_denied` | Device code 거부 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/service/device.go` | `internal/service/audit_test.go` | DONE |
-| `auth.deletion_requested` | `DELETE /account` 성공 | user_id, IP, UA, created_at | 없음 | `internal/service/account.go` | `internal/service/audit_test.go` | DONE |
-| `auth.deletion_cancelled` | pending_deletion 유저 브라우저 재로그인 복구 | user_id, IP, UA, created_at | 없음 | `internal/service/login.go` | `internal/service/audit_test.go` | DONE |
-| `auth.deletion_completed` | cleanup PII scrub 완료 | user_id, created_at | 없음 | `internal/storage/cleanup_runner.go` | `internal/service/cleanup_test.go` | DONE |
+| `auth.deletion_requested` | `DELETE /account` 성공 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name` | `internal/service/account.go` | `internal/service/audit_test.go` | DONE |
+| `auth.deletion_cancelled` | pending_deletion 유저 브라우저 재로그인 복구 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/audit_test.go` | DONE |
+| `auth.deletion_completed` | cleanup PII scrub 완료 | user_id, created_at | `reason` | `internal/storage/cleanup_runner.go` | `internal/service/cleanup_test.go` | DONE |
 | `auth.token_refreshed` | refresh token rotation 성공 | user_id, IP, UA, created_at | `client_id`, `client_name`, `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
 | `auth.logout` | RP-Initiated Logout | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/storage/storage_integration_test.go` | DONE |
 | `auth.token_revoked` | RFC 7009 revoke에서 refresh token 매칭 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |

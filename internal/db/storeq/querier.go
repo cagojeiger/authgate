@@ -27,6 +27,7 @@ type Querier interface {
 	DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error
 	GetActiveConnectionsByUserID(ctx context.Context, arg GetActiveConnectionsByUserIDParams) ([]GetActiveConnectionsByUserIDRow, error)
 	GetActiveSessionsByUserID(ctx context.Context, arg GetActiveSessionsByUserIDParams) ([]GetActiveSessionsByUserIDRow, error)
+	GetAuditClientContextBySessionID(ctx context.Context, arg GetAuditClientContextBySessionIDParams) (GetAuditClientContextBySessionIDRow, error)
 	GetAuditLogByUserID(ctx context.Context, arg GetAuditLogByUserIDParams) ([]GetAuditLogByUserIDRow, error)
 	GetAuthRequestByCode(ctx context.Context, code sql.NullString) (GetAuthRequestByCodeRow, error)
 	GetAuthRequestByID(ctx context.Context, id string) (GetAuthRequestByIDRow, error)
