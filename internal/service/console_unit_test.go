@@ -119,6 +119,38 @@ func TestConsole_ListClients_NoSession_Unauthorized(t *testing.T) {
 	}
 }
 
+func TestConsole_ListClients_Unauthorized_AuditLogged(t *testing.T) {
+	store := activeUserStore(nil, nil)
+	var got capturedAuditEvent
+	store.auditLogFn = func(_ context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
+		if userID != nil {
+			got.userID = *userID
+		}
+		got.eventType = eventType
+		got.ipAddress = ipAddress
+		got.userAgent = userAgent
+		got.metadata = metadata
+	}
+	ctx := clientinfo.WithContext(context.Background(), clientinfo.Info{IP: "198.51.100.20", UserAgent: "Probe"})
+	svc := NewConsoleService(store)
+	r := svc.ListClients(ctx, "", "")
+	if r.ErrorCode != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", r.ErrorCode)
+	}
+	if got.userID != "" || got.eventType != storage.EventConsoleAccessDenied {
+		t.Fatalf("audit userID=%q eventType=%q", got.userID, got.eventType)
+	}
+	if got.ipAddress != "198.51.100.20" || got.userAgent != "Probe" {
+		t.Fatalf("audit client info ip=%q ua=%q", got.ipAddress, got.userAgent)
+	}
+	if got.metadata["operation"] != "clients.list" || got.metadata["status_code"] != http.StatusUnauthorized || got.metadata["reason"] != "unauthenticated" {
+		t.Fatalf("audit metadata=%#v, want unauthorized clients.list", got.metadata)
+	}
+	if _, ok := got.metadata["user_status"]; ok {
+		t.Fatalf("user_status should be absent for unauthenticated access: %#v", got.metadata)
+	}
+}
+
 func TestConsole_ListClients_InvalidSession_Unauthorized(t *testing.T) {
 	store := &fakeConsoleStore{
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
@@ -148,6 +180,35 @@ func TestConsole_ListClients_DisabledUser_Forbidden(t *testing.T) {
 	r := svc.ListClients(context.Background(), "sess-1", "")
 	if r.ErrorCode != http.StatusForbidden {
 		t.Fatalf("want 403, got %d", r.ErrorCode)
+	}
+}
+
+func TestConsole_ListClients_Forbidden_AuditLogged(t *testing.T) {
+	store := activeUserStore(nil, nil)
+	store.getValidSessionFn = func(context.Context, string) (*storage.User, error) {
+		return &storage.User{ID: "u-disabled", Status: "disabled"}, nil
+	}
+	var got capturedAuditEvent
+	store.auditLogFn = func(_ context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
+		if userID != nil {
+			got.userID = *userID
+		}
+		got.eventType = eventType
+		got.metadata = metadata
+	}
+	svc := NewConsoleService(store)
+	r := svc.ListClients(context.Background(), "sess-1", "")
+	if r.ErrorCode != http.StatusForbidden {
+		t.Fatalf("want 403, got %d", r.ErrorCode)
+	}
+	if got.userID != "u-disabled" || got.eventType != storage.EventConsoleAccessDenied {
+		t.Fatalf("audit userID=%q eventType=%q", got.userID, got.eventType)
+	}
+	if got.metadata["operation"] != "clients.list" || got.metadata["status_code"] != http.StatusForbidden || got.metadata["reason"] != "forbidden" {
+		t.Fatalf("audit metadata=%#v, want forbidden clients.list", got.metadata)
+	}
+	if got.metadata["user_status"] != "disabled" {
+		t.Fatalf("audit user_status=%v, want disabled", got.metadata["user_status"])
 	}
 }
 

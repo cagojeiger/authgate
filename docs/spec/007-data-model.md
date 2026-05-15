@@ -162,6 +162,7 @@ erDiagram
 | `console.connections_listed` | 연결/권한 목록 조회 | Console 조회 |
 | `console.sessions_listed` | 세션 목록 조회 | Console 조회 |
 | `console.audit_log_viewed` | 감사 로그 조회 | Console 조회 |
+| `console.access_denied` | Console 401/403 접근 거부 | Console 인증/권한 확인 |
 
 ## 인덱스
 
@@ -260,6 +261,7 @@ MCP
 | `console.connections_listed` | Console 연결/권한 조회 | `{result_count}` |
 | `console.sessions_listed` | Console 세션 조회 | `{result_count}` |
 | `console.audit_log_viewed` | Console audit log 조회 | `{page, limit, result_count}` |
+| `console.access_denied` | Console 접근 거부 | `{operation, status_code, reason, user_status}` |
 
 `metadata`는 `Storage.AuditLog`에서 event별 allowlist를 통과한 key만 저장한다.
 allowlist에 없는 email, token, secret, raw request payload 등은 저장하지 않는다.

@@ -81,7 +81,7 @@ audit_log
 | KR-PIPA-INC-001 | 침해 의심 이벤트를 조사할 수 있는가 | refresh token reuse와 family revoke 이벤트 | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
 | KR-PIPA-INC-002 | audit log write 실패를 감지하는가 | `authgate_audit_log_write_failures_total` metric | `internal/observability/audit_metrics.go`, `docs/spec/009-operations.md` | `internal/storage/audit_failure_unit_test.go` | DONE |
 | KR-COMM-001 | IP/UA 등 접속 메타데이터를 추적할 수 있는가 | `audit_log.ip_address`, `audit_log.user_agent` | `internal/storage/audit.go`, `internal/clientinfo/*` | `internal/clientinfo/clientinfo_test.go` | DONE |
-| SOC2-CC6-001 | 민감한 console 조회 접근을 추적하는가 | console read access audit events | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
+| SOC2-CC6-001 | 민감한 console 조회 접근을 추적하는가 | console read/denied access audit events | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 | SOC2-CC6-002 | session/connection revoke 같은 권한성 작업을 추적하는가 | `auth.connection_revoked`, `auth.session_revoked`, `auth.other_sessions_revoked` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 | SOC2-CC7-001 | 보안 이상징후를 탐지할 이벤트가 있는가 | inactive user access, refresh reuse detection, channel mismatch | `internal/service/*`, `internal/storage/storage_auth_tokens.go` | `internal/service/audit_test.go`, `internal/service/login_unit_test.go` | DONE |
 | SOC2-CC7-002 | abuse 방어가 있는가 | per-IP rate limit for auth/token/callback/console endpoints, CIMD failure rate limit | `cmd/authgate/main.go`, `internal/middleware/ratelimit.go`, `internal/adapter/mcp/cimd.go` | `cmd/authgate/main_test.go`, `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/*ratelimit*_test.go` | DONE |
@@ -113,6 +113,7 @@ audit_log
 | `console.connections_listed` | `/console/me/connections` 성공 조회 | user_id, IP, UA, created_at | `result_count` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 | `console.sessions_listed` | `/console/me/sessions` 성공 조회 | user_id, IP, UA, created_at | `result_count` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 | `console.audit_log_viewed` | `/console/me/audit-log` 성공 조회 | user_id, IP, UA, created_at | `page`, `limit`, `result_count` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
+| `console.access_denied` | Console 401/403 접근 거부 | user_id(403만), IP, UA, created_at | `operation`, `status_code`, `reason`, `user_status` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 
 ## Endpoint Coverage Matrix
 
@@ -146,7 +147,6 @@ audit_log
 
 | GAP | 설명 | 다음 작업 후보 |
 |-----|------|----------------|
-| GAP-AUD-001 | console API의 401/403 실패 접근은 별도 audit event로 남기지 않는다. 성공 조회/변경은 기록된다. | 실패 접근 event 추가 여부 결정 |
 | GAP-AUD-002 | `oauth/device/authorize`의 device code 발급 자체는 provider 내부 처리라 authgate audit event가 없다. 승인/거부/로그인은 기록된다. | device code 발급 hook 가능성 검토 |
 | GAP-AUD-003 | `/oauth/introspect`는 provider 기본 라우트로 처리되며 authgate audit event가 없다. 고빈도 검증 endpoint라 audit_log 대상인지 별도 결정 필요. | metrics 중심 유지 또는 sampled audit 검토 |
 | GAP-OPS-001 | SOC 2 운영 evidence(PR 리뷰, access review, backup restore test)는 GitHub/운영 시스템에 존재해야 하며 authgate DB에는 저장하지 않는다. | 운영 evidence export/checklist 문서 |
