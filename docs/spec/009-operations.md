@@ -299,11 +299,16 @@ UPDATE users SET status = 'disabled', updated_at = NOW() WHERE email = 'bad@exam
 SELECT * FROM audit_log WHERE event_type = 'auth.login' ORDER BY created_at DESC LIMIT 50;
 
 -- 특정 유저 이력
-SELECT * FROM audit_log WHERE user_id = 'uuid-...' ORDER BY created_at DESC;
+SELECT * FROM audit_log WHERE user_id = 'uuid-...' ORDER BY created_at DESC LIMIT 100;
 
 -- 의심스러운 이벤트
-SELECT * FROM audit_log WHERE event_type = 'auth.inactive_user' ORDER BY created_at DESC;
+SELECT * FROM audit_log WHERE event_type = 'auth.inactive_user' ORDER BY created_at DESC LIMIT 50;
 ```
+
+위 조회는 `audit_log_event_created_idx` / `audit_log_user_created_idx`를 타도록
+`event_type` 또는 `user_id` 필터와 `created_at DESC` 정렬을 함께 사용한다.
+보존 cleanup의 `created_at < cutoff` 스캔은 `audit_log_created_brin_idx`가
+보조한다.
 
 ## 모니터링
 
