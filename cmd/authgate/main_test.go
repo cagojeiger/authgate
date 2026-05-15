@@ -13,35 +13,52 @@ func rateLimitTestConfig() *config.Config {
 	return &config.Config{
 		EnableMCP:           true,
 		RateLimitAuthRPS:    1,
-		RateLimitAuthBurst:  0,
+		RateLimitAuthBurst:  1,
 		RateLimitTokenRPS:   1,
-		RateLimitTokenBurst: 0,
+		RateLimitTokenBurst: 1,
 	}
 }
 
 func assertRateLimited(t *testing.T, mux http.Handler, method, target string) {
 	t.Helper()
-	req := httptest.NewRequest(method, target, nil)
-	rec := httptest.NewRecorder()
 
-	mux.ServeHTTP(rec, req)
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(method, target, nil)
+		rec := httptest.NewRecorder()
+		panicked := serveHTTPRecovering(mux, rec, req)
 
-	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("%s %s status = %d, want %d", method, target, rec.Code, http.StatusTooManyRequests)
-	}
-	if got := rec.Header().Get("Retry-After"); got != "1" {
-		t.Fatalf("%s %s Retry-After = %q, want 1", method, target, got)
+		if i == 0 {
+			if rec.Code == http.StatusTooManyRequests {
+				t.Fatalf("%s %s first request was unexpectedly rate limited", method, target)
+			}
+			continue
+		}
+		if panicked {
+			t.Fatalf("%s %s second request reached handler instead of being rate limited", method, target)
+		}
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("%s %s second request status = %d, want %d", method, target, rec.Code, http.StatusTooManyRequests)
+		}
+		if got := rec.Header().Get("Retry-After"); got != "1" {
+			t.Fatalf("%s %s Retry-After = %q, want 1", method, target, got)
+		}
 	}
 }
 
+func serveHTTPRecovering(h http.Handler, rec *httptest.ResponseRecorder, req *http.Request) (panicked bool) {
+	// The first request intentionally consumes a realistic burst token and may
+	// reach nil-backed handlers in this route-wiring test. The second request
+	// must be rejected by the limiter before any handler code runs.
+	defer func() {
+		if recover() != nil {
+			panicked = true
+		}
+	}()
+	h.ServeHTTP(rec, req)
+	return false
+}
+
 func TestRegisterProviderRoutes_RateLimitsSensitiveOAuthEndpoints(t *testing.T) {
-	mux := http.NewServeMux()
-	provider := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("provider should not be reached when limiter rejects %s", r.URL.Path)
-	})
-
-	registerProviderRoutes(mux, rateLimitTestConfig(), nil, provider)
-
 	tests := []struct {
 		method string
 		path   string
@@ -53,24 +70,18 @@ func TestRegisterProviderRoutes_RateLimitsSensitiveOAuthEndpoints(t *testing.T) 
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
+			mux := http.NewServeMux()
+			provider := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+			registerProviderRoutes(mux, rateLimitTestConfig(), nil, provider)
+
 			assertRateLimited(t, mux, tt.method, tt.path)
 		})
 	}
 }
 
 func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.T) {
-	mux := http.NewServeMux()
-
-	registerAuthgateRoutes(
-		mux,
-		rateLimitTestConfig(),
-		handler.NewLoginHandler(nil, true, "authgate"),
-		handler.NewDeviceHandler(nil, true, "authgate"),
-		handler.NewAccountHandler(nil, "http://authgate.example.com"),
-		handler.NewMCPLoginHandler(nil, true, "authgate"),
-		handler.NewConsoleHandler(nil),
-	)
-
 	tests := []struct {
 		method string
 		path   string
@@ -80,6 +91,7 @@ func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.
 		{http.MethodGet, "/mcp/login"},
 		{http.MethodGet, "/mcp/callback"},
 		{http.MethodDelete, "/account"},
+		{http.MethodGet, "/device"},
 		{http.MethodPost, "/device/approve"},
 		{http.MethodGet, "/device/auth/callback"},
 		{http.MethodGet, "/console/clients"},
@@ -92,6 +104,17 @@ func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
+			mux := http.NewServeMux()
+			registerAuthgateRoutes(
+				mux,
+				rateLimitTestConfig(),
+				handler.NewLoginHandler(nil, true, "authgate"),
+				handler.NewDeviceHandler(nil, true, "authgate"),
+				handler.NewAccountHandler(nil, "http://authgate.example.com"),
+				handler.NewMCPLoginHandler(nil, true, "authgate"),
+				handler.NewConsoleHandler(nil),
+			)
+
 			assertRateLimited(t, mux, tt.method, tt.path)
 		})
 	}

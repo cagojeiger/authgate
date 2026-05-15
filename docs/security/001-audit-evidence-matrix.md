@@ -128,7 +128,7 @@ audit_log
 | `POST /oauth/revoke` | 토큰 폐기 | `auth.token_revoked` when matching refresh token | token limiter | DONE |
 | `POST /oauth/introspect` | 토큰 상태 검증 | `authgate_http_requests_total{method="POST",route="/oauth/introspect",status}` metric | token limiter | DONE |
 | `POST /oauth/device/authorize` | Device code 발급 | `auth.device_code_issued` | token limiter | DONE |
-| `GET /device` | Device 승인 화면 | 없음 | 없음 | N/A |
+| `GET /device` | Device 코드 입력/승인 화면 | 없음 | auth limiter | DONE |
 | `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
 | `POST /device/approve` | Device 승인/거부 | `auth.device_approved`, `auth.device_denied`, `auth.inactive_user` | token limiter | DONE |
 | `DELETE /account` | 계정 삭제 요청 | `auth.deletion_requested`, inactive user block | auth limiter | DONE |
@@ -139,10 +139,6 @@ audit_log
 | `DELETE /console/me/sessions/{id}` | 세션 폐기 | `auth.session_revoked` | auth limiter | DONE |
 | `POST /console/me/sessions/revoke-others` | 세션 일괄 폐기 | `auth.other_sessions_revoked` | auth limiter | DONE |
 | `GET /console/me/audit-log` | 감사 로그 조회 | `console.audit_log_viewed` | auth limiter | DONE |
-
-`PARTIAL`은 audit evidence가 전혀 없다는 뜻이 아니다. 현재 서버가 생성하는
-증거와 방어가 있지만, rate limit 또는 실패 접근 audit 같은 추가 보강 여지가
-있다는 뜻이다.
 
 ## 남은 GAP
 

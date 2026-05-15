@@ -110,7 +110,7 @@ sequenceDiagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: POST /device/authorize
+    [*] --> pending: POST /oauth/device/authorize
     pending --> approved: 사용자가 Allow 클릭
     pending --> denied: 사용자가 Deny 클릭
     pending --> expired: expires_at 초과
