@@ -77,3 +77,25 @@ func TestSanitizeAuditMetadata_EmptyResultReturnsNil(t *testing.T) {
 		t.Fatalf("disallowed-only metadata = %#v, want nil", got)
 	}
 }
+
+func TestAuditMetricChannel(t *testing.T) {
+	tests := []struct {
+		name     string
+		metadata map[string]any
+		want     string
+	}{
+		{name: "channel", metadata: map[string]any{"channel": "browser"}, want: "browser"},
+		{name: "actual channel fallback", metadata: map[string]any{"actual_channel": "mcp"}, want: "mcp"},
+		{name: "missing", metadata: map[string]any{"family_id": "fam-1"}, want: "unknown"},
+		{name: "non string", metadata: map[string]any{"channel": 42}, want: "unknown"},
+		{name: "nil", metadata: nil, want: "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := auditMetricChannel(tt.metadata); got != tt.want {
+				t.Fatalf("auditMetricChannel() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -20,12 +21,23 @@ type cleanupRunner interface {
 	DeleteUser(ctx context.Context, userID string, now time.Time, hook func(ctx context.Context, userID string) error) error
 }
 
+// CleanupMetricsRecorder receives a signal when a cleanup run completes or
+// fails before completion. main.go wires observability.AuditMetrics.
+type CleanupMetricsRecorder interface {
+	RecordCleanupRun(result string)
+}
+
+type noopCleanupMetricsRecorder struct{}
+
+func (noopCleanupMetricsRecorder) RecordCleanupRun(string) {}
+
 type CleanupService struct {
 	runner            cleanupRunner
 	clock             clock.Clock
 	interval          time.Duration
 	auditPIIRetention time.Duration
 	deleteUserHook    func(ctx context.Context, userID string) error
+	metrics           CleanupMetricsRecorder
 }
 
 func NewCleanupService(runner cleanupRunner, clk clock.Clock, interval time.Duration) *CleanupService {
@@ -34,6 +46,7 @@ func NewCleanupService(runner cleanupRunner, clk clock.Clock, interval time.Dura
 		clock:             clk,
 		interval:          interval,
 		auditPIIRetention: 3 * 365 * 24 * time.Hour,
+		metrics:           noopCleanupMetricsRecorder{},
 	}
 }
 
@@ -41,6 +54,14 @@ func (c *CleanupService) SetAuditLogPIIRetention(retention time.Duration) {
 	if retention > 0 {
 		c.auditPIIRetention = retention
 	}
+}
+
+func (c *CleanupService) SetMetricsRecorder(r CleanupMetricsRecorder) {
+	if r == nil {
+		c.metrics = noopCleanupMetricsRecorder{}
+		return
+	}
+	c.metrics = r
 }
 
 // Start runs cleanup jobs periodically until ctx is cancelled.
@@ -65,6 +86,7 @@ func (c *CleanupService) Start(ctx context.Context) {
 func (c *CleanupService) runAll(ctx context.Context) {
 	acquired, err := c.runner.WithExclusiveLock(ctx, c.runAllLocked)
 	if err != nil {
+		c.metrics.RecordCleanupRun("failure")
 		slog.Error("cleanup run failed", "error", err)
 		return
 	}
@@ -72,19 +94,23 @@ func (c *CleanupService) runAll(ctx context.Context) {
 		slog.Info("cleanup skipped: advisory lock not acquired")
 		return
 	}
+	c.metrics.RecordCleanupRun("success")
 }
 
 func (c *CleanupService) runAllLocked(ctx context.Context) error {
 	now := c.clock.Now()
+	var runErr error
 
 	// 1. Token cleanup: revoked/expired refresh_tokens after 30 days
 	if n, err := c.runner.DeleteRevokedRefreshTokensBefore(ctx, now.Add(-30*24*time.Hour)); err != nil {
+		runErr = errors.Join(runErr, err)
 		slog.Error("token cleanup (revoked)", "error", err)
 	} else if n > 0 {
 		slog.Info("token cleanup (revoked)", "deleted", n)
 	}
 
 	if n, err := c.runner.DeleteExpiredRefreshTokensBefore(ctx, now.Add(-30*24*time.Hour)); err != nil {
+		runErr = errors.Join(runErr, err)
 		slog.Error("token cleanup (expired)", "error", err)
 	} else if n > 0 {
 		slog.Info("token cleanup (expired)", "deleted", n)
@@ -92,6 +118,7 @@ func (c *CleanupService) runAllLocked(ctx context.Context) error {
 
 	// 2. Session cleanup: expired or revoked sessions
 	if n, err := c.runner.DeleteExpiredOrRevokedSessions(ctx, now); err != nil {
+		runErr = errors.Join(runErr, err)
 		slog.Error("session cleanup", "error", err)
 	} else if n > 0 {
 		slog.Info("session cleanup", "deleted", n)
@@ -99,6 +126,7 @@ func (c *CleanupService) runAllLocked(ctx context.Context) error {
 
 	// 3. Temp data cleanup: auth_requests expired > 1 hour
 	if n, err := c.runner.DeleteExpiredAuthRequestsBefore(ctx, now.Add(-1*time.Hour)); err != nil {
+		runErr = errors.Join(runErr, err)
 		slog.Error("auth_requests cleanup", "error", err)
 	} else if n > 0 {
 		slog.Info("auth_requests cleanup", "deleted", n)
@@ -106,6 +134,7 @@ func (c *CleanupService) runAllLocked(ctx context.Context) error {
 
 	// 4. Temp data cleanup: device_codes expired > 1 hour
 	if n, err := c.runner.DeleteExpiredDeviceCodesBefore(ctx, now.Add(-1*time.Hour)); err != nil {
+		runErr = errors.Join(runErr, err)
 		slog.Error("device_codes cleanup", "error", err)
 	} else if n > 0 {
 		slog.Info("device_codes cleanup", "deleted", n)
@@ -114,10 +143,12 @@ func (c *CleanupService) runAllLocked(ctx context.Context) error {
 	// 5. Deletion cleanup: pending_deletion users past scheduled date → PII scrub
 	userIDs, err := c.runner.ListPendingDeletionUserIDsBefore(ctx, now)
 	if err != nil {
+		runErr = errors.Join(runErr, err)
 		slog.Error("deletion cleanup query", "error", err)
 	} else {
 		for _, userID := range userIDs {
 			if err := c.deleteUser(ctx, userID, now); err != nil {
+				runErr = errors.Join(runErr, err)
 				slog.Error("deletion cleanup", "user_id", userID, "error", err)
 			} else {
 				slog.Info("deletion cleanup", "user_id", userID)
@@ -127,11 +158,12 @@ func (c *CleanupService) runAllLocked(ctx context.Context) error {
 
 	// 6. Audit log PII anonymization: user_id/IP/User-Agent NULL after the configured retention.
 	if n, err := c.runner.AnonymizeAuditLogBefore(ctx, now.Add(-c.auditPIIRetention)); err != nil {
+		runErr = errors.Join(runErr, err)
 		slog.Error("audit_log anonymization", "error", err)
 	} else if n > 0 {
 		slog.Info("audit_log anonymization", "anonymized", n)
 	}
-	return nil
+	return runErr
 }
 
 // deleteUser performs Spec 006 stage 3: explicit DELETE of child records + PII scrub.

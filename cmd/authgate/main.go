@@ -96,6 +96,7 @@ func main() {
 	httpMetrics := observability.NewHTTPMetrics()
 	auditMetrics := observability.NewAuditMetrics(httpMetrics.Registry())
 	store.SetAuditFailureRecorder(auditMetrics)
+	store.SetAuditEventRecorder(auditMetrics)
 	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, httpMetrics, &isShuttingDown)
 
 	trustedProxies, err := clientinfo.ParseTrustedProxies(cfg.TrustedProxies)
@@ -114,7 +115,7 @@ func main() {
 	var inflightRequests int64
 	srv, addr := buildHTTPServer(cfg, requestIDHandler, httpMetrics, &inflightRequests)
 
-	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention)
+	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention, auditMetrics)
 	defer cleanupCancel()
 	installGracefulShutdown(srv, cfg, &inflightRequests, cleanupCancel, &isShuttingDown)
 
@@ -462,10 +463,11 @@ func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *observab
 	}, addr
 }
 
-func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration) context.CancelFunc {
+func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration, metrics *observability.AuditMetrics) context.CancelFunc {
 	cleanupRunner := storage.NewCleanupRunner(db)
 	cleanupSvc := service.NewCleanupService(cleanupRunner, clk, 10*time.Minute)
 	cleanupSvc.SetAuditLogPIIRetention(auditLogPIIRetention)
+	cleanupSvc.SetMetricsRecorder(metrics)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go cleanupSvc.Start(cleanupCtx)
 	return cleanupCancel
