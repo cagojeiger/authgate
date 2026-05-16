@@ -318,6 +318,50 @@ SELECT * FROM audit_log WHERE event_type = 'auth.inactive_user' ORDER BY created
 | `GET /ready` | readiness (DB 연결 포함) | 200 `{"status":"ready"}` / 실패 시 503 `{"status":"not ready"}` |
 | `GET /metrics` | Prometheus 메트릭 수집 | 200 (text exposition) |
 
+### Docker Compose 관측 스택
+
+로컬 `docker-compose.yml`은 authgate, sample-app, mock-idp, PostgreSQL과 함께
+Prometheus/Grafana를 띄운다.
+
+| 서비스 | URL | 용도 |
+|--------|-----|------|
+| authgate | `http://localhost:8080` | 인증 서버 |
+| sample-app | `http://localhost:9090` | 브라우저 로그인 샘플 |
+| Prometheus | `http://localhost:9092` | `authgate:8080/metrics` scrape |
+| Grafana | `http://localhost:3001` | `Authgate Operations Overview` dashboard |
+
+설정 파일:
+
+```text
+monitoring/
+  prometheus/prometheus.yml
+  grafana/provisioning/datasources/prometheus.yml
+  grafana/provisioning/dashboards/authgate.yml
+  grafana/dashboards/authgate-red-use.json
+  grafana/dashboards/authgate-runtime.json
+  grafana/dashboards/authgate-security.json
+```
+
+Grafana는 compose 개발 환경에서 anonymous viewer를 켠다. 관리자 계정은
+`authgate` / `authgate`이며, 운영 배포용 설정이 아니다.
+
+Grafana dashboard는 llmgate 운영 화면과 같은 방식으로 용도별로 분리한다.
+
+| Dashboard | 용도 |
+|-----------|------|
+| `Authgate Operations Overview` | 장애 대응 첫 화면. HTTP RED, DB USE, local pressure를 함께 본다. |
+| `Authgate Runtime Resources` | Go/process runtime, DB pool pressure, file descriptor 사용률을 본다. |
+| `Authgate Security and Audit Evidence` | audit event, audit write failure, cleanup, token introspection 증적을 본다. |
+
+기본 dashboard가 보는 신호:
+
+| 영역 | Metric |
+|------|--------|
+| HTTP RED | `authgate_http_requests_total`, `authgate_http_request_duration_seconds`, `authgate_http_inflight_requests` |
+| Security audit | `authgate_audit_events_total`, `authgate_audit_log_write_failures_total` |
+| DB USE | `authgate_db_connections_open`, `authgate_db_connections_in_use`, `authgate_db_connections_idle`, `authgate_db_wait_count_total` |
+| Cleanup | `authgate_cleanup_runs_total` |
+
 ### 감시해야 할 것
 
 | 항목 | 방법 | 위험 신호 |
