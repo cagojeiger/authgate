@@ -4,22 +4,25 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// AuditMetrics owns Prometheus counters for security-relevant audit and
+// SecurityMetrics owns Prometheus counters for security-relevant audit and
 // cleanup outcomes.
-// It registers into the shared HTTPMetrics registry so a single /metrics
-// scrape target exposes both groups.
-type AuditMetrics struct {
+type SecurityMetrics struct {
 	events        *prometheus.CounterVec
 	writeFailures *prometheus.CounterVec
 	cleanupRuns   *prometheus.CounterVec
 }
 
-// NewAuditMetrics registers audit-log counters into reg and returns a recorder.
+// AuditMetrics is kept as a compatibility alias for storage/service recorder
+// wiring that still describes the audit-specific side of this collector.
+type AuditMetrics = SecurityMetrics
+
+// NewSecurityMetrics registers audit/security counters into reg and returns a
+// recorder.
 // Stages: "marshal" (json.Marshal of metadata failed before any DB call) and
 // "insert" (audit_log INSERT failed). Tracking the two separately lets alert
 // rules distinguish input-shape bugs from DB outages so an oncall responder
 // can route the page correctly.
-func NewAuditMetrics(reg *prometheus.Registry) *AuditMetrics {
+func NewSecurityMetrics(reg *prometheus.Registry) *SecurityMetrics {
 	events := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "authgate_audit_events_total",
@@ -52,17 +55,21 @@ func NewAuditMetrics(reg *prometheus.Registry) *AuditMetrics {
 	writeFailures.WithLabelValues("insert")
 	cleanupRuns.WithLabelValues("success")
 	cleanupRuns.WithLabelValues("failure")
-	return &AuditMetrics{
+	return &SecurityMetrics{
 		events:        events,
 		writeFailures: writeFailures,
 		cleanupRuns:   cleanupRuns,
 	}
 }
 
+func NewAuditMetrics(reg *prometheus.Registry) *AuditMetrics {
+	return NewSecurityMetrics(reg)
+}
+
 // RecordEvent increments the audit-event counter after the audit row is
 // successfully persisted. Nil receivers are tolerated so tests can omit the
 // recorder entirely.
-func (m *AuditMetrics) RecordEvent(eventType, channel string) {
+func (m *SecurityMetrics) RecordEvent(eventType, channel string) {
 	if m == nil {
 		return
 	}
@@ -73,7 +80,7 @@ func (m *AuditMetrics) RecordEvent(eventType, channel string) {
 // Callers pass either "marshal" or "insert"; other labels are accepted but
 // will not match the alert rules in docs/spec/009-operations.md.
 // Nil receivers are tolerated so test wiring can omit the recorder entirely.
-func (m *AuditMetrics) RecordWriteFailure(stage string) {
+func (m *SecurityMetrics) RecordWriteFailure(stage string) {
 	if m == nil {
 		return
 	}
@@ -83,7 +90,7 @@ func (m *AuditMetrics) RecordWriteFailure(stage string) {
 // RecordCleanupRun increments the cleanup run counter for "success" or
 // "failure". Other result labels are accepted but will not match the stock
 // alert examples.
-func (m *AuditMetrics) RecordCleanupRun(result string) {
+func (m *SecurityMetrics) RecordCleanupRun(result string) {
 	if m == nil {
 		return
 	}
