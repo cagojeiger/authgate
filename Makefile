@@ -1,13 +1,8 @@
-.PHONY: stack infra infra-down dev dev-authgate dev-sample-app stop sqlc-generate
+.PHONY: infra infra-down dev dev-authgate dev-sample-app stop sqlc-generate
 
-# Start the full Docker Compose stack
-stack:
-	docker compose up -d --build
-	@echo "Stack ready: authgate=:8080 sample-app=:9090 prometheus=:9092 grafana=:3001 db=:5433 mock-idp=:8082"
-
-# Start infrastructure for split-terminal local development
+# Start infrastructure (DB + mock IdP)
 infra:
-	docker compose up -d db mock-idp
+	docker compose up -d
 	@echo "Waiting for DB..."
 	@until docker compose exec db pg_isready -U authgate > /dev/null 2>&1; do sleep 1; done
 	@echo "Infrastructure ready: db=:5433 mock-idp=:8082"
