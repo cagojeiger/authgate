@@ -93,11 +93,10 @@ func main() {
 
 	var isShuttingDown atomic.Bool
 	mux := http.NewServeMux()
-	httpMetrics := observability.NewHTTPMetrics()
-	auditMetrics := observability.NewAuditMetrics(httpMetrics.Registry())
-	store.SetAuditFailureRecorder(auditMetrics)
-	store.SetAuditEventRecorder(auditMetrics)
-	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, httpMetrics, &isShuttingDown)
+	metrics := observability.NewMetrics(db)
+	store.SetAuditFailureRecorder(metrics.Security)
+	store.SetAuditEventRecorder(metrics.Security)
+	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, metrics, &isShuttingDown)
 
 	trustedProxies, err := clientinfo.ParseTrustedProxies(cfg.TrustedProxies)
 	if err != nil {
@@ -113,9 +112,9 @@ func main() {
 	requestIDHandler := middleware.RequestIDMiddleware(corsHandler)
 
 	var inflightRequests int64
-	srv, addr := buildHTTPServer(cfg, requestIDHandler, httpMetrics, &inflightRequests)
+	srv, addr := buildHTTPServer(cfg, requestIDHandler, metrics.HTTP, &inflightRequests)
 
-	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention, auditMetrics)
+	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention, metrics.Security)
 	defer cleanupCancel()
 	installGracefulShutdown(srv, cfg, &inflightRequests, cleanupCancel, &isShuttingDown)
 
@@ -295,13 +294,13 @@ func registerRoutes(
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
 	consoleHandler *handler.ConsoleHandler,
-	httpMetrics *observability.HTTPMetrics,
+	metrics *observability.Metrics,
 	isShuttingDown *atomic.Bool,
 ) {
 	registerOAuthMetadataRoute(mux, cfg)
 	registerProviderRoutes(mux, cfg, store, provider)
 	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler)
-	registerHealthRoutes(mux, db, isShuttingDown, httpMetrics)
+	registerHealthRoutes(mux, db, isShuttingDown, metrics)
 }
 
 func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
@@ -420,7 +419,7 @@ func registerAuthgateRoutes(
 	mux.Handle("/console/me/audit-log", authLimiter(http.HandlerFunc(consoleHandler.HandleGetAuditLog)))
 }
 
-func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool, httpMetrics *observability.HTTPMetrics) {
+func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool, metrics *observability.Metrics) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -441,7 +440,7 @@ func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})
-	mux.Handle("/metrics", httpMetrics.MetricsHandler())
+	mux.Handle("/metrics", metrics.Handler())
 }
 
 func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *observability.HTTPMetrics, inflightRequests *int64) (*http.Server, string) {
@@ -463,7 +462,7 @@ func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *observab
 	}, addr
 }
 
-func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration, metrics *observability.AuditMetrics) context.CancelFunc {
+func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration, metrics service.CleanupMetricsRecorder) context.CancelFunc {
 	cleanupRunner := storage.NewCleanupRunner(db)
 	cleanupSvc := service.NewCleanupService(cleanupRunner, clk, 10*time.Minute)
 	cleanupSvc.SetAuditLogPIIRetention(auditLogPIIRetention)
