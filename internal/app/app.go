@@ -1,0 +1,510 @@
+package app
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+
+	"sync/atomic"
+	"syscall"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/zitadel/oidc/v3/pkg/op"
+	"golang.org/x/time/rate"
+
+	mcpadapter "github.com/kangheeyong/authgate/internal/adapter/mcp"
+	"github.com/kangheeyong/authgate/internal/clientinfo"
+	"github.com/kangheeyong/authgate/internal/clock"
+	"github.com/kangheeyong/authgate/internal/config"
+	"github.com/kangheeyong/authgate/internal/db/migrator"
+	"github.com/kangheeyong/authgate/internal/handler"
+	"github.com/kangheeyong/authgate/internal/idgen"
+	"github.com/kangheeyong/authgate/internal/middleware"
+	"github.com/kangheeyong/authgate/internal/observability"
+	"github.com/kangheeyong/authgate/internal/service"
+	"github.com/kangheeyong/authgate/internal/storage"
+	"github.com/kangheeyong/authgate/internal/upstream"
+)
+
+// devicePollInterval is the minimum gap between successive device-flow
+// polls. Wired into both `op.DeviceAuthorizationConfig.PollInterval` (the
+// value advertised to clients in the device-authorization response) and
+// `Storage.SetDevicePollInterval` (the server-side `slow_down` enforcement
+// per RFC 8628 §3.5) so the two stay in lockstep.
+const devicePollInterval = 5 * time.Second
+
+func Run() {
+	cfg := mustLoadConfig()
+	db := mustOpenDB(cfg)
+	defer db.Close()
+
+	if err := migrator.Run(db, cfg.MigrationsPath); err != nil {
+		log.Fatalf("migrations: %v", err)
+	}
+
+	// Components
+	clk := clock.RealClock{}
+	gen := idgen.CryptoGenerator{}
+	store := mustBuildStore(cfg, db, clk, gen)
+	provider := mustBuildOIDCProvider(cfg, store)
+
+	// Upstream IdP (OIDC Discovery)
+	ctx := context.Background()
+	upstreamOpts := buildUpstreamOptions(cfg)
+	browserProvider := mustBuildUpstreamProvider(ctx, cfg, "/login/callback", upstreamOpts)
+	deviceProvider := mustBuildUpstreamProvider(ctx, cfg, "/device/auth/callback", upstreamOpts)
+
+	// Service layer
+	loginService := service.NewLoginService(store, browserProvider, cfg.SessionTTL)
+
+	// Device service
+	deviceService := service.NewDeviceService(store, deviceProvider, cfg.PublicURL, cfg.SessionTTL, clk)
+
+	// Account service
+	accountService := service.NewAccountService(store)
+
+	// Console service
+	consoleService := service.NewConsoleService(store)
+
+	// Handler layer
+	loginHandler := handler.NewLoginHandler(loginService, cfg.DevMode, cfg.BrandName)
+	deviceHandler := handler.NewDeviceHandler(deviceService, cfg.DevMode, cfg.BrandName)
+	accountHandler := handler.NewAccountHandler(accountService, cfg.PublicURL)
+	consoleHandler := handler.NewConsoleHandler(consoleService)
+
+	var mcpLoginHandler *handler.MCPLoginHandler
+	if cfg.EnableMCP {
+		mcpProvider := mustBuildUpstreamProvider(ctx, cfg, "/mcp/callback", upstreamOpts)
+		mcpLoginService := service.NewMCPLoginService(store, mcpProvider, cfg.SessionTTL)
+		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, cfg.DevMode, cfg.BrandName)
+	}
+
+	// Load client config and derive CORS allowed origins.
+	allowedOrigins := loadClientConfigIfPresent(cfg, store)
+
+	var isShuttingDown atomic.Bool
+	mux := http.NewServeMux()
+	metrics := observability.NewMetrics(db)
+	store.SetAuditFailureRecorder(metrics.Security)
+	store.SetAuditEventRecorder(metrics.Security)
+	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, metrics, &isShuttingDown)
+
+	trustedProxies, err := clientinfo.ParseTrustedProxies(cfg.TrustedProxies)
+	if err != nil {
+		log.Fatalf("config: TRUSTED_PROXIES: %v", err)
+	}
+
+	// clientinfo wraps the mux so every handler/middleware downstream reads
+	// IP/UA from request context instead of r.RemoteAddr/r.UserAgent() directly.
+	clientInfoHandler := clientinfo.Middleware(trustedProxies)(mux)
+	// CORS sits outside clientinfo because it inspects only the Origin header.
+	corsHandler := middleware.NewCORSMiddleware(allowedOrigins)(clientInfoHandler)
+	// RequestIDMiddleware runs first so every handler has a request ID in context.
+	requestIDHandler := middleware.RequestIDMiddleware(corsHandler)
+
+	var inflightRequests int64
+	srv, addr := buildHTTPServer(cfg, requestIDHandler, metrics.HTTP, &inflightRequests)
+
+	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention, metrics.Security)
+	defer cleanupCancel()
+	installGracefulShutdown(srv, cfg, &inflightRequests, cleanupCancel, &isShuttingDown)
+
+	slog.Info("authgate starting", "addr", addr, "dev", cfg.DevMode, "mcp", cfg.EnableMCP, "issuer", cfg.OIDCIssuerURL, "provider", browserProvider.Name())
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("server: %v", err)
+	}
+}
+
+func mustLoadConfig() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	return cfg
+}
+
+func mustOpenDB(cfg *config.Config) *sql.DB {
+	db, err := sql.Open("pgx", cfg.DatabaseURL)
+	if err != nil {
+		log.Fatalf("db open: %v", err)
+	}
+
+	db.SetMaxOpenConns(cfg.DBMaxOpenConns)
+	db.SetMaxIdleConns(cfg.DBMaxIdleConns)
+	db.SetConnMaxLifetime(cfg.DBConnMaxLifetime)
+	db.SetConnMaxIdleTime(cfg.DBConnMaxIdleTime)
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("db ping: %v", err)
+	}
+	return db
+}
+
+func newStateChecker() func(*storage.User) error {
+	return func(user *storage.User) error {
+		if user.Status != "active" {
+			return fmt.Errorf("account not active: %s", user.Status)
+		}
+		return nil
+	}
+}
+
+func mustBuildStore(cfg *config.Config, db *sql.DB, clk clock.Clock, gen idgen.CryptoGenerator) *storage.Storage {
+	store := storage.New(db, clk, gen, newStateChecker(), cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
+	store.SetIssuer(cfg.PublicURL)
+	store.SetDevicePollInterval(devicePollInterval)
+	mustConfigureSigningKey(store, cfg.SigningKeyPath)
+	configureMCPPoliciesIfEnabled(cfg, store)
+	return store
+}
+
+func mustConfigureSigningKey(store *storage.Storage, path string) {
+	key, err := storage.LoadOrGenerateKey(path)
+	if err != nil {
+		log.Fatalf("signing key: %v", err)
+	}
+	store.SetSigningKey(key, "authgate-key-1")
+}
+
+func loadClientConfigIfPresent(cfg *config.Config, store *storage.Storage) []string {
+	if cfg.ClientConfigPath == "" {
+		return nil
+	}
+
+	clientCfg, err := storage.LoadClientConfig(cfg.ClientConfigPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			slog.Warn("client config not found, skipping", "path", cfg.ClientConfigPath)
+			return nil
+		}
+		log.Fatalf("client config: %v", err)
+	}
+	if err := storage.ValidateClientChannels(clientCfg.Clients, cfg.EnableMCP); err != nil {
+		log.Fatalf("client config: %v", err)
+	}
+	store.LoadClients(clientCfg.Clients)
+	slog.Info("client config loaded", "path", cfg.ClientConfigPath, "count", len(clientCfg.Clients))
+
+	// Collect allowed CORS origins from all client redirect URIs.
+	var allURIs []string
+	for _, c := range clientCfg.Clients {
+		allURIs = append(allURIs, c.RedirectURIs...)
+	}
+	return middleware.OriginsFromRedirectURIs(allURIs)
+}
+
+func configureMCPPoliciesIfEnabled(cfg *config.Config, store *storage.Storage) {
+	if !cfg.EnableMCP {
+		return
+	}
+	cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
+	clientPolicy := mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher)
+	store.SetClientResolutionPolicy(clientPolicy)
+	store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy(), clientPolicy))
+}
+
+func mustBuildOIDCProvider(cfg *config.Config, store *storage.Storage) http.Handler {
+	provider, err := op.NewProvider(
+		buildOPConfig(cfg),
+		store,
+		op.StaticIssuer(cfg.PublicURL),
+		buildOPOptions(cfg)...,
+	)
+	if err != nil {
+		log.Fatalf("oidc provider: %v", err)
+	}
+	return provider
+}
+
+func buildOPConfig(cfg *config.Config) *op.Config {
+	cryptoKey := sha256.Sum256([]byte(cfg.SessionSecret))
+	return &op.Config{
+		CryptoKey:             cryptoKey,
+		CodeMethodS256:        true,
+		AuthMethodPost:        true,
+		GrantTypeRefreshToken: true,
+		SupportedScopes:       []string{"openid", "profile", "email", "offline_access"},
+		DeviceAuthorization: op.DeviceAuthorizationConfig{
+			Lifetime:     5 * time.Minute,
+			PollInterval: devicePollInterval,
+			UserFormPath: "/device",
+			UserCode: op.UserCodeConfig{
+				CharSet:      "BCDFGHJKLMNPQRSTVWXZ",
+				CharAmount:   8,
+				DashInterval: 4,
+			},
+		},
+	}
+}
+
+func buildOPOptions(cfg *config.Config) []op.Option {
+	opts := []op.Option{}
+	if cfg.DevMode {
+		opts = append(opts, op.WithAllowInsecure())
+	}
+	opts = append(opts,
+		op.WithCustomTokenEndpoint(op.NewEndpoint("oauth/token")),
+		op.WithCustomRevocationEndpoint(op.NewEndpoint("oauth/revoke")),
+		op.WithCustomDeviceAuthorizationEndpoint(op.NewEndpoint("oauth/device/authorize")),
+	)
+	return opts
+}
+
+func buildUpstreamOptions(cfg *config.Config) []upstream.Option {
+	opts := []upstream.Option{}
+	if cfg.OIDCInternalURL != "" {
+		opts = append(opts, upstream.WithInternalURL(cfg.OIDCInternalURL))
+	}
+	opts = append(opts, upstream.WithHTTPTimeout(cfg.OIDCHTTPTimeout))
+	return opts
+}
+
+func mustBuildUpstreamProvider(ctx context.Context, cfg *config.Config, callbackPath string, upstreamOpts []upstream.Option) upstream.Provider {
+	p, err := upstream.NewOIDCProvider(
+		ctx,
+		cfg.OIDCIssuerURL,
+		cfg.OIDCClientID,
+		cfg.OIDCClientSecret,
+		cfg.PublicURL+callbackPath,
+		upstreamOpts...,
+	)
+	if err != nil {
+		log.Fatalf("upstream provider (%s): %v", callbackPath, err)
+	}
+	return p
+}
+
+func registerRoutes(
+	mux *http.ServeMux,
+	cfg *config.Config,
+	db *sql.DB,
+	store *storage.Storage,
+	provider http.Handler,
+	loginHandler *handler.LoginHandler,
+	deviceHandler *handler.DeviceHandler,
+	accountHandler *handler.AccountHandler,
+	mcpLoginHandler *handler.MCPLoginHandler,
+	consoleHandler *handler.ConsoleHandler,
+	metrics *observability.Metrics,
+	isShuttingDown *atomic.Bool,
+) {
+	registerOAuthMetadataRoute(mux, cfg)
+	registerProviderRoutes(mux, cfg, store, provider)
+	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler)
+	registerHealthRoutes(mux, db, isShuttingDown, metrics)
+}
+
+func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		metadata := map[string]any{
+			"issuer":                           cfg.PublicURL,
+			"authorization_endpoint":           cfg.PublicURL + "/authorize",
+			"token_endpoint":                   cfg.PublicURL + "/oauth/token",
+			"revocation_endpoint":              cfg.PublicURL + "/oauth/revoke",
+			"introspection_endpoint":           cfg.PublicURL + "/oauth/introspect",
+			"device_authorization_endpoint":    cfg.PublicURL + "/oauth/device/authorize",
+			"userinfo_endpoint":                cfg.PublicURL + "/userinfo",
+			"end_session_endpoint":             cfg.PublicURL + "/end_session",
+			"jwks_uri":                         cfg.PublicURL + "/keys",
+			"response_types_supported":         []string{"code"},
+			"grant_types_supported":            []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
+			"code_challenge_methods_supported": []string{"S256"},
+			// #189 / RFC 8414 §2: zitadel/oidc's /oauth/token branch always
+			// accepts `client_secret_basic` (the OIDC default), accepts
+			// `client_secret_post` because op.Config.AuthMethodPost=true,
+			// and accepts `none` for public clients. Advertise all three so
+			// confidential clients trusting discovery don't pick the wrong
+			// credential location and silently fail. The /oauth/revoke
+			// branch (RFC 7009) accepts the same set, so mirror it.
+			//
+			// /oauth/introspect (RFC 7662) is mounted by zitadel by default
+			// at the OP's IntrospectionEndpoint() and authenticates via
+			// `ClientIDFromRequest` which only flips `authenticated=true`
+			// for `ClientBasicAuth` or `ClientJWTAuth`. Form-based Post
+			// credentials don't authenticate the introspector, so we
+			// advertise only `client_secret_basic` here — matching
+			// zitadel/oidc's own discovery default in
+			// `AuthMethodsIntrospectionEndpoint`.
+			"token_endpoint_auth_methods_supported":         []string{"none", "client_secret_basic", "client_secret_post"},
+			"revocation_endpoint_auth_methods_supported":    []string{"none", "client_secret_basic", "client_secret_post"},
+			"introspection_endpoint_auth_methods_supported": []string{"client_secret_basic"},
+			"scopes_supported":                              []string{"openid", "profile", "email", "offline_access"},
+			"client_id_metadata_document_supported":         cfg.EnableMCP,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(metadata)
+	})
+}
+
+func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *storage.Storage, provider http.Handler) {
+	// Rate limiters: strict for token endpoints, moderate for auth/login
+	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
+	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
+
+	mux.Handle("/authorize", authLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resource, err := storage.ResourceFromRequestStrict(r)
+		if err != nil {
+			writeInvalidTargetError(w, err)
+			return
+		}
+		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
+	})))
+	tokenWithAtJWT := storage.WrapAccessTokenJWTType(provider, store)
+	mux.Handle("/oauth/token", tokenLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resource, err := storage.ResourceFromRequestStrict(r)
+		if err != nil {
+			writeInvalidTargetError(w, err)
+			return
+		}
+		tokenWithAtJWT.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
+	})))
+	mux.Handle("/oauth/revoke", tokenLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !cfg.EnableMCP {
+			provider.ServeHTTP(w, r)
+			return
+		}
+		if err := r.ParseForm(); err == nil {
+			clientID := strings.TrimSpace(r.Form.Get("client_id"))
+			if storage.IsCIMDClientID(clientID) {
+				if _, err := store.GetClientByClientID(r.Context(), clientID); err != nil {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+			}
+		}
+		provider.ServeHTTP(w, r)
+	})))
+	mux.Handle("/oauth/introspect", tokenLimiter(provider))
+	mux.Handle("/oauth/device/authorize", tokenLimiter(provider))
+	mux.Handle("/", provider)
+}
+
+func registerAuthgateRoutes(
+	mux *http.ServeMux,
+	cfg *config.Config,
+	loginHandler *handler.LoginHandler,
+	deviceHandler *handler.DeviceHandler,
+	accountHandler *handler.AccountHandler,
+	mcpLoginHandler *handler.MCPLoginHandler,
+	consoleHandler *handler.ConsoleHandler,
+) {
+	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
+	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
+
+	mux.Handle("/login", authLimiter(http.HandlerFunc(loginHandler.HandleLogin)))
+	mux.Handle("/login/callback", authLimiter(http.HandlerFunc(loginHandler.HandleCallback)))
+	if cfg.EnableMCP {
+		mux.Handle("/mcp/login", authLimiter(http.HandlerFunc(mcpLoginHandler.HandleLogin)))
+		mux.Handle("/mcp/callback", authLimiter(http.HandlerFunc(mcpLoginHandler.HandleCallback)))
+	}
+	mux.Handle("/account", authLimiter(http.HandlerFunc(accountHandler.HandleDeleteAccount)))
+	mux.Handle("/device", authLimiter(http.HandlerFunc(deviceHandler.HandleDevicePage)))
+	mux.Handle("/device/approve", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
+	mux.Handle("/device/auth/callback", authLimiter(http.HandlerFunc(deviceHandler.HandleDeviceCallback)))
+	mux.Handle("/console/clients", authLimiter(http.HandlerFunc(consoleHandler.HandleListClients)))
+	mux.Handle("/console/me/connections", authLimiter(http.HandlerFunc(consoleHandler.HandleListConnections)))
+	mux.Handle("/console/me/connections/{client_id}", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeConnection)))
+	mux.Handle("/console/me/sessions", authLimiter(http.HandlerFunc(consoleHandler.HandleListSessions)))
+	mux.Handle("/console/me/sessions/{id}", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeSession)))
+	mux.Handle("/console/me/sessions/revoke-others", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeOtherSessions)))
+	mux.Handle("/console/me/audit-log", authLimiter(http.HandlerFunc(consoleHandler.HandleGetAuditLog)))
+}
+
+func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool, metrics *observability.Metrics) {
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"healthy"}`))
+	})
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if isShuttingDown.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"status":"shutting down"}`))
+			return
+		}
+		if err := db.PingContext(r.Context()); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"status":"not ready"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ready"}`))
+	})
+	mux.Handle("/metrics", metrics.Handler())
+}
+
+func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *observability.HTTPMetrics, inflightRequests *int64) (*http.Server, string) {
+	addr := fmt.Sprintf(":%d", cfg.Port)
+	observedHandler := httpMetrics.Middleware(mux)
+	trackedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(inflightRequests, 1)
+		defer atomic.AddInt64(inflightRequests, -1)
+		observedHandler.ServeHTTP(w, r)
+	})
+
+	return &http.Server{
+		Addr:              addr,
+		Handler:           trackedHandler,
+		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
+		ReadTimeout:       cfg.HTTPReadTimeout,
+		WriteTimeout:      cfg.HTTPWriteTimeout,
+		IdleTimeout:       cfg.HTTPIdleTimeout,
+	}, addr
+}
+
+func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration, metrics service.CleanupMetricsRecorder) context.CancelFunc {
+	cleanupRunner := storage.NewCleanupRunner(db)
+	cleanupSvc := service.NewCleanupService(cleanupRunner, clk, 10*time.Minute)
+	cleanupSvc.SetAuditLogPIIRetention(auditLogPIIRetention)
+	cleanupSvc.SetMetricsRecorder(metrics)
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	go cleanupSvc.Start(cleanupCtx)
+	return cleanupCancel
+}
+
+func installGracefulShutdown(srv *http.Server, cfg *config.Config, inflightRequests *int64, cleanupCancel context.CancelFunc, isShuttingDown *atomic.Bool) {
+	go func() {
+		sigCh := make(chan os.Signal, 2)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		isShuttingDown.Store(true)
+		slog.Info("shutdown signal received", "inflight_requests", atomic.LoadInt64(inflightRequests))
+
+		go func() {
+			<-sigCh
+			slog.Warn("second shutdown signal received; forcing close")
+			_ = srv.Close()
+		}()
+
+		cleanupCancel()
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			slog.Error("graceful shutdown failed", "error", err)
+		}
+		signal.Stop(sigCh)
+		slog.Info("shutdown completed", "inflight_requests", atomic.LoadInt64(inflightRequests))
+	}()
+}
+
+// writeInvalidTargetError writes the canonical OAuth invalid_target error
+// JSON body for HTTP-layer rejections (e.g. duplicate resource params per
+// authgate's single-audience policy under RFC 8707 §2.2).
+func writeInvalidTargetError(w http.ResponseWriter, cause error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error":             "invalid_target",
+		"error_description": cause.Error(),
+	})
+}

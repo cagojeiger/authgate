@@ -301,9 +301,13 @@ MCP optional adapter
 
 ```text
 cmd/authgate/
-  main.go
+  main.go                   # thin entrypoint
 
 internal/
+  app/                      # 서버 부트스트랩 / 런타임 wiring
+    app.go                  # config/db/storage/provider/service/handler 조립
+    routes_test.go          # route wiring regression tests
+
   config/                   # 환경변수/설정 로딩
 
   service/                  # 채널별 비즈니스 로직 (built-in adapter 포함)
