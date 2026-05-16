@@ -305,7 +305,12 @@ cmd/authgate/
 
 internal/
   app/                      # 서버 부트스트랩 / 런타임 wiring
-    app.go                  # config/db/storage/provider/service/handler 조립
+    app.go                  # Run entrypoint, 최상위 wiring 순서
+    config.go               # config load + DB connection setup
+    storage_wiring.go       # Storage 생성, signing key, client config, MCP policy wiring
+    oidc.go                 # zitadel/oidc OP + upstream IdP provider wiring
+    routes.go               # protocol/adapter/health/metrics route registration
+    server.go               # HTTP server, cleanup service, graceful shutdown
     routes_test.go          # route wiring regression tests
 
   config/                   # 환경변수/설정 로딩
