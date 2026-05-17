@@ -12,8 +12,8 @@ import (
 	"github.com/kangheeyong/authgate/internal/config"
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/middleware"
-	"github.com/kangheeyong/authgate/internal/observability"
 	"github.com/kangheeyong/authgate/internal/storage"
+	"github.com/kangheeyong/authgate/internal/telemetry"
 )
 
 func registerRoutes(
@@ -27,7 +27,7 @@ func registerRoutes(
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
 	consoleHandler *handler.ConsoleHandler,
-	metrics *observability.Metrics,
+	metrics *telemetry.Telemetry,
 	isShuttingDown *atomic.Bool,
 ) {
 	registerOAuthMetadataRoute(mux, cfg)
@@ -152,7 +152,7 @@ func registerAuthgateRoutes(
 	mux.Handle("/console/me/audit-log", authLimiter(http.HandlerFunc(consoleHandler.HandleGetAuditLog)))
 }
 
-func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool, metrics *observability.Metrics) {
+func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool, metrics *telemetry.Telemetry) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

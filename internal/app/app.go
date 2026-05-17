@@ -14,8 +14,8 @@ import (
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/middleware"
-	"github.com/kangheeyong/authgate/internal/observability"
 	"github.com/kangheeyong/authgate/internal/service"
+	"github.com/kangheeyong/authgate/internal/telemetry"
 )
 
 // devicePollInterval is the minimum gap between successive device-flow
@@ -76,7 +76,7 @@ func Run() {
 
 	var isShuttingDown atomic.Bool
 	mux := http.NewServeMux()
-	metrics := observability.NewMetrics(db)
+	metrics := telemetry.NewTelemetry(db)
 	store.SetAuditFailureRecorder(metrics.Security)
 	store.SetAuditEventRecorder(metrics.Security)
 	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, metrics, &isShuttingDown)

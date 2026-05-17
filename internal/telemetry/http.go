@@ -1,4 +1,4 @@
-package observability
+package telemetry
 
 import (
 	"log/slog"
@@ -11,13 +11,13 @@ import (
 	"github.com/kangheeyong/authgate/internal/middleware"
 )
 
-type HTTPMetrics struct {
+type HTTPRecorder struct {
 	requestsTotal  *prometheus.CounterVec
 	requestLatency *prometheus.HistogramVec
 	inflight       prometheus.Gauge
 }
 
-func NewHTTPMetrics(reg *prometheus.Registry) *HTTPMetrics {
+func NewHTTPRecorder(reg *prometheus.Registry) *HTTPRecorder {
 	requestsTotal := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "authgate_http_requests_total",
@@ -48,18 +48,18 @@ func NewHTTPMetrics(reg *prometheus.Registry) *HTTPMetrics {
 		inflight,
 	)
 
-	return &HTTPMetrics{
+	return &HTTPRecorder{
 		requestsTotal:  requestsTotal,
 		requestLatency: requestLatency,
 		inflight:       inflight,
 	}
 }
 
-func (m *HTTPMetrics) Middleware(next http.Handler) http.Handler {
+func (rec *HTTPRecorder) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		m.inflight.Inc()
-		defer m.inflight.Dec()
+		rec.inflight.Inc()
+		defer rec.inflight.Dec()
 
 		requestID := middleware.RequestIDFromContext(r.Context())
 
@@ -73,8 +73,8 @@ func (m *HTTPMetrics) Middleware(next http.Handler) http.Handler {
 		}
 
 		durationSec := time.Since(start).Seconds()
-		m.requestsTotal.WithLabelValues(r.Method, route, status).Inc()
-		m.requestLatency.WithLabelValues(r.Method, route, status).Observe(durationSec)
+		rec.requestsTotal.WithLabelValues(r.Method, route, status).Inc()
+		rec.requestLatency.WithLabelValues(r.Method, route, status).Observe(durationSec)
 
 		slog.Info(
 			"http request",

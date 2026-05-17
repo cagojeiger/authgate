@@ -1,4 +1,4 @@
-package observability
+package telemetry
 
 import (
 	"net/http"
@@ -11,14 +11,14 @@ import (
 )
 
 // wrapWithRequestID wraps a handler with RequestIDMiddleware so the context
-// is populated before the observability middleware reads it.
+// is populated before the telemetry middleware reads it.
 func wrapWithRequestID(h http.Handler) http.Handler {
 	return middleware.RequestIDMiddleware(h)
 }
 
 func TestMiddleware_SetsRequestIDAndRecordsMetrics(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	m := NewHTTPMetrics(reg)
+	m := NewHTTPRecorder(reg)
 	inner := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte("ok"))
@@ -68,7 +68,7 @@ func TestMiddleware_SetsRequestIDAndRecordsMetrics(t *testing.T) {
 }
 
 func TestMiddleware_UsesInboundRequestID(t *testing.T) {
-	m := NewHTTPMetrics(prometheus.NewRegistry())
+	m := NewHTTPRecorder(prometheus.NewRegistry())
 	inner := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -87,7 +87,7 @@ func TestMiddleware_UsesInboundRequestID(t *testing.T) {
 
 func TestMiddleware_RecordsOAuthIntrospectionRouteEvidence(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	m := NewHTTPMetrics(reg)
+	m := NewHTTPRecorder(reg)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth/introspect", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
