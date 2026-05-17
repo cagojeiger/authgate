@@ -309,7 +309,7 @@ internal/
     config.go               # config load + DB connection setup
     storage_wiring.go       # Storage 생성, signing key, client config, MCP policy wiring
     oidc.go                 # zitadel/oidc OP + upstream IdP provider wiring
-    routes.go               # protocol/adapter/health/metrics route registration
+    routes.go               # protocol/adapter/health route registration
     server.go               # HTTP server, cleanup service, graceful shutdown
     routes_test.go          # route wiring regression tests
 
@@ -360,7 +360,6 @@ internal/
   upstream/                 # 외부 IdP 연동
   pages/                    # HTML 템플릿 렌더링
     templates/
-  observability/            # metrics / tracing 보조
   clock/                    # 시간 추상화
   idgen/                    # ID/토큰 생성
 

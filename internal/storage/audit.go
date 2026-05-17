@@ -226,7 +226,6 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 	if metadata != nil {
 		marshaled, err := json.Marshal(metadata)
 		if err != nil {
-			s.auditFailureRec.RecordWriteFailure("marshal")
 			slog.ErrorContext(ctx, "audit log: marshal metadata",
 				"event_type", eventType,
 				"user_id", userIDLogValue(userID),
@@ -245,7 +244,6 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 		Metadata:  nilIfEmptyBytes(metaJSON),
 		CreatedAt: s.clock.Now(),
 	}); err != nil {
-		s.auditFailureRec.RecordWriteFailure("insert")
 		slog.ErrorContext(ctx, "audit log: insert",
 			"event_type", eventType,
 			"user_id", userIDLogValue(userID),

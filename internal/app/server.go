@@ -14,18 +14,16 @@ import (
 
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/config"
-	"github.com/kangheeyong/authgate/internal/observability"
 	"github.com/kangheeyong/authgate/internal/service"
 	"github.com/kangheeyong/authgate/internal/storage"
 )
 
-func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *observability.HTTPMetrics, inflightRequests *int64) (*http.Server, string) {
+func buildHTTPServer(cfg *config.Config, mux http.Handler, inflightRequests *int64) (*http.Server, string) {
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	observedHandler := httpMetrics.Middleware(mux)
 	trackedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(inflightRequests, 1)
 		defer atomic.AddInt64(inflightRequests, -1)
-		observedHandler.ServeHTTP(w, r)
+		mux.ServeHTTP(w, r)
 	})
 
 	return &http.Server{
@@ -38,11 +36,10 @@ func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *observab
 	}, addr
 }
 
-func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration, metrics service.CleanupMetricsRecorder) context.CancelFunc {
+func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration) context.CancelFunc {
 	cleanupRunner := storage.NewCleanupRunner(db)
 	cleanupSvc := service.NewCleanupService(cleanupRunner, clk, 10*time.Minute)
 	cleanupSvc.SetAuditLogPIIRetention(auditLogPIIRetention)
-	cleanupSvc.SetMetricsRecorder(metrics)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go cleanupSvc.Start(cleanupCtx)
 	return cleanupCancel

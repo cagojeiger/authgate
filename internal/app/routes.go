@@ -12,7 +12,6 @@ import (
 	"github.com/kangheeyong/authgate/internal/config"
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/middleware"
-	"github.com/kangheeyong/authgate/internal/observability"
 	"github.com/kangheeyong/authgate/internal/storage"
 )
 
@@ -27,13 +26,12 @@ func registerRoutes(
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
 	consoleHandler *handler.ConsoleHandler,
-	metrics *observability.Metrics,
 	isShuttingDown *atomic.Bool,
 ) {
 	registerOAuthMetadataRoute(mux, cfg)
 	registerProviderRoutes(mux, cfg, store, provider)
 	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler)
-	registerHealthRoutes(mux, db, isShuttingDown, metrics)
+	registerHealthRoutes(mux, db, isShuttingDown)
 }
 
 func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
@@ -152,7 +150,7 @@ func registerAuthgateRoutes(
 	mux.Handle("/console/me/audit-log", authLimiter(http.HandlerFunc(consoleHandler.HandleGetAuditLog)))
 }
 
-func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool, metrics *observability.Metrics) {
+func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -173,7 +171,6 @@ func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})
-	mux.Handle("/metrics", metrics.Handler())
 }
 
 // writeInvalidTargetError writes the canonical OAuth invalid_target error

@@ -50,18 +50,6 @@ type ResourceBindingPolicy interface {
 	ValidateTokenRequest(ctx context.Context, clientID, storedResource, requestResource string) error
 }
 
-// AuditFailureRecorder receives an event whenever an audit-log write fails so
-// the silent best-effort policy in AuditLog (#208) is still observable via
-// metrics/alerts. main.go wires observability.AuditMetrics; tests can plug a
-// fake recorder. Stages: "marshal" or "insert".
-type AuditFailureRecorder interface {
-	RecordWriteFailure(stage string)
-}
-
-type noopAuditFailureRecorder struct{}
-
-func (noopAuditFailureRecorder) RecordWriteFailure(string) {}
-
 type Storage struct {
 	db              *sql.DB
 	clock           clock.Clock
@@ -86,10 +74,6 @@ type Storage struct {
 	// string falls back to clock-only validation for backward compatibility
 	// with tests that construct Storage without explicit issuer plumbing.
 	issuer string
-	// auditFailureRec receives a signal whenever AuditLog fails to marshal
-	// or insert. Defaults to a no-op in New() so call sites never need a nil
-	// guard; main.go installs observability.AuditMetrics at startup.
-	auditFailureRec AuditFailureRecorder
 }
 
 func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
@@ -101,7 +85,6 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 		accessTokenTTL:     accessTTL,
 		refreshTokenTTL:    refreshTTL,
 		devicePollInterval: 5 * time.Second,
-		auditFailureRec:    noopAuditFailureRecorder{},
 	}
 	s.clientPolicy = NewCoreClientResolutionPolicy(s)
 	s.resourcePolicy = NewCoreResourceBindingPolicy()
@@ -114,17 +97,6 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 // both the response shape and the server-side throttle.
 func (s *Storage) SetDevicePollInterval(d time.Duration) {
 	s.devicePollInterval = d
-}
-
-// SetAuditFailureRecorder installs a metric recorder that AuditLog invokes
-// when a write fails. main.go wires observability.AuditMetrics. Passing nil
-// resets to the no-op recorder so the call site contract holds either way.
-func (s *Storage) SetAuditFailureRecorder(r AuditFailureRecorder) {
-	if r == nil {
-		s.auditFailureRec = noopAuditFailureRecorder{}
-		return
-	}
-	s.auditFailureRec = r
 }
 
 // SetSigningKey sets the current RSA signing key used for JWT issuance.

@@ -14,7 +14,6 @@ import (
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/middleware"
-	"github.com/kangheeyong/authgate/internal/observability"
 	"github.com/kangheeyong/authgate/internal/service"
 )
 
@@ -76,10 +75,7 @@ func Run() {
 
 	var isShuttingDown atomic.Bool
 	mux := http.NewServeMux()
-	metrics := observability.NewMetrics(db)
-	store.SetAuditFailureRecorder(metrics.Security)
-	store.SetAuditEventRecorder(metrics.Security)
-	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, metrics, &isShuttingDown)
+	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, &isShuttingDown)
 
 	trustedProxies, err := clientinfo.ParseTrustedProxies(cfg.TrustedProxies)
 	if err != nil {
@@ -95,9 +91,9 @@ func Run() {
 	requestIDHandler := middleware.RequestIDMiddleware(corsHandler)
 
 	var inflightRequests int64
-	srv, addr := buildHTTPServer(cfg, requestIDHandler, metrics.HTTP, &inflightRequests)
+	srv, addr := buildHTTPServer(cfg, requestIDHandler, &inflightRequests)
 
-	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention, metrics.Security)
+	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention)
 	defer cleanupCancel()
 	installGracefulShutdown(srv, cfg, &inflightRequests, cleanupCancel, &isShuttingDown)
 
