@@ -85,25 +85,23 @@ docs/
   architecture/       component boundaries
   spec/               product and system specs
   tests/              test design documents
-monitoring/
-  prometheus/         local scrape config for Docker Compose
-  grafana/            local datasource and dashboard provisioning
 ```
 
 ## Quick Start (Docker Compose)
 
 ```bash
-# Start the full local stack
-make stack
+# Start infrastructure (DB + mock OIDC IdP)
+make infra
 
-# Open the sample app: http://localhost:9090
-# Prometheus: http://localhost:9092
-# Grafana: http://localhost:3001/d/authgate-red-use/authgate-operations-overview
+# Start authgate (terminal 1)
+make dev-authgate
+
+# Start sample webapp (terminal 2)
+make dev-sample-app
+
+# Open http://localhost:9090 in browser
 # Device flow: cd examples/cli && go run .
 ```
-
-For split-terminal local development, use `make infra`, `make dev-authgate`,
-and `make dev-sample-app`.
 
 ## Running (manual)
 
