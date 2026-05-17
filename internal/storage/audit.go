@@ -226,7 +226,6 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 	if metadata != nil {
 		marshaled, err := json.Marshal(metadata)
 		if err != nil {
-			s.auditFailureRec.RecordWriteFailure("marshal")
 			slog.ErrorContext(ctx, "audit log: marshal metadata",
 				"event_type", eventType,
 				"user_id", userIDLogValue(userID),
@@ -245,7 +244,6 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 		Metadata:  nilIfEmptyBytes(metaJSON),
 		CreatedAt: s.clock.Now(),
 	}); err != nil {
-		s.auditFailureRec.RecordWriteFailure("insert")
 		slog.ErrorContext(ctx, "audit log: insert",
 			"event_type", eventType,
 			"user_id", userIDLogValue(userID),
@@ -253,7 +251,6 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 		)
 		return
 	}
-	s.auditEventRec.RecordEvent(eventType, auditMetricChannel(metadata))
 }
 
 func sanitizeAuditMetadata(ctx context.Context, eventType string, metadata map[string]any) map[string]any {
@@ -289,28 +286,6 @@ func sanitizeAuditMetadata(ctx context.Context, eventType string, metadata map[s
 		return nil
 	}
 	return sanitized
-}
-
-func auditMetricChannel(metadata map[string]any) string {
-	if channel, ok := stringMetadataValue(metadata, "channel"); ok {
-		return channel
-	}
-	if channel, ok := stringMetadataValue(metadata, "actual_channel"); ok {
-		return channel
-	}
-	return "unknown"
-}
-
-func stringMetadataValue(metadata map[string]any, key string) (string, bool) {
-	value, ok := metadata[key]
-	if !ok {
-		return "", false
-	}
-	text, ok := value.(string)
-	if !ok || text == "" {
-		return "", false
-	}
-	return text, true
 }
 
 func userIDLogValue(userID *string) string {

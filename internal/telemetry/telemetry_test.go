@@ -1,26 +1,35 @@
 package telemetry
 
 import (
-	"database/sql"
+	"net/http/httptest"
+	"strings"
 	"testing"
-
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func TestNewTelemetry_RegistersSharedCollectors(t *testing.T) {
-	db, err := sql.Open("pgx", "postgres://localhost:1/authgate")
-	if err != nil {
-		t.Fatalf("open db: %v", err)
+func TestNewRuntimeHandler_ExposesOnlyRuntimeCollectors(t *testing.T) {
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+
+	NewRuntimeHandler().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	for _, want := range []string{
+		"go_goroutines",
+		"process_",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("metrics body missing %q", want)
+		}
 	}
-	defer db.Close()
-	db.SetMaxOpenConns(7)
-
-	m := NewTelemetry(db)
-	m.Security.RecordEvent("auth.inactive_user", "browser")
-
-	assertCounterValue(t, m.Registry(), "authgate_audit_events_total", map[string]string{
-		"event_type": "auth.inactive_user",
-		"channel":    "browser",
-	}, 1)
-	assertGaugeValue(t, m.Registry(), "authgate_db_connections_max_open", nil, 7)
+	for _, forbidden := range []string{
+		"authgate_http_requests_total",
+		"authgate_audit_events_total",
+		"authgate_audit_log_write_failures_total",
+		"authgate_cleanup_runs_total",
+		"authgate_db_connections_open",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("metrics body contains custom metric %q", forbidden)
+		}
+	}
 }

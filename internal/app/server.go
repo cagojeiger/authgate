@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,13 +21,12 @@ import (
 	"github.com/kangheeyong/authgate/internal/telemetry"
 )
 
-func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *telemetry.HTTPRecorder, inflightRequests *int64) (*http.Server, string) {
+func buildHTTPServer(cfg *config.Config, mux http.Handler, inflightRequests *int64) (*http.Server, string) {
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	observedHandler := httpMetrics.Middleware(mux)
 	trackedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(inflightRequests, 1)
 		defer atomic.AddInt64(inflightRequests, -1)
-		observedHandler.ServeHTTP(w, r)
+		mux.ServeHTTP(w, r)
 	})
 
 	return &http.Server{
@@ -38,14 +39,45 @@ func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *telemetr
 	}, addr
 }
 
-func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration, metrics service.CleanupMetricsRecorder) context.CancelFunc {
+func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration) context.CancelFunc {
 	cleanupRunner := storage.NewCleanupRunner(db)
 	cleanupSvc := service.NewCleanupService(cleanupRunner, clk, 10*time.Minute)
 	cleanupSvc.SetAuditLogPIIRetention(auditLogPIIRetention)
-	cleanupSvc.SetMetricsRecorder(metrics)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go cleanupSvc.Start(cleanupCtx)
 	return cleanupCancel
+}
+
+func startMetricsServer(cfg *config.Config) context.CancelFunc {
+	if cfg.MetricsAddr == "" {
+		return func() {}
+	}
+	ln, err := net.Listen("tcp", cfg.MetricsAddr)
+	if err != nil {
+		log.Fatalf("metrics listen: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", telemetry.NewRuntimeHandler())
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
+		ReadTimeout:       cfg.HTTPReadTimeout,
+		WriteTimeout:      cfg.HTTPWriteTimeout,
+		IdleTimeout:       cfg.HTTPIdleTimeout,
+	}
+	go func() {
+		slog.Info("metrics server starting", "addr", cfg.MetricsAddr)
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			slog.Error("metrics server failed", "error", err)
+		}
+	}()
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			slog.Error("metrics server shutdown failed", "error", err)
+		}
+	}
 }
 
 func installGracefulShutdown(srv *http.Server, cfg *config.Config, inflightRequests *int64, cleanupCancel context.CancelFunc, isShuttingDown *atomic.Bool) {

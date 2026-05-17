@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"slices"
@@ -47,6 +48,7 @@ type Config struct {
 	HTTPWriteTimeout        time.Duration
 	HTTPIdleTimeout         time.Duration
 	ShutdownTimeout         time.Duration
+	MetricsAddr             string
 	RateLimitTokenRPS       float64
 	RateLimitTokenBurst     int
 	RateLimitAuthRPS        float64
@@ -92,6 +94,7 @@ func Load() (*Config, error) {
 		HTTPWriteTimeout:        time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,
 		HTTPIdleTimeout:         time.Duration(envInt("HTTP_IDLE_TIMEOUT_SEC", 60)) * time.Second,
 		ShutdownTimeout:         time.Duration(envInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second,
+		MetricsAddr:             os.Getenv("METRICS_ADDR"),
 		RateLimitTokenRPS:       envFloat("RATE_LIMIT_TOKEN_RPS", 30),
 		RateLimitTokenBurst:     envInt("RATE_LIMIT_TOKEN_BURST", 60),
 		RateLimitAuthRPS:        envFloat("RATE_LIMIT_AUTH_RPS", 10),
@@ -143,6 +146,11 @@ func Load() (*Config, error) {
 	}
 	if c.DBMaxOpenConns > 0 && c.DBMaxIdleConns > c.DBMaxOpenConns {
 		c.DBMaxIdleConns = c.DBMaxOpenConns
+	}
+	if c.MetricsAddr != "" {
+		if _, _, err := net.SplitHostPort(c.MetricsAddr); err != nil {
+			return nil, fmt.Errorf("METRICS_ADDR must be host:port when set: %w", err)
+		}
 	}
 
 	if len(c.OIDCIssuerHostAllowlist) > 0 {

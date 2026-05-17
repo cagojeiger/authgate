@@ -13,6 +13,7 @@ type cleanupRunnerStub struct {
 	lockAcquired    bool
 	lockErr         error
 	revokedErr      error
+	lockFnErr       error
 	lockCalls       int
 	cleanupCallHits int
 }
@@ -25,7 +26,8 @@ func (s *cleanupRunnerStub) WithExclusiveLock(ctx context.Context, fn func(conte
 	if !s.lockAcquired {
 		return false, nil
 	}
-	return true, fn(ctx)
+	s.lockFnErr = fn(ctx)
+	return true, s.lockFnErr
 }
 
 func (s *cleanupRunnerStub) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
@@ -96,36 +98,14 @@ func TestCleanupRunAll_ReleasesLockAfterRun(t *testing.T) {
 	}
 }
 
-func TestCleanupRunAll_RecordsSuccessMetric(t *testing.T) {
-	runner := &cleanupRunnerStub{lockAcquired: true}
-	rec := &cleanupMetricsRecorderStub{}
+func TestCleanupRunAll_ReturnsStepErrorsToLockRunner(t *testing.T) {
+	stepErr := errors.New("cleanup failed")
+	runner := &cleanupRunnerStub{lockAcquired: true, revokedErr: stepErr}
 	svc := NewCleanupService(runner, &clock.FixedClock{T: time.Now()}, time.Minute)
-	svc.SetMetricsRecorder(rec)
 
 	svc.RunOnce(context.Background())
 
-	if got := rec.results; len(got) != 1 || got[0] != "success" {
-		t.Fatalf("cleanup metric results = %v, want [success]", got)
+	if !errors.Is(runner.lockFnErr, stepErr) {
+		t.Fatalf("lock fn error = %v, want %v", runner.lockFnErr, stepErr)
 	}
-}
-
-func TestCleanupRunAll_RecordsFailureMetric(t *testing.T) {
-	runner := &cleanupRunnerStub{lockAcquired: true, revokedErr: errors.New("cleanup failed")}
-	rec := &cleanupMetricsRecorderStub{}
-	svc := NewCleanupService(runner, &clock.FixedClock{T: time.Now()}, time.Minute)
-	svc.SetMetricsRecorder(rec)
-
-	svc.RunOnce(context.Background())
-
-	if got := rec.results; len(got) != 1 || got[0] != "failure" {
-		t.Fatalf("cleanup metric results = %v, want [failure]", got)
-	}
-}
-
-type cleanupMetricsRecorderStub struct {
-	results []string
-}
-
-func (s *cleanupMetricsRecorderStub) RecordCleanupRun(result string) {
-	s.results = append(s.results, result)
 }

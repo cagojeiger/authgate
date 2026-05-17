@@ -3,6 +3,7 @@ package app
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/kangheeyong/authgate/internal/config"
@@ -16,6 +17,19 @@ func rateLimitTestConfig() *config.Config {
 		RateLimitAuthBurst:  1,
 		RateLimitTokenRPS:   1,
 		RateLimitTokenBurst: 1,
+	}
+}
+
+func TestRegisterHealthRoutes_DoesNotExposeMetricsOnPublicMux(t *testing.T) {
+	mux := http.NewServeMux()
+	registerHealthRoutes(mux, nil, &atomic.Bool{})
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /metrics status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
 

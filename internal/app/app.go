@@ -5,6 +5,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/middleware"
 	"github.com/kangheeyong/authgate/internal/service"
-	"github.com/kangheeyong/authgate/internal/telemetry"
 )
 
 // devicePollInterval is the minimum gap between successive device-flow
@@ -76,10 +76,7 @@ func Run() {
 
 	var isShuttingDown atomic.Bool
 	mux := http.NewServeMux()
-	metrics := telemetry.NewTelemetry(db)
-	store.SetAuditFailureRecorder(metrics.Security)
-	store.SetAuditEventRecorder(metrics.Security)
-	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, metrics, &isShuttingDown)
+	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler, &isShuttingDown)
 
 	trustedProxies, err := clientinfo.ParseTrustedProxies(cfg.TrustedProxies)
 	if err != nil {
@@ -95,11 +92,19 @@ func Run() {
 	requestIDHandler := middleware.RequestIDMiddleware(corsHandler)
 
 	var inflightRequests int64
-	srv, addr := buildHTTPServer(cfg, requestIDHandler, metrics.HTTP, &inflightRequests)
+	srv, addr := buildHTTPServer(cfg, requestIDHandler, &inflightRequests)
 
-	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention, metrics.Security)
-	defer cleanupCancel()
-	installGracefulShutdown(srv, cfg, &inflightRequests, cleanupCancel, &isShuttingDown)
+	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention)
+	metricsCancel := startMetricsServer(cfg)
+	var stopOnce sync.Once
+	stopBackground := func() {
+		stopOnce.Do(func() {
+			cleanupCancel()
+			metricsCancel()
+		})
+	}
+	defer stopBackground()
+	installGracefulShutdown(srv, cfg, &inflightRequests, stopBackground, &isShuttingDown)
 
 	slog.Info("authgate starting", "addr", addr, "dev", cfg.DevMode, "mcp", cfg.EnableMCP, "issuer", cfg.OIDCIssuerURL, "provider", browserProvider.Name())
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

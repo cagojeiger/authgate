@@ -50,29 +50,6 @@ type ResourceBindingPolicy interface {
 	ValidateTokenRequest(ctx context.Context, clientID, storedResource, requestResource string) error
 }
 
-// AuditFailureRecorder receives an event whenever an audit-log write fails so
-// the silent best-effort policy in AuditLog (#208) is still observable via
-// metrics/alerts. main.go wires telemetry.SecurityRecorder; tests can plug a
-// fake recorder. Stages: "marshal" or "insert".
-type AuditFailureRecorder interface {
-	RecordWriteFailure(stage string)
-}
-
-// AuditEventRecorder receives an event after an audit-log row is successfully
-// persisted. main.go wires telemetry.SecurityRecorder so security-sensitive
-// event bursts are visible from /metrics.
-type AuditEventRecorder interface {
-	RecordEvent(eventType, channel string)
-}
-
-type noopAuditFailureRecorder struct{}
-
-func (noopAuditFailureRecorder) RecordWriteFailure(string) {}
-
-type noopAuditEventRecorder struct{}
-
-func (noopAuditEventRecorder) RecordEvent(string, string) {}
-
 type Storage struct {
 	db              *sql.DB
 	clock           clock.Clock
@@ -97,13 +74,6 @@ type Storage struct {
 	// string falls back to clock-only validation for backward compatibility
 	// with tests that construct Storage without explicit issuer plumbing.
 	issuer string
-	// auditFailureRec receives a signal whenever AuditLog fails to marshal
-	// or insert. Defaults to a no-op in New() so call sites never need a nil
-	// guard; main.go installs telemetry.SecurityRecorder at startup.
-	auditFailureRec AuditFailureRecorder
-	// auditEventRec receives a signal after a successful AuditLog insert.
-	// Defaults to a no-op for tests that construct Storage directly.
-	auditEventRec AuditEventRecorder
 }
 
 func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
@@ -115,8 +85,6 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 		accessTokenTTL:     accessTTL,
 		refreshTokenTTL:    refreshTTL,
 		devicePollInterval: 5 * time.Second,
-		auditFailureRec:    noopAuditFailureRecorder{},
-		auditEventRec:      noopAuditEventRecorder{},
 	}
 	s.clientPolicy = NewCoreClientResolutionPolicy(s)
 	s.resourcePolicy = NewCoreResourceBindingPolicy()
@@ -129,27 +97,6 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 // both the response shape and the server-side throttle.
 func (s *Storage) SetDevicePollInterval(d time.Duration) {
 	s.devicePollInterval = d
-}
-
-// SetAuditFailureRecorder installs a metric recorder that AuditLog invokes
-// when a write fails. main.go wires telemetry.SecurityRecorder. Passing nil
-// resets to the no-op recorder so the call site contract holds either way.
-func (s *Storage) SetAuditFailureRecorder(r AuditFailureRecorder) {
-	if r == nil {
-		s.auditFailureRec = noopAuditFailureRecorder{}
-		return
-	}
-	s.auditFailureRec = r
-}
-
-// SetAuditEventRecorder installs a metric recorder that AuditLog invokes after
-// a successful row insert. Passing nil resets to the no-op recorder.
-func (s *Storage) SetAuditEventRecorder(r AuditEventRecorder) {
-	if r == nil {
-		s.auditEventRec = noopAuditEventRecorder{}
-		return
-	}
-	s.auditEventRec = r
 }
 
 // SetSigningKey sets the current RSA signing key used for JWT issuance.
