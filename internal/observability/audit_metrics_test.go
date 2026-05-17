@@ -1,4 +1,4 @@
-package telemetry
+package observability
 
 import (
 	"testing"
@@ -7,9 +7,9 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-func TestSecurityRecorder_RecordSecurityCounters(t *testing.T) {
+func TestSecurityMetrics_RecordSecurityCounters(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	m := NewSecurityRecorder(reg)
+	m := NewSecurityMetrics(reg)
 
 	m.RecordEvent("auth.inactive_user", "browser")
 	m.RecordWriteFailure("insert")

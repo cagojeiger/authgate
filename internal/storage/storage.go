@@ -52,14 +52,14 @@ type ResourceBindingPolicy interface {
 
 // AuditFailureRecorder receives an event whenever an audit-log write fails so
 // the silent best-effort policy in AuditLog (#208) is still observable via
-// metrics/alerts. main.go wires telemetry.SecurityRecorder; tests can plug a
+// metrics/alerts. main.go wires observability.SecurityMetrics; tests can plug a
 // fake recorder. Stages: "marshal" or "insert".
 type AuditFailureRecorder interface {
 	RecordWriteFailure(stage string)
 }
 
 // AuditEventRecorder receives an event after an audit-log row is successfully
-// persisted. main.go wires telemetry.SecurityRecorder so security-sensitive
+// persisted. main.go wires observability.SecurityMetrics so security-sensitive
 // event bursts are visible from /metrics.
 type AuditEventRecorder interface {
 	RecordEvent(eventType, channel string)
@@ -99,7 +99,7 @@ type Storage struct {
 	issuer string
 	// auditFailureRec receives a signal whenever AuditLog fails to marshal
 	// or insert. Defaults to a no-op in New() so call sites never need a nil
-	// guard; main.go installs telemetry.SecurityRecorder at startup.
+	// guard; main.go installs observability.SecurityMetrics at startup.
 	auditFailureRec AuditFailureRecorder
 	// auditEventRec receives a signal after a successful AuditLog insert.
 	// Defaults to a no-op for tests that construct Storage directly.
@@ -132,7 +132,7 @@ func (s *Storage) SetDevicePollInterval(d time.Duration) {
 }
 
 // SetAuditFailureRecorder installs a metric recorder that AuditLog invokes
-// when a write fails. main.go wires telemetry.SecurityRecorder. Passing nil
+// when a write fails. main.go wires observability.SecurityMetrics. Passing nil
 // resets to the no-op recorder so the call site contract holds either way.
 func (s *Storage) SetAuditFailureRecorder(r AuditFailureRecorder) {
 	if r == nil {

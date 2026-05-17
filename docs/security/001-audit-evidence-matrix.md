@@ -79,7 +79,7 @@ audit_log
 | KR-PIPA-SEC-002 | 불필요한 PII/secret이 audit metadata에 저장되지 않는가 | event별 metadata allowlist | `internal/storage/audit.go` | `internal/storage/audit_unit_test.go` | DONE |
 | KR-PIPA-DEL-001 | 사용자 삭제/익명화 흐름을 추적할 수 있는가 | `auth.deletion_requested`, `auth.deletion_cancelled`, `auth.deletion_completed` | `internal/service/account.go`, `internal/service/login.go`, `internal/storage/cleanup_runner.go` | `internal/service/audit_test.go`, `internal/service/cleanup_test.go` | DONE |
 | KR-PIPA-INC-001 | 침해 의심 이벤트를 조사할 수 있는가 | refresh token reuse와 family revoke 이벤트 | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
-| KR-PIPA-INC-002 | audit log write 실패를 감지하는가 | `authgate_audit_log_write_failures_total` metric | `internal/telemetry/security.go`, `docs/spec/009-operations.md` | `internal/storage/audit_failure_unit_test.go` | DONE |
+| KR-PIPA-INC-002 | audit log write 실패를 감지하는가 | `authgate_audit_log_write_failures_total` metric | `internal/observability/audit_metrics.go`, `docs/spec/009-operations.md` | `internal/storage/audit_failure_unit_test.go` | DONE |
 | KR-COMM-001 | IP/UA 등 접속 메타데이터를 추적할 수 있는가 | `audit_log.ip_address`, `audit_log.user_agent` | `internal/storage/audit.go`, `internal/clientinfo/*` | `internal/clientinfo/clientinfo_test.go` | DONE |
 | SOC2-CC6-001 | 민감한 console 조회 접근을 추적하는가 | console read/denied access audit events | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 | SOC2-CC6-002 | session/connection revoke 같은 권한성 작업을 추적하는가 | `auth.connection_revoked`, `auth.session_revoked`, `auth.other_sessions_revoked` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |

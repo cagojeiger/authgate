@@ -22,7 +22,7 @@ type cleanupRunner interface {
 }
 
 // CleanupMetricsRecorder receives a signal when a cleanup run completes or
-// fails before completion. main.go wires telemetry.SecurityRecorder.
+// fails before completion. main.go wires observability.SecurityMetrics.
 type CleanupMetricsRecorder interface {
 	RecordCleanupRun(result string)
 }

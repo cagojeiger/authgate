@@ -1,4 +1,4 @@
-package telemetry
+package observability
 
 import (
 	"database/sql"
@@ -6,11 +6,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// DBCollectors registers sql.DB pool gauges/counters into the shared /metrics
+// DBMetrics registers sql.DB pool gauges/counters into the shared /metrics
 // registry. Values are sampled from db.Stats() at scrape time.
-type DBCollectors struct{}
+type DBMetrics struct{}
 
-func NewDBCollectors(reg *prometheus.Registry, db *sql.DB) *DBCollectors {
+func NewDBMetrics(reg *prometheus.Registry, db *sql.DB) *DBMetrics {
 	reg.MustRegister(
 		prometheus.NewGaugeFunc(
 			prometheus.GaugeOpts{
@@ -55,5 +55,5 @@ func NewDBCollectors(reg *prometheus.Registry, db *sql.DB) *DBCollectors {
 			func() float64 { return db.Stats().WaitDuration.Seconds() },
 		),
 	)
-	return &DBCollectors{}
+	return &DBMetrics{}
 }

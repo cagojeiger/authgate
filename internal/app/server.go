@@ -14,12 +14,12 @@ import (
 
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/config"
+	"github.com/kangheeyong/authgate/internal/observability"
 	"github.com/kangheeyong/authgate/internal/service"
 	"github.com/kangheeyong/authgate/internal/storage"
-	"github.com/kangheeyong/authgate/internal/telemetry"
 )
 
-func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *telemetry.HTTPRecorder, inflightRequests *int64) (*http.Server, string) {
+func buildHTTPServer(cfg *config.Config, mux http.Handler, httpMetrics *observability.HTTPMetrics, inflightRequests *int64) (*http.Server, string) {
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	observedHandler := httpMetrics.Middleware(mux)
 	trackedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -360,11 +360,11 @@ internal/
   upstream/                 # 외부 IdP 연동
   pages/                    # HTML 템플릿 렌더링
     templates/
-  telemetry/                # metrics / telemetry 보조
-    telemetry.go            # Prometheus registry 소유 + /metrics handler
-    http.go                 # HTTP RED metrics (rate/error/duration/inflight)
-    security.go             # security/audit/cleanup metrics
-    db.go                   # DB pool USE metrics
+  observability/            # metrics / tracing 보조
+    metrics.go              # Prometheus registry 소유 + /metrics handler
+    http_metrics.go         # HTTP RED metrics (rate/error/duration/inflight)
+    audit_metrics.go        # security/audit/cleanup metrics
+    db_metrics.go           # DB pool USE metrics
   clock/                    # 시간 추상화
   idgen/                    # ID/토큰 생성
 
