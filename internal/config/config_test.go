@@ -19,7 +19,7 @@ func clearEnv() {
 		"DB_CONN_MAX_LIFETIME_SEC", "DB_CONN_MAX_IDLE_TIME_SEC",
 		"HTTP_READ_HEADER_TIMEOUT_SEC", "HTTP_READ_TIMEOUT_SEC",
 		"HTTP_WRITE_TIMEOUT_SEC", "HTTP_IDLE_TIMEOUT_SEC",
-		"SHUTDOWN_TIMEOUT_SEC",
+		"SHUTDOWN_TIMEOUT_SEC", "METRICS_ADDR",
 	} {
 		os.Unsetenv(key)
 	}
@@ -169,6 +169,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.ShutdownTimeout.Seconds() != 10 {
 		t.Errorf("ShutdownTimeout = %v, want 10s", cfg.ShutdownTimeout)
 	}
+	if cfg.MetricsAddr != "" {
+		t.Errorf("MetricsAddr = %q, want empty default", cfg.MetricsAddr)
+	}
 	if cfg.DBMaxOpenConns != 25 {
 		t.Errorf("DBMaxOpenConns = %d, want 25", cfg.DBMaxOpenConns)
 	}
@@ -180,6 +183,34 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.DBConnMaxIdleTime.Seconds() != 120 {
 		t.Errorf("DBConnMaxIdleTime = %v, want 120s", cfg.DBConnMaxIdleTime)
+	}
+}
+
+func TestLoad_MetricsAddrOptIn(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("METRICS_ADDR", "127.0.0.1:9090")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.MetricsAddr != "127.0.0.1:9090" {
+		t.Fatalf("MetricsAddr = %q, want 127.0.0.1:9090", cfg.MetricsAddr)
+	}
+}
+
+func TestLoad_InvalidMetricsAddrFails(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("METRICS_ADDR", "127.0.0.1")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid METRICS_ADDR")
+	}
+	if !strings.Contains(err.Error(), "METRICS_ADDR") {
+		t.Errorf("error = %v, want one mentioning METRICS_ADDR", err)
 	}
 }
 

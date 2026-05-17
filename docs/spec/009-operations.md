@@ -66,6 +66,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `HTTP_WRITE_TIMEOUT_SEC` | X | `30` | HTTP Write timeout(초) |
 | `HTTP_IDLE_TIMEOUT_SEC` | X | `60` | HTTP Idle timeout(초) |
 | `SHUTDOWN_TIMEOUT_SEC` | X | `10` | graceful shutdown timeout(초) |
+| `METRICS_ADDR` | X | — | 별도 metrics listener 주소. 비워두면 disabled. 설정 시 Go runtime/process Prometheus metrics만 노출. 운영에서는 `127.0.0.1:9090` 또는 private network address 사용. |
 | `DEV_MODE` | X | `false` | true 시: insecure 허용, cookie Secure=false |
 | `ENABLE_MCP` | X | `true` | MCP optional adapter 활성화 여부 (`/mcp/*`, CIMD/resource binding) |
 | `CLIENT_CONFIG` | X | `/etc/authgate/clients.yaml` | 클라이언트 설정 YAML 파일 경로 (없으면 무시) |
@@ -316,7 +317,12 @@ SELECT * FROM audit_log WHERE event_type = 'auth.inactive_user' ORDER BY created
 |-----------|------|----------|
 | `GET /health` | liveness (프로세스 살아있나) | 200 `{"status":"healthy"}` |
 | `GET /ready` | readiness (DB 연결 포함) | 200 `{"status":"ready"}` / 실패 시 503 `{"status":"not ready"}` |
-| `GET /metrics` | Prometheus 메트릭 수집 | 200 (text exposition) |
+
+`/metrics`는 public authgate listener에 등록하지 않는다. `METRICS_ADDR`가
+비어 있으면 기본값은 disabled이며, 설정한 경우에만 별도 listener에서
+Go runtime/process Prometheus metrics를 노출한다. 운영에서는
+`127.0.0.1:9090` 또는 private network address처럼 외부 인터넷에서
+접근할 수 없는 주소를 사용한다.
 
 ### 감시해야 할 것
 
@@ -326,68 +332,17 @@ SELECT * FROM audit_log WHERE event_type = 'auth.inactive_user' ORDER BY created
 | cleanup 고루틴 | audit_log에 `auth.deletion_completed` 확인 | 30일+ pending_deletion 유저 존재 |
 | signing_key | JWKS 엔드포인트 체크 | 키 0개 반환 |
 | 디스크 | signing_key.pem 파일 존재 확인 | 파일 없음 → 재시작마다 키 변경 |
-| token introspection | `authgate_http_requests_total{route="/oauth/introspect"}` | 4xx/5xx 급증 또는 비정상 트래픽 급증 |
-| audit 쓰기 실패 | `authgate_audit_log_write_failures_total` counter | 5분 내 증가 → 침해 탐지 인프라 silent broken (#208) |
-
-### token introspection 증적
-
-`/oauth/introspect`는 리소스 서버가 access token 상태를 자주 검증하는 고빈도 endpoint다. 호출마다 `audit_log` row를 만들면 저장량과 PII 노출면이 커지므로, 행 단위 감사 로그 대신 HTTP metric을 운영 증적으로 사용한다.
-
-| Metric | Labels | 설명 |
-|--------|--------|------|
-| `authgate_http_requests_total` | `method="POST", route="/oauth/introspect", status` | introspection 요청 수와 결과 상태 |
-| `authgate_http_request_duration_seconds` | `method="POST", route="/oauth/introspect", status` | introspection 지연 시간 |
+| runtime/process | `METRICS_ADDR` opt-in 후 내부 Prometheus scrape | goroutine, heap, GC, process resource 급증 |
+| audit 쓰기 실패 | `slog.Error` 로그 (`audit log: marshal metadata`, `audit log: insert`) | 침해 탐지 인프라 silent broken (#208) |
 
 ### audit_log 쓰기 실패 모니터링 (#208)
 
-`Storage.AuditLog`는 best-effort write이므로 marshal/insert 실패가 비즈니스 트랜잭션을 차단하지 않는다. 그러나 감사 로그가 silent하게 누락되면 침해 탐지 능력 자체가 무력화되므로 Prometheus counter로 노출되어 alert으로 감지한다.
+`Storage.AuditLog`는 best-effort write이므로 marshal/insert 실패가 비즈니스 트랜잭션을 차단하지 않는다. 그러나 감사 로그가 silent하게 누락되면 침해 탐지 능력 자체가 무력화되므로 실패는 구조화 로그로 남긴다.
 
-| Metric | Labels | 설명 |
-|--------|--------|------|
-| `authgate_audit_log_write_failures_total` | `stage="marshal"` | `json.Marshal(metadata)` 실패 — 호출자 입력 형상 버그 |
-| `authgate_audit_log_write_failures_total` | `stage="insert"` | `audit_log INSERT` 실패 — DB outage / 권한 / 디스크 |
-| `authgate_audit_events_total` | `event_type`, `channel` | 성공적으로 저장된 audit event 수. channel이 없는 이벤트는 `channel="unknown"` |
-| `authgate_cleanup_runs_total` | `result="success"` / `result="failure"` | cleanup run 성공/실패 수 |
-
-PrometheusRule 예시:
-
-```yaml
-- alert: AuthgateRefreshReuseBurst
-  expr: sum(increase(authgate_audit_events_total{event_type="auth.refresh_reuse_detected"}[5m])) > 3
-  for: 1m
-  labels:
-    severity: critical
-  annotations:
-    summary: "refresh token reuse detected repeatedly"
-    description: "5분 내 refresh token reuse가 반복 탐지됨. 계정 탈취 또는 토큰 유출 가능성 조사."
-
-- alert: AuthgateChannelMismatchBurst
-  expr: sum by (channel) (increase(authgate_audit_events_total{event_type="auth.channel_mismatch"}[5m])) > 10
-  for: 2m
-  labels:
-    severity: warning
-  annotations:
-    summary: "auth channel mismatch burst (channel={{ $labels.channel }})"
-    description: "브라우저/MCP/device 채널 정책 위반이 급증. 잘못된 client 설정 또는 공격성 흐름 확인."
-
-- alert: AuthgateCleanupStale
-  expr: increase(authgate_cleanup_runs_total{result="success"}[30m]) == 0
-  for: 10m
-  labels:
-    severity: warning
-  annotations:
-    summary: "authgate cleanup has not completed recently"
-    description: "최근 30분 동안 cleanup 성공 run이 없음. pending deletion, 만료 세션, audit PII 정리가 지연될 수 있음."
-
-- alert: AuthgateAuditWriteFailures
-  expr: increase(authgate_audit_log_write_failures_total[5m]) > 0
-  for: 1m
-  labels:
-    severity: critical
-  annotations:
-    summary: "authgate audit log writes are failing (stage={{ $labels.stage }})"
-    description: "감사 로그 쓰기가 silent하게 실패 중. 침해 탐지 인프라가 broken — 즉시 점검."
-```
+| 로그 메시지 | 의미 |
+|-------------|------|
+| `audit log: marshal metadata` | `json.Marshal(metadata)` 실패 — 호출자 입력 형상 버그 |
+| `audit log: insert` | `audit_log INSERT` 실패 — DB outage / 권한 / 디스크 |
 
 ## 백업/복구
 

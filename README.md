@@ -55,7 +55,6 @@ Authgate is a pure authentication service. Business logic such as terms of servi
 | `/account` | Account deletion (DELETE) |
 | `/health` | Liveness check |
 | `/ready` | Readiness check (DB ping) |
-| `/metrics` | Prometheus metrics endpoint |
 
 ## Project Structure
 
@@ -69,7 +68,7 @@ internal/
   storage/            zitadel storage implementation + sqlc adapter orchestration
   service/            login, device, account, cleanup orchestration + access rules
   handler/            HTTP binding layer
-  telemetry/          request logging middleware + Prometheus HTTP metrics
+  telemetry/          optional Go runtime/process Prometheus metrics
   upstream/           upstream OIDC provider integration (rp-based)
   pages/              embedded HTML templates (device, error, result)
   clock/              time abstraction
@@ -156,6 +155,7 @@ go run ./cmd/authgate
 | `HTTP_WRITE_TIMEOUT_SEC` | `30` | HTTP server `WriteTimeout` in seconds |
 | `HTTP_IDLE_TIMEOUT_SEC` | `60` | HTTP server `IdleTimeout` in seconds |
 | `SHUTDOWN_TIMEOUT_SEC` | `10` | graceful shutdown timeout in seconds before forced close |
+| `METRICS_ADDR` | empty | Optional internal metrics listener address. Empty disables metrics; when set, only Go runtime/process Prometheus metrics are exposed on this separate listener. |
 | `ENABLE_MCP` | `true` | enable MCP optional adapter routes/policies (`/mcp/*`, CIMD/resource binding) |
 | `CLIENT_CONFIG` | `/etc/authgate/clients.yaml` | YAML path for client metadata preload |
 

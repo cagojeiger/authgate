@@ -101,29 +101,6 @@ func TestAuditLog_AppendOnlyGuardAllowsPIIRedactionOnly(t *testing.T) {
 	}
 }
 
-func TestAuditLog_SuccessIncrementsEventRecorder(t *testing.T) {
-	db := testutil.SetupPostgres(t)
-	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
-	store := New(db, clk, idgen.CryptoGenerator{}, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour)
-	rec := &fakeAuditEventRecorder{}
-	store.SetAuditEventRecorder(rec)
-	ctx := context.Background()
-
-	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "audit-metric@test.com", EmailVerified: true, Name: "Audit Metric", AvatarURL: "", Provider: "google", ProviderUserID: "audit-metric-sub", ProviderEmail: "audit-metric@test.com"})
-	if err != nil {
-		t.Fatalf("create user: %v", err)
-	}
-
-	store.AuditLog(ctx, &user.ID, "auth.inactive_user", "198.51.100.10", "metric-agent", map[string]any{"status": "disabled", "channel": "browser"})
-
-	if len(rec.events) != 1 {
-		t.Fatalf("recorded events = %d, want 1", len(rec.events))
-	}
-	if got := rec.events[0]; got != (auditEventRecord{eventType: "auth.inactive_user", channel: "browser"}) {
-		t.Fatalf("recorded event = %+v", got)
-	}
-}
-
 func TestAuditLogIndexes(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	ctx := context.Background()
@@ -295,17 +272,4 @@ func requireStorageAuditEvent(t *testing.T, db *sql.DB, userID, eventType string
 		}
 	}
 	return metadata
-}
-
-type auditEventRecord struct {
-	eventType string
-	channel   string
-}
-
-type fakeAuditEventRecorder struct {
-	events []auditEventRecord
-}
-
-func (f *fakeAuditEventRecorder) RecordEvent(eventType, channel string) {
-	f.events = append(f.events, auditEventRecord{eventType: eventType, channel: channel})
 }

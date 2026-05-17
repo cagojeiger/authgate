@@ -21,23 +21,12 @@ type cleanupRunner interface {
 	DeleteUser(ctx context.Context, userID string, now time.Time, hook func(ctx context.Context, userID string) error) error
 }
 
-// CleanupMetricsRecorder receives a signal when a cleanup run completes or
-// fails before completion. main.go wires telemetry.SecurityRecorder.
-type CleanupMetricsRecorder interface {
-	RecordCleanupRun(result string)
-}
-
-type noopCleanupMetricsRecorder struct{}
-
-func (noopCleanupMetricsRecorder) RecordCleanupRun(string) {}
-
 type CleanupService struct {
 	runner            cleanupRunner
 	clock             clock.Clock
 	interval          time.Duration
 	auditPIIRetention time.Duration
 	deleteUserHook    func(ctx context.Context, userID string) error
-	metrics           CleanupMetricsRecorder
 }
 
 func NewCleanupService(runner cleanupRunner, clk clock.Clock, interval time.Duration) *CleanupService {
@@ -46,7 +35,6 @@ func NewCleanupService(runner cleanupRunner, clk clock.Clock, interval time.Dura
 		clock:             clk,
 		interval:          interval,
 		auditPIIRetention: 3 * 365 * 24 * time.Hour,
-		metrics:           noopCleanupMetricsRecorder{},
 	}
 }
 
@@ -54,14 +42,6 @@ func (c *CleanupService) SetAuditLogPIIRetention(retention time.Duration) {
 	if retention > 0 {
 		c.auditPIIRetention = retention
 	}
-}
-
-func (c *CleanupService) SetMetricsRecorder(r CleanupMetricsRecorder) {
-	if r == nil {
-		c.metrics = noopCleanupMetricsRecorder{}
-		return
-	}
-	c.metrics = r
 }
 
 // Start runs cleanup jobs periodically until ctx is cancelled.
@@ -86,7 +66,6 @@ func (c *CleanupService) Start(ctx context.Context) {
 func (c *CleanupService) runAll(ctx context.Context) {
 	acquired, err := c.runner.WithExclusiveLock(ctx, c.runAllLocked)
 	if err != nil {
-		c.metrics.RecordCleanupRun("failure")
 		slog.Error("cleanup run failed", "error", err)
 		return
 	}
@@ -94,7 +73,6 @@ func (c *CleanupService) runAll(ctx context.Context) {
 		slog.Info("cleanup skipped: advisory lock not acquired")
 		return
 	}
-	c.metrics.RecordCleanupRun("success")
 }
 
 func (c *CleanupService) runAllLocked(ctx context.Context) error {
