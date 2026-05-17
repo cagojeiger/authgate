@@ -349,7 +349,7 @@ Grafana dashboard는 llmgate 운영 화면과 같은 방식으로 용도별로 �
 
 | Dashboard | 용도 |
 |-----------|------|
-| `Authgate Operations Overview` | 장애 대응 첫 화면. HTTP RED, DB USE, local pressure를 함께 본다. |
+| `Authgate Operations Overview` | 장애 대응 첫 화면. HTTP RED와 DB USE를 함께 본다. |
 | `Authgate Runtime Resources` | Go/process runtime, DB pool pressure, file descriptor 사용률을 본다. |
 | `Authgate Security and Audit Evidence` | audit event, audit write failure, cleanup, token introspection 증적을 본다. |
 
@@ -397,45 +397,27 @@ pattern이 없는 요청은 raw path를 label로 쓰지 않고 `route="unmatched
 | `authgate_audit_events_total` | `event_type`, `channel` | 성공적으로 저장된 audit event 수. channel이 없는 이벤트는 `channel="unknown"` |
 | `authgate_cleanup_runs_total` | `result="success"` / `result="failure"` | cleanup run 성공/실패 수 |
 
-PrometheusRule 예시:
+로컬 compose 스택은 `monitoring/prometheus/rules/authgate-alerts.yml`을 로드한다.
+룰은 실제 metric 이름과 bounded label만 사용한다.
 
 ```yaml
-- alert: AuthgateRefreshReuseBurst
-  expr: sum(increase(authgate_audit_events_total{event_type="auth.refresh_reuse_detected"}[5m])) > 3
-  for: 1m
-  labels:
-    severity: critical
-  annotations:
-    summary: "refresh token reuse detected repeatedly"
-    description: "5분 내 refresh token reuse가 반복 탐지됨. 계정 탈취 또는 토큰 유출 가능성 조사."
-
-- alert: AuthgateChannelMismatchBurst
-  expr: sum by (channel) (increase(authgate_audit_events_total{event_type="auth.channel_mismatch"}[5m])) > 10
-  for: 2m
-  labels:
-    severity: warning
-  annotations:
-    summary: "auth channel mismatch burst (channel={{ $labels.channel }})"
-    description: "브라우저/MCP/device 채널 정책 위반이 급증. 잘못된 client 설정 또는 공격성 흐름 확인."
-
-- alert: AuthgateCleanupStale
-  expr: increase(authgate_cleanup_runs_total{result="success"}[30m]) == 0
-  for: 10m
-  labels:
-    severity: warning
-  annotations:
-    summary: "authgate cleanup has not completed recently"
-    description: "최근 30분 동안 cleanup 성공 run이 없음. pending deletion, 만료 세션, audit PII 정리가 지연될 수 있음."
-
-- alert: AuthgateAuditWriteFailures
-  expr: increase(authgate_audit_log_write_failures_total[5m]) > 0
-  for: 1m
-  labels:
-    severity: critical
-  annotations:
-    summary: "authgate audit log writes are failing (stage={{ $labels.stage }})"
-    description: "감사 로그 쓰기가 silent하게 실패 중. 침해 탐지 인프라가 broken — 즉시 점검."
+rule_files:
+  - /etc/prometheus/rules/*.yml
 ```
+
+기본 alert 세트:
+
+| Alert | Signal | 기준 |
+|-------|--------|------|
+| `AuthgateMetricsTargetDown` | `up{job="authgate"}` | 2분간 scrape 실패 |
+| `AuthgateHighHTTP5xxRate` | HTTP RED | 5분간 5xx 비율 5% 초과 |
+| `AuthgateRouteP95LatencyHigh` | route별 p95 latency | sustained traffic route에서 5분간 1s 초과 |
+| `AuthgateDBConnectionWaits` | DB USE | 10분간 connection wait > 0.5/s |
+| `AuthgateAuditWriteFailures` | audit evidence | 5분 내 write failure 증가 |
+| `AuthgateRefreshReuseBurst` | token theft signal | 5분 내 refresh reuse 3회 초과 |
+| `AuthgateChannelMismatchBurst` | channel policy signal | 5분 내 channel mismatch 10회 초과 |
+| `AuthgateCleanupFailures` | lifecycle job failure | 15분 내 cleanup failure 발생 |
+| `AuthgateCleanupStale` | lifecycle job liveness | 30분 동안 cleanup success 없음 |
 
 ## 백업/복구
 

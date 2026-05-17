@@ -1,0 +1,101 @@
+groups:
+  - name: authgate.availability
+    rules:
+      - alert: AuthgateMetricsTargetDown
+        expr: up{job="authgate"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "authgate metrics target is down"
+          description: "Prometheus has not been able to scrape authgate for 2 minutes."
+
+  - name: authgate.http
+    rules:
+      - alert: AuthgateHighHTTP5xxRate
+        expr: |
+          (
+            sum(rate(authgate_http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(authgate_http_requests_total[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "authgate HTTP 5xx rate is high"
+          description: "More than 5% of authgate HTTP requests have returned 5xx for 5 minutes."
+
+      - alert: AuthgateRouteP95LatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (route, le) (
+              rate(authgate_http_request_duration_seconds_bucket{status!~"5.."}[5m])
+            )
+          ) > 1
+          and on (route)
+          sum by (route) (rate(authgate_http_requests_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "authgate route p95 latency is high (route={{ $labels.route }})"
+          description: "Route p95 latency has been above 1s for 5 minutes while receiving sustained traffic."
+
+  - name: authgate.db
+    rules:
+      - alert: AuthgateDBConnectionWaits
+        expr: sum(rate(authgate_db_wait_count_total[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "authgate DB pool is waiting for connections"
+          description: "DB connection waits are above 0.5/s for 10 minutes. Check pool sizing and query latency."
+
+  - name: authgate.security
+    rules:
+      - alert: AuthgateAuditWriteFailures
+        expr: sum by (stage) (increase(authgate_audit_log_write_failures_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "authgate audit log writes are failing (stage={{ $labels.stage }})"
+          description: "Audit log writes are failing. Incident detection evidence may be incomplete."
+
+      - alert: AuthgateRefreshReuseBurst
+        expr: sum(increase(authgate_audit_events_total{event_type="auth.refresh_reuse_detected"}[5m])) > 3
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "authgate refresh token reuse detected repeatedly"
+          description: "Refresh token reuse was detected more than 3 times in 5 minutes."
+
+      - alert: AuthgateChannelMismatchBurst
+        expr: sum by (channel) (increase(authgate_audit_events_total{event_type="auth.channel_mismatch"}[5m])) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "authgate channel mismatch burst (channel={{ $labels.channel }})"
+          description: "Channel policy mismatches are increasing. Check client configuration and suspicious flows."
+
+      - alert: AuthgateCleanupFailures
+        expr: sum(increase(authgate_cleanup_runs_total{result="failure"}[15m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "authgate cleanup runs are failing"
+          description: "At least one cleanup run failed in the last 15 minutes."
+
+      - alert: AuthgateCleanupStale
+        expr: sum(increase(authgate_cleanup_runs_total{result="success"}[30m])) == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "authgate cleanup has not completed recently"
+          description: "No successful cleanup run was observed in the last 30 minutes."
