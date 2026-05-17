@@ -1,4 +1,4 @@
-package observability
+package telemetry
 
 import (
 	"database/sql"
@@ -7,7 +7,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func TestNewMetrics_RegistersSharedCollectors(t *testing.T) {
+func TestNewTelemetry_RegistersSharedCollectors(t *testing.T) {
 	db, err := sql.Open("pgx", "postgres://localhost:1/authgate")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
@@ -15,7 +15,7 @@ func TestNewMetrics_RegistersSharedCollectors(t *testing.T) {
 	defer db.Close()
 	db.SetMaxOpenConns(7)
 
-	m := NewMetrics(db)
+	m := NewTelemetry(db)
 	m.Security.RecordEvent("auth.inactive_user", "browser")
 
 	assertCounterValue(t, m.Registry(), "authgate_audit_events_total", map[string]string{
