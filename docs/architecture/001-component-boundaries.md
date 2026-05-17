@@ -361,10 +361,6 @@ internal/
   pages/                    # HTML 템플릿 렌더링
     templates/
   observability/            # metrics / tracing 보조
-    metrics.go              # Prometheus registry 소유 + /metrics handler
-    http_metrics.go         # HTTP RED metrics (rate/error/duration/inflight)
-    audit_metrics.go        # security/audit/cleanup metrics
-    db_metrics.go           # DB pool USE metrics
   clock/                    # 시간 추상화
   idgen/                    # ID/토큰 생성
 
