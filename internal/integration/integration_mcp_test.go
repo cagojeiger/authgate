@@ -110,6 +110,9 @@ func TestIntegration_MCPAccessToken_AudienceBoundToResource(t *testing.T) {
 	if !audienceContains(claims.Aud, client.Resource) {
 		t.Fatalf("initial access token aud = %#v, want %q", claims.Aud, client.Resource)
 	}
+	if !strings.Contains(" "+claims.Scope+" ", " openid ") {
+		t.Fatalf("initial access token scope = %q, want openid", claims.Scope)
+	}
 
 	refreshed := client.RefreshToken(tokens.RefreshToken)
 	if refreshed.StatusCode != http.StatusOK {
@@ -118,6 +121,9 @@ func TestIntegration_MCPAccessToken_AudienceBoundToResource(t *testing.T) {
 	refreshClaims := decodeJWTClaims(t, refreshed.AccessToken)
 	if !audienceContains(refreshClaims.Aud, client.Resource) {
 		t.Fatalf("refreshed access token aud = %#v, want %q", refreshClaims.Aud, client.Resource)
+	}
+	if !strings.Contains(" "+refreshClaims.Scope+" ", " openid ") {
+		t.Fatalf("refreshed access token scope = %q, want openid", refreshClaims.Scope)
 	}
 }
 

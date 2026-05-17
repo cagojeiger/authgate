@@ -15,7 +15,8 @@ import (
 )
 
 type jwtClaims struct {
-	Aud any `json:"aud"`
+	Aud   any    `json:"aud"`
+	Scope string `json:"scope"`
 }
 
 func decodeJWTClaims(t *testing.T, token string) jwtClaims {
