@@ -12,10 +12,6 @@ type SecurityRecorder struct {
 	cleanupRuns   *prometheus.CounterVec
 }
 
-// AuditRecorder is kept as a compatibility alias for storage/service recorder
-// wiring that still describes the audit-specific side of this collector.
-type AuditRecorder = SecurityRecorder
-
 // NewSecurityRecorder registers audit/security counters into reg and returns a
 // recorder.
 // Stages: "marshal" (json.Marshal of metadata failed before any DB call) and
@@ -60,10 +56,6 @@ func NewSecurityRecorder(reg *prometheus.Registry) *SecurityRecorder {
 		writeFailures: writeFailures,
 		cleanupRuns:   cleanupRuns,
 	}
-}
-
-func NewAuditRecorder(reg *prometheus.Registry) *AuditRecorder {
-	return NewSecurityRecorder(reg)
 }
 
 // RecordEvent increments the audit-event counter after the audit row is
