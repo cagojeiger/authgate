@@ -11,8 +11,6 @@ import (
 	"github.com/kangheeyong/authgate/internal/middleware"
 )
 
-const unmatchedRouteLabel = "unmatched"
-
 type HTTPRecorder struct {
 	requestsTotal  *prometheus.CounterVec
 	requestLatency *prometheus.HistogramVec
@@ -69,7 +67,10 @@ func (rec *HTTPRecorder) Middleware(next http.Handler) http.Handler {
 		next.ServeHTTP(sw, r)
 
 		status := strconv.Itoa(sw.status)
-		route := routeLabel(r)
+		route := r.Pattern
+		if route == "" {
+			route = r.URL.Path
+		}
 
 		durationSec := time.Since(start).Seconds()
 		rec.requestsTotal.WithLabelValues(r.Method, route, status).Inc()
@@ -85,13 +86,6 @@ func (rec *HTTPRecorder) Middleware(next http.Handler) http.Handler {
 			"duration_ms", int64(durationSec*1000),
 		)
 	})
-}
-
-func routeLabel(r *http.Request) string {
-	if r.Pattern != "" {
-		return r.Pattern
-	}
-	return unmatchedRouteLabel
 }
 
 type statusWriter struct {

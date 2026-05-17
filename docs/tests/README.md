@@ -42,7 +42,6 @@
 코드 = internal/*_test.go
 
 - config/clock/idgen 일부는 일반 unit test로 바로 실행 가능
-- telemetry unit test는 Prometheus metric 이름/label cardinality 같은 운영 evidence 계약을 고정
 - service/storage/integration 테스트 다수는 `//go:build integration`
 - integration 테스트는 testcontainers-go를 사용하므로 Docker 접근 권한이 필요
 ```

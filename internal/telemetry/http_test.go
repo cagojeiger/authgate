@@ -120,21 +120,3 @@ func TestMiddleware_RecordsOAuthIntrospectionRouteEvidence(t *testing.T) {
 
 	t.Fatal("authgate_http_requests_total did not include POST /oauth/introspect 200 evidence")
 }
-
-func TestMiddleware_UsesFixedRouteLabelWhenPatternIsMissing(t *testing.T) {
-	reg := prometheus.NewRegistry()
-	m := NewHTTPRecorder(reg)
-	h := wrapWithRequestID(m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	})))
-
-	req := httptest.NewRequest(http.MethodGet, "/wp-login.php", nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	assertCounterValue(t, reg, "authgate_http_requests_total", map[string]string{
-		"method": http.MethodGet,
-		"route":  unmatchedRouteLabel,
-		"status": "404",
-	}, 1)
-}

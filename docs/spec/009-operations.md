@@ -382,10 +382,6 @@ Grafana dashboard는 llmgate 운영 화면과 같은 방식으로 용도별로 �
 | `authgate_http_requests_total` | `method="POST", route="/oauth/introspect", status` | introspection 요청 수와 결과 상태 |
 | `authgate_http_request_duration_seconds` | `method="POST", route="/oauth/introspect", status` | introspection 지연 시간 |
 
-HTTP metric의 `route`는 `http.ServeMux`의 route pattern만 사용한다. 매칭된
-pattern이 없는 요청은 raw path를 label로 쓰지 않고 `route="unmatched"`로
-묶어 봇 스캔/404 경로가 time series를 늘리지 않게 한다.
-
 ### audit_log 쓰기 실패 모니터링 (#208)
 
 `Storage.AuditLog`는 best-effort write이므로 marshal/insert 실패가 비즈니스 트랜잭션을 차단하지 않는다. 그러나 감사 로그가 silent하게 누락되면 침해 탐지 능력 자체가 무력화되므로 Prometheus counter로 노출되어 alert으로 감지한다.
