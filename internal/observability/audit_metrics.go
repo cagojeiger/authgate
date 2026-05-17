@@ -4,14 +4,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// AuditMetrics owns Prometheus counters for security-relevant audit and
-// cleanup outcomes.
+// AuditMetrics owns Prometheus counters for audit-log write outcomes.
 // It registers into the shared HTTPMetrics registry so a single /metrics
 // scrape target exposes both groups.
 type AuditMetrics struct {
-	events        *prometheus.CounterVec
 	writeFailures *prometheus.CounterVec
-	cleanupRuns   *prometheus.CounterVec
 }
 
 // NewAuditMetrics registers audit-log counters into reg and returns a recorder.
@@ -20,53 +17,20 @@ type AuditMetrics struct {
 // rules distinguish input-shape bugs from DB outages so an oncall responder
 // can route the page correctly.
 func NewAuditMetrics(reg *prometheus.Registry) *AuditMetrics {
-	events := prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "authgate_audit_events_total",
-			Help: "Total number of successfully persisted audit events, partitioned by event_type and channel.",
-		},
-		[]string{"event_type", "channel"},
-	)
-
-	writeFailures := prometheus.NewCounterVec(
+	cv := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "authgate_audit_log_write_failures_total",
 			Help: "Total number of audit log write failures, partitioned by stage (marshal|insert).",
 		},
 		[]string{"stage"},
 	)
-
-	cleanupRuns := prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "authgate_cleanup_runs_total",
-			Help: "Total number of cleanup service runs, partitioned by result (success|failure).",
-		},
-		[]string{"result"},
-	)
-
-	reg.MustRegister(events, writeFailures, cleanupRuns)
+	reg.MustRegister(cv)
 	// Pre-create the known label series so increase()/rate() see a baseline
 	// of 0 from the first scrape — otherwise the alert in
 	// docs/spec/009-operations.md would miss the very first failure.
-	writeFailures.WithLabelValues("marshal")
-	writeFailures.WithLabelValues("insert")
-	cleanupRuns.WithLabelValues("success")
-	cleanupRuns.WithLabelValues("failure")
-	return &AuditMetrics{
-		events:        events,
-		writeFailures: writeFailures,
-		cleanupRuns:   cleanupRuns,
-	}
-}
-
-// RecordEvent increments the audit-event counter after the audit row is
-// successfully persisted. Nil receivers are tolerated so tests can omit the
-// recorder entirely.
-func (m *AuditMetrics) RecordEvent(eventType, channel string) {
-	if m == nil {
-		return
-	}
-	m.events.WithLabelValues(eventType, channel).Inc()
+	cv.WithLabelValues("marshal")
+	cv.WithLabelValues("insert")
+	return &AuditMetrics{writeFailures: cv}
 }
 
 // RecordWriteFailure increments the failure counter for the given stage.
@@ -78,14 +42,4 @@ func (m *AuditMetrics) RecordWriteFailure(stage string) {
 		return
 	}
 	m.writeFailures.WithLabelValues(stage).Inc()
-}
-
-// RecordCleanupRun increments the cleanup run counter for "success" or
-// "failure". Other result labels are accepted but will not match the stock
-// alert examples.
-func (m *AuditMetrics) RecordCleanupRun(result string) {
-	if m == nil {
-		return
-	}
-	m.cleanupRuns.WithLabelValues(result).Inc()
 }

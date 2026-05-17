@@ -346,39 +346,10 @@ SELECT * FROM audit_log WHERE event_type = 'auth.inactive_user' ORDER BY created
 |--------|--------|------|
 | `authgate_audit_log_write_failures_total` | `stage="marshal"` | `json.Marshal(metadata)` 실패 — 호출자 입력 형상 버그 |
 | `authgate_audit_log_write_failures_total` | `stage="insert"` | `audit_log INSERT` 실패 — DB outage / 권한 / 디스크 |
-| `authgate_audit_events_total` | `event_type`, `channel` | 성공적으로 저장된 audit event 수. channel이 없는 이벤트는 `channel="unknown"` |
-| `authgate_cleanup_runs_total` | `result="success"` / `result="failure"` | cleanup run 성공/실패 수 |
 
 PrometheusRule 예시:
 
 ```yaml
-- alert: AuthgateRefreshReuseBurst
-  expr: sum(increase(authgate_audit_events_total{event_type="auth.refresh_reuse_detected"}[5m])) > 3
-  for: 1m
-  labels:
-    severity: critical
-  annotations:
-    summary: "refresh token reuse detected repeatedly"
-    description: "5분 내 refresh token reuse가 반복 탐지됨. 계정 탈취 또는 토큰 유출 가능성 조사."
-
-- alert: AuthgateChannelMismatchBurst
-  expr: sum by (channel) (increase(authgate_audit_events_total{event_type="auth.channel_mismatch"}[5m])) > 10
-  for: 2m
-  labels:
-    severity: warning
-  annotations:
-    summary: "auth channel mismatch burst (channel={{ $labels.channel }})"
-    description: "브라우저/MCP/device 채널 정책 위반이 급증. 잘못된 client 설정 또는 공격성 흐름 확인."
-
-- alert: AuthgateCleanupStale
-  expr: increase(authgate_cleanup_runs_total{result="success"}[30m]) == 0
-  for: 10m
-  labels:
-    severity: warning
-  annotations:
-    summary: "authgate cleanup has not completed recently"
-    description: "최근 30분 동안 cleanup 성공 run이 없음. pending deletion, 만료 세션, audit PII 정리가 지연될 수 있음."
-
 - alert: AuthgateAuditWriteFailures
   expr: increase(authgate_audit_log_write_failures_total[5m]) > 0
   for: 1m
