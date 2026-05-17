@@ -7,17 +7,21 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/kangheeyong/authgate/internal/middleware"
 )
 
 type HTTPMetrics struct {
+	registry       *prometheus.Registry
 	requestsTotal  *prometheus.CounterVec
 	requestLatency *prometheus.HistogramVec
 	inflight       prometheus.Gauge
 }
 
-func NewHTTPMetrics(reg *prometheus.Registry) *HTTPMetrics {
+func NewHTTPMetrics() *HTTPMetrics {
+	reg := prometheus.NewRegistry()
+
 	requestsTotal := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "authgate_http_requests_total",
@@ -46,13 +50,27 @@ func NewHTTPMetrics(reg *prometheus.Registry) *HTTPMetrics {
 		requestsTotal,
 		requestLatency,
 		inflight,
+		prometheus.NewGoCollector(),
+		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
 	)
 
 	return &HTTPMetrics{
+		registry:       reg,
 		requestsTotal:  requestsTotal,
 		requestLatency: requestLatency,
 		inflight:       inflight,
 	}
+}
+
+func (m *HTTPMetrics) MetricsHandler() http.Handler {
+	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
+}
+
+// Registry exposes the shared Prometheus registry so adjacent metric groups
+// (e.g., observability.AuditMetrics) can register into the same /metrics
+// scrape target without spinning up a second endpoint.
+func (m *HTTPMetrics) Registry() *prometheus.Registry {
+	return m.registry
 }
 
 func (m *HTTPMetrics) Middleware(next http.Handler) http.Handler {

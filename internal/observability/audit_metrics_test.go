@@ -7,9 +7,9 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-func TestSecurityMetrics_RecordSecurityCounters(t *testing.T) {
+func TestAuditMetrics_RecordSecurityCounters(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	m := NewSecurityMetrics(reg)
+	m := NewAuditMetrics(reg)
 
 	m.RecordEvent("auth.inactive_user", "browser")
 	m.RecordWriteFailure("insert")
@@ -44,32 +44,6 @@ func assertCounterValue(t *testing.T, reg *prometheus.Registry, name string, lab
 				continue
 			}
 			if got := metric.GetCounter().GetValue(); got != want {
-				t.Fatalf("%s labels %v = %v, want %v", name, labels, got, want)
-			}
-			return
-		}
-	}
-
-	t.Fatalf("missing %s labels %v", name, labels)
-}
-
-func assertGaugeValue(t *testing.T, reg *prometheus.Registry, name string, labels map[string]string, want float64) {
-	t.Helper()
-
-	families, err := reg.Gather()
-	if err != nil {
-		t.Fatalf("gather metrics: %v", err)
-	}
-
-	for _, family := range families {
-		if family.GetName() != name {
-			continue
-		}
-		for _, metric := range family.GetMetric() {
-			if !metricHasLabels(metric.GetLabel(), labels) {
-				continue
-			}
-			if got := metric.GetGauge().GetValue(); got != want {
 				t.Fatalf("%s labels %v = %v, want %v", name, labels, got, want)
 			}
 			return

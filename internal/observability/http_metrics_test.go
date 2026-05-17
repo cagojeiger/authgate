@@ -5,8 +5,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/kangheeyong/authgate/internal/middleware"
 )
 
@@ -17,8 +15,7 @@ func wrapWithRequestID(h http.Handler) http.Handler {
 }
 
 func TestMiddleware_SetsRequestIDAndRecordsMetrics(t *testing.T) {
-	reg := prometheus.NewRegistry()
-	m := NewHTTPMetrics(reg)
+	m := NewHTTPMetrics()
 	inner := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte("ok"))
@@ -33,7 +30,7 @@ func TestMiddleware_SetsRequestIDAndRecordsMetrics(t *testing.T) {
 		t.Fatal("missing X-Request-ID header")
 	}
 
-	metrics, err := reg.Gather()
+	metrics, err := m.registry.Gather()
 	if err != nil {
 		t.Fatalf("gather metrics: %v", err)
 	}
@@ -68,7 +65,7 @@ func TestMiddleware_SetsRequestIDAndRecordsMetrics(t *testing.T) {
 }
 
 func TestMiddleware_UsesInboundRequestID(t *testing.T) {
-	m := NewHTTPMetrics(prometheus.NewRegistry())
+	m := NewHTTPMetrics()
 	inner := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -86,8 +83,7 @@ func TestMiddleware_UsesInboundRequestID(t *testing.T) {
 }
 
 func TestMiddleware_RecordsOAuthIntrospectionRouteEvidence(t *testing.T) {
-	reg := prometheus.NewRegistry()
-	m := NewHTTPMetrics(reg)
+	m := NewHTTPMetrics()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth/introspect", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -98,7 +94,7 @@ func TestMiddleware_RecordsOAuthIntrospectionRouteEvidence(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
-	metrics, err := reg.Gather()
+	metrics, err := m.registry.Gather()
 	if err != nil {
 		t.Fatalf("gather metrics: %v", err)
 	}
