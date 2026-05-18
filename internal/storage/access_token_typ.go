@@ -14,9 +14,11 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 )
 
-// WrapAccessTokenJWTType wraps the OIDC token endpoint and rewrites the
-// JOSE `typ` header of the JWT access token to `at+jwt` per RFC 9068
-// §2.1. zitadel/oidc's signer is hardcoded to `typ=JWT` for both access
+// WrapAccessTokenJWTType wraps the OIDC token endpoint and normalizes the
+// JWT access token profile: it rewrites the JOSE `typ` header to `at+jwt`
+// per RFC 9068 §2.1 and mirrors the token response scope into the JWT `scope`
+// claim when the upstream library omits it.
+// zitadel/oidc's signer is hardcoded to `typ=JWT` for both access
 // tokens and id_tokens (pkg/op/signer.go SignerFromKey), and the library
 // exposes no public hook to override this for a single token type. This
 // middleware captures the JSON response on the way out, re-signs the
@@ -66,10 +68,11 @@ func WrapAccessTokenJWTType(inner http.Handler, store *Storage) http.Handler {
 }
 
 // upgradeAccessTokenTyp parses a token-endpoint JSON response, locates
-// the `access_token` field, and if it is a compact JWS with typ=JWT,
-// re-signs the same payload with typ=at+jwt using the storage's signing
-// key. Returns the (possibly modified) body. A non-nil error means the
-// caller should keep the original body — callers MUST treat error as a
+// the `access_token` field, and if it is a compact JWS, re-signs the payload
+// with typ=at+jwt using the storage's signing key. It also adds a JWT `scope`
+// claim from the token response when one is available and missing from the
+// access token. Returns the (possibly modified) body. A non-nil error means
+// the caller should keep the original body — callers MUST treat error as a
 // signal to fall back, not propagate.
 func upgradeAccessTokenTyp(ctx context.Context, store *Storage, body []byte) ([]byte, error) {
 	var resp map[string]json.RawMessage
@@ -105,6 +108,10 @@ func upgradeAccessTokenTyp(ctx context.Context, store *Storage, body []byte) ([]
 	if err != nil {
 		return nil, err
 	}
+	payload, err = withScopeClaim(payload, resp)
+	if err != nil {
+		return nil, err
+	}
 
 	sk, err := store.SigningKey(ctx)
 	if err != nil {
@@ -135,6 +142,30 @@ func upgradeAccessTokenTyp(ctx context.Context, store *Storage, body []byte) ([]
 	}
 	resp["access_token"] = encoded
 	return json.Marshal(resp)
+}
+
+func withScopeClaim(payload []byte, tokenResponse map[string]json.RawMessage) ([]byte, error) {
+	rawScope, ok := tokenResponse["scope"]
+	if !ok {
+		return payload, nil
+	}
+	var scope string
+	if err := json.Unmarshal(rawScope, &scope); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(scope) == "" {
+		return payload, nil
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, err
+	}
+	if existing, ok := claims["scope"].(string); ok && strings.TrimSpace(existing) != "" {
+		return payload, nil
+	}
+	claims["scope"] = scope
+	return json.Marshal(claims)
 }
 
 // errSkipUpgrade signals that the response is not eligible for typ
