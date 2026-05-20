@@ -47,7 +47,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install sqlc
-        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.28.0
+        run: go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 
       - name: Enforce sqlc-only runtime DB access
         run: |
