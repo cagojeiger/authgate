@@ -1,5 +1,5 @@
 module github.com/kangheeyong/authgate/examples/webapp
 
-go 1.25.0
+go 1.26.3
 
-require github.com/go-jose/go-jose/v4 v4.1.3
+require github.com/go-jose/go-jose/v4 v4.1.4
