@@ -25,7 +25,7 @@ func SetupPostgres(t *testing.T) *sql.DB {
 
 	migrationPath := findMigrations(t)
 
-	container, err := postgres.Run(ctx, "postgres:16-alpine",
+	container, err := postgres.Run(ctx, "postgres:18-alpine",
 		postgres.WithDatabase("authgate_test"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),

@@ -59,4 +59,4 @@ stop:
 
 # Generate sqlc query code (Docker-based, no local sqlc install needed)
 sqlc-generate:
-	docker run --rm -v $(CURDIR):/src -w /src sqlc/sqlc:1.28.0 generate
+	docker run --rm -v $(CURDIR):/src -w /src sqlc/sqlc:1.31.1 generate
