@@ -99,4 +99,3 @@ func (rl *RateLimiter) evict(maxAge time.Duration) {
 		}
 	}
 }
-

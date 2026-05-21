@@ -28,7 +28,7 @@ const devicePollInterval = 5 * time.Second
 func Run() {
 	cfg := mustLoadConfig()
 	db := mustOpenDB(cfg)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := migrator.Run(db, cfg.MigrationsPath); err != nil {
 		log.Fatalf("migrations: %v", err)

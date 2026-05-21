@@ -11,7 +11,10 @@ on:
       - "migrations/**"
       - "internal/db/queries/**"
       - "sqlc.yaml"
-      - ".github/workflows/ci.yml"
+      - "Makefile"
+      - ".golangci.yml"
+      - ".github/dependabot.yml"
+      - ".github/workflows/**"
   push:
     branches: [main]
     paths:
@@ -21,7 +24,10 @@ on:
       - "migrations/**"
       - "internal/db/queries/**"
       - "sqlc.yaml"
-      - ".github/workflows/ci.yml"
+      - "Makefile"
+      - ".golangci.yml"
+      - ".github/dependabot.yml"
+      - ".github/workflows/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -36,6 +42,25 @@ permissions:
   pull-requests: write
 
 jobs:
+  fmt:
+    name: Go Format
+    runs-on: arc-runner-set-authgate
+    container: catthehacker/ubuntu:act-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt -l
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "$out"
+            echo "::error::gofmt found unformatted files; run 'gofmt -w .'"
+            exit 1
+          fi
+
   sqlc:
     name: SQLC
     runs-on: arc-runner-set-authgate
@@ -98,6 +123,19 @@ jobs:
           name: code-coverage
           path: coverage.out
 
+  race:
+    name: Race
+    runs-on: arc-runner-set-authgate
+    container: catthehacker/ubuntu:act-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests with race detector
+        run: go test -race ./...
+
   coverage-report:
     name: Coverage Report
     needs: test
@@ -134,6 +172,25 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
 
+  lint:
+    name: GolangCI-Lint
+    runs-on: arc-runner-set-authgate
+    container: catthehacker/ubuntu:act-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Install golangci-lint
+        run: |
+          GOTOOLCHAIN=go$(awk '/^go / {print $2; exit}' go.mod) \
+            go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+
+      - name: Run golangci-lint
+        run: |
+          $(go env GOPATH)/bin/golangci-lint run ./...
+
   vuln:
     name: Vulnerability Check
     runs-on: arc-runner-set-authgate
@@ -144,8 +201,13 @@ jobs:
         with:
           go-version-file: go.mod
       - run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # Build govulncheck with the setup-go toolchain. Without this,
+          # the tool's own toolchain directive can downgrade to Go 1.25 and
+          # fail to load this Go 1.26 module.
+          GOTOOLCHAIN=local go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
           # integration/test utility packages pull docker/testcontainers only for tests.
           # Vulnerability checks here focus on runtime packages used in production code paths.
-          PKGS=$(go list ./... | grep -v '/internal/testutil' | grep -v '/internal/integration')
-          govulncheck ${PKGS}
+          go list ./... \
+            | grep -v '/internal/testutil' \
+            | grep -v '/internal/integration' \
+            | xargs govulncheck

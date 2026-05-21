@@ -32,10 +32,12 @@ func (h *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	switch result.Action {
 	case service.ActionRedirectToIdP:
+		//nolint:gosec // Redirect target is the upstream IdP authorization URL built by LoginService.
 		http.Redirect(w, r, result.RedirectURL, http.StatusFound)
 
 	case service.ActionAutoApprove:
 		// Redirect back to zitadel's authorize callback
+		//nolint:gosec // Internal redirect to the fixed OIDC callback with a service-issued auth request ID.
 		http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
 
 	case service.ActionError:
@@ -56,6 +58,7 @@ func (h *LoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		if result.SessionID != "" {
 			setSessionCookie(w, result.SessionID, h.devMode)
 		}
+		//nolint:gosec // Internal redirect to the fixed OIDC callback with a service-issued auth request ID.
 		http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
 
 	case service.ActionError:
@@ -66,5 +69,5 @@ func (h *LoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 func (h *LoginHandler) renderError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
-	pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: code, Message: message})
+	_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: code, Message: message})
 }

@@ -147,7 +147,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	if err != nil {
 		return "", "", time.Time{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	qtx := storeq.New(tx)
 
 	derived, err := s.deriveRefreshTokenAttributes(ctx, qtx, request, currentRefreshToken)
@@ -199,7 +199,7 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	qtx := storeq.New(tx)
 
 	rt, err := loadRefreshTokenForUpdate(ctx, qtx, h)
@@ -478,15 +478,6 @@ func tryRevokeRefreshByHash(ctx context.Context, q *storeq.Queries, tokenOrToken
 		return false
 	}
 	return rows > 0
-}
-
-func tryRevokeRefreshByID(ctx context.Context, q *storeq.Queries, tokenOrTokenID string, now time.Time) {
-	if _, err := uuid.Parse(tokenOrTokenID); err == nil {
-		_ = q.RevokeRefreshTokenByID(ctx, storeq.RevokeRefreshTokenByIDParams{
-			RevokedAt: sql.NullTime{Time: now, Valid: true},
-			ID:        tokenOrTokenID,
-		})
-	}
 }
 
 // tryRevokeRefreshByIDReturning attempts to revoke a refresh token by UUID ID and returns true if a row was affected.

@@ -4,9 +4,9 @@ package service
 type AccessResult int
 
 const (
-	AccessAllow    AccessResult = iota // Proceed normally
-	AccessRecover                      // Browser-only: recover from pending_deletion, then proceed
-	AccessDeny                         // Reject with 403
+	AccessAllow   AccessResult = iota // Proceed normally
+	AccessRecover                     // Browser-only: recover from pending_deletion, then proceed
+	AccessDeny                        // Reject with 403
 )
 
 // CheckAccess is a pure function that determines access based on user status and channel.

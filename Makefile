@@ -1,4 +1,8 @@
-.PHONY: infra infra-down dev dev-authgate dev-sample-app stop sqlc-generate
+.PHONY: infra infra-down dev dev-authgate dev-sample-app stop sqlc-generate lint
+
+GO_VERSION := $(shell awk '/^go / {print $$2; exit}' go.mod)
+GOLANGCI_LINT_VERSION := v2.12.2
+GOLANGCI_LINT := $(shell go env GOPATH)/bin/golangci-lint
 
 # Start infrastructure (DB + mock IdP)
 infra:
@@ -60,3 +64,8 @@ stop:
 # Generate sqlc query code (Docker-based, no local sqlc install needed)
 sqlc-generate:
 	docker run --rm -v $(CURDIR):/src -w /src sqlc/sqlc:1.31.1 generate
+
+# Static analysis. Forces golangci-lint to build with this module's Go version.
+lint:
+	GOTOOLCHAIN=go$(GO_VERSION) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	$(GOLANGCI_LINT) run ./...

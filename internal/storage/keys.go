@@ -11,6 +11,7 @@ import (
 
 // LoadOrGenerateKey loads an RSA private key from path, or generates a new one if not found.
 func LoadOrGenerateKey(path string) (*rsa.PrivateKey, error) {
+	//nolint:gosec // Path is operator-controlled SIGNING_KEY_PATH, not user input.
 	data, err := os.ReadFile(path)
 	if err == nil {
 		return parseRSAKey(data)

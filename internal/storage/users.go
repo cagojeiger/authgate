@@ -25,7 +25,7 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWi
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	now := s.clock.Now()
 	userID := s.idgen.NewUUID()
@@ -199,7 +199,7 @@ func (s *Storage) RequestDeletion(ctx context.Context, userID string) (string, e
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	qtx := storeq.New(tx)
 

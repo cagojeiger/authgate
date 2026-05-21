@@ -156,4 +156,3 @@ func TestAccount_RequestDeletion_InvalidSession(t *testing.T) {
 		t.Fatalf("errorCode = %d, want 401", result.ErrorCode)
 	}
 }
-

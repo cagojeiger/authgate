@@ -248,10 +248,11 @@ func TestIntegration_DevicePolling_RechecksUserStatus(t *testing.T) {
 // or buggy clients free to hammer the DB.
 //
 // Cadence under test (FixedClock):
-//   poll #1 (t=0)        — first poll seeds last_polled_at; expect authorization_pending
-//   poll #2 (t=0)        — same instant; delta=0 < 5s interval; expect slow_down
-//   advance clock +6s
-//   poll #3 (t=6s)       — delta=6s >= 5s; expect authorization_pending again
+//
+//	poll #1 (t=0)        — first poll seeds last_polled_at; expect authorization_pending
+//	poll #2 (t=0)        — same instant; delta=0 < 5s interval; expect slow_down
+//	advance clock +6s
+//	poll #3 (t=6s)       — delta=6s >= 5s; expect authorization_pending again
 func TestIntegration_DevicePolling_EnforcesSlowDown(t *testing.T) {
 	ts := SetupTestServer(t)
 

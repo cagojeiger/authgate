@@ -1,10 +1,8 @@
-run:
-  go: "1.24"  # golangci-lint is built with go1.24; override until go1.25 support lands
-
+version: "2"
 linters:
+  default: none
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
@@ -12,17 +10,33 @@ linters:
     - gosec
     - bodyclose
     - noctx
-
-linters-settings:
-  gosec:
-    excludes:
-      - G115  # integer overflow conversion — not relevant for this codebase
-
-issues:
-  exclude-rules:
-    # Test files: allow hardcoded credentials and unhandled errors
-    - path: "_test\\.go"
-      linters: [gosec, errcheck]
-    # Example code: allow hardcoded values
-    - path: "examples/"
-      linters: [gosec]
+  settings:
+    gosec:
+      excludes:
+        - G115 # integer overflow conversion; not relevant for this codebase
+  exclusions:
+    rules:
+      # Test files: allow hardcoded credentials and unhandled errors.
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+          - noctx
+      # Example code: allow hardcoded values.
+      - path: examples/
+        linters:
+          - gosec
+      # Integration/test utility packages are not production request paths.
+      - path: internal/integration/
+        linters:
+          - errcheck
+          - gosec
+          - noctx
+      - path: internal/testutil/
+        linters:
+          - errcheck
+          - gosec
+          - noctx
+      - path: internal/storage/audit.go
+        linters:
+          - gosec

@@ -51,7 +51,7 @@ func NewOIDCProvider(ctx context.Context, issuerURL, clientID, clientSecret, red
 		opt(o)
 	}
 
-	var transport http.RoundTripper = http.DefaultTransport
+	transport := http.RoundTripper(http.DefaultTransport)
 	if o.internalURL != "" {
 		issuerParsed, _ := url.Parse(issuerURL)
 		internalParsed, _ := url.Parse(o.internalURL)

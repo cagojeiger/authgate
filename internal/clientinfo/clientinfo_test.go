@@ -332,8 +332,8 @@ func TestParseTrustedProxies_WhitespaceOnly_Skipped(t *testing.T) {
 func TestParseTrustedProxies_Invalid_Error(t *testing.T) {
 	cases := []string{
 		"not-a-cidr",
-		"10.0.0.0",     // bare IP, no /mask — must be rejected
-		"10.0.0.0/40",  // mask out of range
+		"10.0.0.0",    // bare IP, no /mask — must be rejected
+		"10.0.0.0/40", // mask out of range
 		"::/-1",
 	}
 	for _, in := range cases {
@@ -378,7 +378,7 @@ func TestFromContext_Absent_ReturnsZeroInfo(t *testing.T) {
 			t.Fatalf("FromContext(nil) panicked: %v", r)
 		}
 	}()
-	if got := FromContext(nil); got != (Info{}) {
+	if got := FromContext(nil); got != (Info{}) { //nolint:staticcheck // FromContext intentionally accepts nil defensively.
 		t.Fatalf("FromContext(nil) = %#v, want zero", got)
 	}
 }

@@ -136,7 +136,7 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	qtx := storeq.New(tx)
 
 	dc, err := loadDeviceAuthorizationForUpdate(ctx, qtx, clientID, deviceCode)
