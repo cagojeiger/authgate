@@ -26,7 +26,7 @@ func (r *CleanupRunner) WithExclusiveLock(ctx context.Context, fn func(context.C
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	qconn := storeq.New(conn)
 
 	acquired, err := qconn.TryCleanupAdvisoryLock(ctx, cleanupAdvisoryLockKey)
@@ -95,7 +95,7 @@ func (r *CleanupRunner) DeleteUser(
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	qtx := storeq.New(tx)
 
 	// #182: run the guarded parent UPDATE first so the child deletes only

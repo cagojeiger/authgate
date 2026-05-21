@@ -38,6 +38,7 @@ const (
 
 // LoadClientConfig reads and parses a clients.yaml file.
 func LoadClientConfig(path string) (*ClientConfigFile, error) {
+	//nolint:gosec // Path is operator-controlled CLIENT_CONFIG, not user input.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

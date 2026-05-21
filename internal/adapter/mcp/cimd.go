@@ -313,7 +313,7 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 	if err != nil {
 		return nil, 0, fmt.Errorf("cimd: fetch failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, 0, fmt.Errorf("cimd: HTTP %d from %s", resp.StatusCode, clientID)

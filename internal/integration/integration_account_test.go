@@ -51,7 +51,7 @@ func TestIntegration_DeleteAccount_InactiveUser_Rejected(t *testing.T) {
 			ts := SetupTestServer(t)
 			ctx := context.Background()
 
-			user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "inactive-delete-"+tt.name+"@test.com", EmailVerified: true, Name: "Inactive Delete", AvatarURL: "", Provider: "google", ProviderUserID: "inactive-delete-sub-"+tt.name, ProviderEmail: "inactive-delete-"+tt.name+"@test.com"})
+			user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "inactive-delete-" + tt.name + "@test.com", EmailVerified: true, Name: "Inactive Delete", AvatarURL: "", Provider: "google", ProviderUserID: "inactive-delete-sub-" + tt.name, ProviderEmail: "inactive-delete-" + tt.name + "@test.com"})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
 			}

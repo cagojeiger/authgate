@@ -169,4 +169,3 @@ func FromContext(ctx context.Context) Info {
 	info, _ := ctx.Value(ctxKey{}).(Info)
 	return info
 }
-

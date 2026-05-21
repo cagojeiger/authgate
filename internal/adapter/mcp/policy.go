@@ -33,10 +33,10 @@ type resourceBindingPolicy struct {
 // ValidateAuthorizeRequest enforces the channel × resource matrix per
 // RFC 8707 §2.2 AS-side policy and authgate spec 004:
 //   - login_channel='mcp'     ⇒ resource is REQUIRED (the token would
-//                                otherwise have no audience to bind to)
+//     otherwise have no audience to bind to)
 //   - login_channel='browser' ⇒ resource MUST NOT be present (a browser
-//                                client minting an MCP-audience token is a
-//                                boundary-confusion attack — issue #184)
+//     client minting an MCP-audience token is a
+//     boundary-confusion attack — issue #184)
 //
 // Once /authorize rejects browser+resource here, the core policy's
 // existing "unexpected resource" check at /oauth/token covers the
@@ -97,4 +97,3 @@ func NewClientResolutionPolicy(base storage.ClientResolutionPolicy, fetcher stor
 func NewResourceBindingPolicy(base storage.ResourceBindingPolicy, resolver storage.ClientResolutionPolicy) storage.ResourceBindingPolicy {
 	return &resourceBindingPolicy{base: base, resolver: resolver}
 }
-

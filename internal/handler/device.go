@@ -35,7 +35,7 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 	switch result.Action {
 	case service.DeviceShowEntry:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		pages.RenderDeviceEntry(w, pages.DeviceEntryData{
+		_ = pages.RenderDeviceEntry(w, pages.DeviceEntryData{
 			BrandName: h.brandName,
 			UserCode:  userCode,
 			Error:     result.Error,
@@ -46,9 +46,10 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusInternalServerError)
-			pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: http.StatusInternalServerError, Message: "internal error"})
+			_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: http.StatusInternalServerError, Message: "internal error"})
 			return
 		}
+		//nolint:gosec // Secure=false is allowed only in explicit DEV_MODE for localhost device flow.
 		http.SetCookie(w, &http.Cookie{
 			Name:     "csrf_token",
 			Value:    csrfToken,
@@ -58,19 +59,20 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 			Secure:   !h.devMode,
 		})
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		pages.RenderDeviceApprove(w, pages.DeviceApproveData{
+		_ = pages.RenderDeviceApprove(w, pages.DeviceApproveData{
 			BrandName: h.brandName,
 			UserCode:  result.UserCode,
 			CSRFToken: csrfToken,
 		})
 
 	case service.DeviceRedirectIdP:
+		//nolint:gosec // Redirect target is the upstream IdP authorization URL built by DeviceService.
 		http.Redirect(w, r, result.UserCode, http.StatusFound) // UserCode holds the auth URL
 
 	case service.DeviceError:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(result.ErrorCode)
-		pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: result.ErrorCode, Message: result.Error})
+		_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: result.ErrorCode, Message: result.Error})
 	}
 }
 
@@ -87,12 +89,13 @@ func (h *DeviceHandler) HandleDeviceCallback(w http.ResponseWriter, r *http.Requ
 		if result.SessionID != "" {
 			setSessionCookie(w, result.SessionID, h.devMode)
 		}
+		//nolint:gosec // Internal redirect to the fixed device endpoint with a service-issued user code.
 		http.Redirect(w, r, "/device?user_code="+result.UserCode, http.StatusFound)
 
 	case service.DeviceError:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(result.ErrorCode)
-		pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: result.ErrorCode, Message: result.Error})
+		_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: result.ErrorCode, Message: result.Error})
 	}
 }
 
@@ -104,7 +107,7 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	}
 	if err := r.ParseForm(); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: 400, Message: "invalid form"})
+		_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: 400, Message: "invalid form"})
 		return
 	}
 
@@ -116,7 +119,7 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	}
 	if formToken == "" || subtle.ConstantTimeCompare([]byte(formToken), []byte(cookieToken)) != 1 {
 		w.WriteHeader(http.StatusForbidden)
-		pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: 403, Message: "CSRF validation failed"})
+		_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: 403, Message: "CSRF validation failed"})
 		return
 	}
 
@@ -131,7 +134,7 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	if !result.Success && result.ErrorCode != 0 {
 		w.WriteHeader(result.ErrorCode)
 	}
-	pages.RenderResult(w, pages.ResultData{
+	_ = pages.RenderResult(w, pages.ResultData{
 		BrandName: h.brandName,
 		Success:   result.Success,
 		Message:   result.Message,

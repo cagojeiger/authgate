@@ -32,8 +32,10 @@ func (h *MCPLoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	switch result.Action {
 	case service.ActionRedirectToIdP:
+		//nolint:gosec // Redirect target is the upstream IdP authorization URL built by MCPLoginService.
 		http.Redirect(w, r, result.RedirectURL, http.StatusFound)
 	case service.ActionAutoApprove:
+		//nolint:gosec // Internal redirect to the fixed OIDC callback with a service-issued auth request ID.
 		http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
 	case service.ActionError:
 		h.renderError(w, result.ErrorCode, result.Error)
@@ -55,6 +57,7 @@ func (h *MCPLoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request)
 		if result.SessionID != "" {
 			setSessionCookie(w, result.SessionID, h.devMode)
 		}
+		//nolint:gosec // Internal redirect to the fixed OIDC callback with a service-issued auth request ID.
 		http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
 	case service.ActionError:
 		h.renderError(w, result.ErrorCode, result.Error)
@@ -66,5 +69,5 @@ func (h *MCPLoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request)
 func (h *MCPLoginHandler) renderError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
-	pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: code, Message: message})
+	_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: code, Message: message})
 }

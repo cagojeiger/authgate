@@ -5,6 +5,7 @@ import "net/http"
 const sessionCookieName = "authgate_session"
 
 func setSessionCookie(w http.ResponseWriter, sessionID string, devMode bool) {
+	//nolint:gosec // Secure=false is allowed only in explicit DEV_MODE for localhost development.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sessionID,

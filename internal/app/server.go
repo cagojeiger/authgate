@@ -52,7 +52,7 @@ func startMetricsServer(cfg *config.Config) context.CancelFunc {
 	if cfg.MetricsAddr == "" {
 		return func() {}
 	}
-	ln, err := net.Listen("tcp", cfg.MetricsAddr)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", cfg.MetricsAddr)
 	if err != nil {
 		log.Fatalf("metrics listen: %v", err)
 	}

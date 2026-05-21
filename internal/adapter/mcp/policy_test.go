@@ -181,4 +181,3 @@ func TestResourceBindingPolicy_TokenDelegatesToBase(t *testing.T) {
 		t.Fatalf("base token calls = %d, want 1", base.tokenCalls)
 	}
 }
-

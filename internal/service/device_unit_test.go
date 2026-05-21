@@ -225,8 +225,8 @@ type countingProvider struct {
 	user          *upstream.UserInfo
 }
 
-func (c *countingProvider) Name() string                 { return "counting" }
-func (c *countingProvider) AuthURL(state string) string  { return "/auth?state=" + state }
+func (c *countingProvider) Name() string                { return "counting" }
+func (c *countingProvider) AuthURL(state string) string { return "/auth?state=" + state }
 func (c *countingProvider) Exchange(_ context.Context, _ string) (*upstream.UserInfo, error) {
 	c.exchangeCalls++
 	if c.user == nil {

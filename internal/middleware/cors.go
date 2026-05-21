@@ -77,7 +77,7 @@ func (c *corsWriter) flushCORSHeaders() {
 		return
 	}
 	c.written = true
-	h := c.ResponseWriter.Header()
+	h := c.Header()
 	if c.matched {
 		h.Set("Access-Control-Allow-Origin", c.origin)
 		h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")

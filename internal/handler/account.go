@@ -30,7 +30,7 @@ func (h *AccountHandler) HandleDeleteAccount(w http.ResponseWriter, r *http.Requ
 	origin := r.Header.Get("Origin")
 	if origin == "" || origin != h.publicURL {
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]string{"error": "origin mismatch"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "origin mismatch"})
 		return
 	}
 
@@ -42,12 +42,12 @@ func (h *AccountHandler) HandleDeleteAccount(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	if result.Success {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"status":  "pending_deletion",
 			"message": result.Message,
 		})
 	} else {
 		w.WriteHeader(result.ErrorCode)
-		json.NewEncoder(w).Encode(map[string]string{"error": result.Message})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": result.Message})
 	}
 }

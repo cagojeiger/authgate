@@ -21,7 +21,11 @@ jobs:
           go-version-file: go.mod
 
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: |
+          # Build govulncheck with the setup-go toolchain. Without this,
+          # the tool's own toolchain directive can downgrade to Go 1.25 and
+          # fail to load this Go 1.26 module.
+          GOTOOLCHAIN=local go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
 
       - name: Run full govulncheck (non-blocking)
         id: vulnscan
