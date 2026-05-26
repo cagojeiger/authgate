@@ -76,7 +76,7 @@ audit_log
 | 조사 가능성 | user_id, IP, User-Agent는 사고 조사 기간 동안 보존 |
 | 보존 후 익명화 | `AUDIT_LOG_PII_RETENTION_DAYS` 이후 user_id/IP/User-Agent 제거 |
 | 위변조 방지 | audit_log UPDATE/DELETE 제한 trigger |
-| 실패 가시화 | audit write 실패는 metric으로 노출 |
+| 실패 가시화 | audit write 실패는 호출자에게 전파하지 않고 구조화 로그(`slog.ErrorContext`, `internal/storage/audit.go:247`)로 노출. 현재 metric increment는 없으며 운영 로그 파이프라인이 이 로그를 수집·경보 |
 | 변경관리 증거 | PR, CI, vulnerability check 결과를 SOC 2 evidence로 사용 |
 
 ## Control Matrix
@@ -126,7 +126,7 @@ audit_log
 2. 구현 위치가 명확하다.
 3. 테스트 위치가 명확하다.
 4. metadata에 저장하는 값이 최소화되어 있다.
-5. 실패 시 silent하게 깨지는 통제는 metric 또는 CI로 감지된다.
+5. 실패 시 silent하게 깨지는 통제는 구조화 로그 또는 CI로 감지된다.
 ```
 
 새 control을 추가할 때는 이 문서와, 필요 시
