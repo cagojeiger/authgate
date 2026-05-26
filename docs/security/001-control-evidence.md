@@ -104,12 +104,12 @@ audit_log
 
 | ID | 요구/질문 | authgate evidence | 코드/문서 위치 | 테스트 위치 | 상태 |
 |----|-----------|-------------------|----------------|-------------|------|
-| SOC2-CC6-001 | 민감한 console 조회 접근을 추적하는가 | console read/denied access audit events | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
-| SOC2-CC6-002 | session/connection revoke 같은 권한성 작업을 추적하는가 | `auth.connection_revoked`, `auth.session_revoked`, `auth.other_sessions_revoked` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
-| SOC2-CC7-001 | 보안 이상징후를 탐지할 이벤트가 있는가 | inactive user access, refresh reuse detection, channel mismatch | `internal/service/*`, `internal/storage/storage_auth_tokens.go` | `internal/service/audit_test.go`, `internal/service/login_unit_test.go` | DONE |
-| SOC2-CC7-002 | abuse 방어가 있는가 | per-IP rate limit for auth/token/callback/console endpoints, CIMD failure rate limit | `cmd/authgate/main.go`, `internal/middleware/ratelimit.go`, `internal/adapter/mcp/cimd.go` | `cmd/authgate/main_test.go`, `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/*ratelimit*_test.go` | DONE |
-| SOC2-CC8-001 | 변경관리 evidence를 확보할 수 있는가 | GitHub PR, CI checks, vulnerability check | GitHub repository / Actions | PR checks | DONE |
-| SOC2-CC8-002 | dependency vulnerability evidence가 있는가 | `govulncheck` local/CI 실행 | GitHub Actions, PR body | CI `Vulnerability Check` | DONE |
+| SOC2-CC6-001 | 민감한 console 조회 접근을 추적하는가 (CC6.1, CC6.6 — logical access 통제 및 접근 제한) | console read/denied access audit events | `internal/service/console.go:145`, `internal/service/console.go:160-192`, `internal/service/console.go:349-392` | `internal/service/console_unit_test.go` | DONE |
+| SOC2-CC6-002 | session/connection revoke 같은 권한성 작업을 추적하는가 (CC6.3, CC6.6 — 권한성 접근의 변경·제거) | `auth.connection_revoked`, `auth.session_revoked`, `auth.other_sessions_revoked` | `internal/service/console.go:280-304`, `internal/service/console.go:307-325`, `internal/service/console.go:328-345` | `internal/service/console_unit_test.go` | DONE |
+| SOC2-CC7-001 | 보안 이상징후를 탐지할 이벤트가 있는가 (CC7.1, 보조 CC7.2 — 이상징후 식별·모니터링) | inactive user access, refresh reuse detection, channel mismatch | `internal/service/login.go:39-51`, `internal/storage/storage_auth_tokens.go:210-220`, `internal/service/login.go:321-323` | `internal/service/audit_test.go`, `internal/service/login_unit_test.go` | DONE |
+| SOC2-CC7-002 | abuse 방어가 있는가 (CC7.1 — 시스템 운영 중 이상 동작 차단) | per-IP rate limit for auth/token/callback/console endpoints, CIMD failure rate limit | `internal/app/routes.go:81`, `internal/middleware/ratelimit.go:31`, `internal/adapter/mcp/cimd.go:127` | `internal/app/routes_test.go:75`, `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/cimd_fetcher_ratelimit_test.go:18` | DONE |
+| SOC2-CC8-001 | 변경관리 evidence를 확보할 수 있는가 (CC8.1 — 변경의 문서화·테스트·승인) | GitHub PR, CI checks, vulnerability check | `.github/pull_request_template.md`, `.github/workflows/ci.yml:104-118`, `:164-192` | PR checks | DONE |
+| SOC2-CC8-002 | dependency vulnerability evidence가 있는가 (CC8.1 — 변경관리 중 dependency 변경 검증) | `govulncheck` local/CI 실행 | `.github/workflows/ci.yml:194-213`, `.github/workflows/vuln-full-scan.yml:23-49` | CI `Vulnerability Check` | DONE |
 
 ## 남은 GAP
 
