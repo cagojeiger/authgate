@@ -11,9 +11,11 @@ authgate 밖의 조직 운영 절차(법무 판단, 고객 통지, 접근권한 
 
 ## 문서 목록
 
-| # | 문서 | 목적 |
-|---|------|------|
-| 001 | [Audit Evidence Matrix](001-audit-evidence-matrix.md) | 한국 PIPA/통비법/SOC 2 관점에서 authgate가 생성하는 감사 증거와 현재 구현 상태 매핑 |
+| # | 문서 | 목적 | 독자 | 갱신 시점 |
+|---|------|------|------|----------|
+| 001 | [Control Evidence](001-control-evidence.md) | PIPA / 통비법 / SOC 2 등 표준·조문 → 코드/문서/테스트 evidence 매핑 | 감사관, 컴플라이언스 담당자 | control/조문/코드 위치 변경 시 |
+| 002 | [Event Catalog](002-event-catalog.md) | audit `event_type` 카탈로그 (트리거/metadata/구현 위치) | 개발자, SRE | event 추가/변경 시 |
+| 003 | [Endpoint Coverage](003-endpoint-coverage.md) | endpoint별 audit/rate-limit 커버리지 | 보안 리뷰어, 신규 endpoint 작성자 | endpoint 추가/변경 시 |
 
 ## 관계
 
@@ -21,15 +23,11 @@ authgate 밖의 조직 운영 절차(법무 판단, 고객 통지, 접근권한 
 법/감사 요구
   │
   ▼
-docs/security/*
-  │  "서버가 어떤 증거를 제공하는가"
+docs/security/001-control-evidence.md ── "서버가 어떤 evidence를 제공하는가"
+docs/security/002-event-catalog.md   ── "어떤 event가 언제 발생하는가"
+docs/security/003-endpoint-coverage.md ── "endpoint별 audit/rate-limit 커버리지"
   │
-  ├── docs/spec/*
-  │     "서비스가 어떻게 동작해야 하는가"
-  │
-  ├── docs/tests/*
-  │     "무엇을 테스트해야 하는가"
-  │
-  └── internal/*
-        "실제 구현"
+  ├── docs/spec/*    "서비스가 어떻게 동작해야 하는가"
+  ├── docs/tests/*   "무엇을 테스트해야 하는가"
+  └── internal/*     "실제 구현"
 ```
