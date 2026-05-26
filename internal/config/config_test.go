@@ -10,16 +10,20 @@ func clearEnv() {
 	for _, key := range []string{
 		"PORT", "DATABASE_URL", "SESSION_SECRET", "PUBLIC_URL",
 		"OIDC_ISSUER_URL", "OIDC_ISSUER_HOST_ALLOWLIST",
+		"OIDC_INTERNAL_URL",
 		"OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"OIDC_HTTP_TIMEOUT_SEC",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "AUDIT_LOG_PII_RETENTION_DAYS",
 		"DEV_MODE", "ENABLE_MCP",
-		"SIGNING_KEY_PATH",
+		"CLIENT_CONFIG", "MIGRATIONS_PATH", "SIGNING_KEY_PATH", "BRAND_NAME",
 		"DB_MAX_OPEN_CONNS", "DB_MAX_IDLE_CONNS",
 		"DB_CONN_MAX_LIFETIME_SEC", "DB_CONN_MAX_IDLE_TIME_SEC",
 		"HTTP_READ_HEADER_TIMEOUT_SEC", "HTTP_READ_TIMEOUT_SEC",
 		"HTTP_WRITE_TIMEOUT_SEC", "HTTP_IDLE_TIMEOUT_SEC",
 		"SHUTDOWN_TIMEOUT_SEC", "METRICS_ADDR",
+		"RATE_LIMIT_TOKEN_RPS", "RATE_LIMIT_TOKEN_BURST",
+		"RATE_LIMIT_AUTH_RPS", "RATE_LIMIT_AUTH_BURST",
+		"TRUSTED_PROXIES",
 	} {
 		os.Unsetenv(key)
 	}
@@ -409,6 +413,24 @@ func TestLoad_OIDCHTTPTimeoutInvalid(t *testing.T) {
 	}
 }
 
+func TestLoad_TTLsMustBePositive(t *testing.T) {
+	for _, key := range []string{"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL"} {
+		t.Run(key, func(t *testing.T) {
+			clearEnv()
+			setMinimal()
+			os.Setenv(key, "0")
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected error: %s must be > 0", key)
+			}
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("error = %v, want one mentioning %s", err, key)
+			}
+		})
+	}
+}
+
 func TestLoad_ShutdownTimeoutFromEnv(t *testing.T) {
 	clearEnv()
 	setMinimal()
@@ -431,6 +453,56 @@ func TestLoad_ShutdownTimeoutInvalid(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error: SHUTDOWN_TIMEOUT_SEC must be > 0")
+	}
+}
+
+func TestLoad_HTTPTimeoutsMustBePositive(t *testing.T) {
+	for _, key := range []string{
+		"HTTP_READ_HEADER_TIMEOUT_SEC",
+		"HTTP_READ_TIMEOUT_SEC",
+		"HTTP_WRITE_TIMEOUT_SEC",
+		"HTTP_IDLE_TIMEOUT_SEC",
+	} {
+		t.Run(key, func(t *testing.T) {
+			clearEnv()
+			setMinimal()
+			os.Setenv(key, "0")
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected error: %s must be > 0", key)
+			}
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("error = %v, want one mentioning %s", err, key)
+			}
+		})
+	}
+}
+
+func TestLoad_RateLimitsMustBePositive(t *testing.T) {
+	tests := []struct {
+		key   string
+		value string
+	}{
+		{"RATE_LIMIT_TOKEN_RPS", "0"},
+		{"RATE_LIMIT_AUTH_RPS", "0"},
+		{"RATE_LIMIT_TOKEN_BURST", "0"},
+		{"RATE_LIMIT_AUTH_BURST", "0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			clearEnv()
+			setMinimal()
+			os.Setenv(tt.key, tt.value)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected error for %s=%s", tt.key, tt.value)
+			}
+			if !strings.Contains(err.Error(), tt.key) {
+				t.Errorf("error = %v, want one mentioning %s", err, tt.key)
+			}
+		})
 	}
 }
 

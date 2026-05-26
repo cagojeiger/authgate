@@ -39,6 +39,7 @@ type AccountResult struct {
 // RequestDeletion handles DELETE /account — validates session + single TX: status + refresh revoke.
 func (s *AccountService) RequestDeletion(ctx context.Context, sessionID, ipAddress, userAgent string) *AccountResult {
 	if sessionID == "" {
+		s.auditAccessDenied(ctx, ipAddress, userAgent, "missing_session")
 		return &AccountResult{Success: false, Message: "unauthorized", ErrorCode: http.StatusUnauthorized}
 	}
 
@@ -48,6 +49,7 @@ func (s *AccountService) RequestDeletion(ctx context.Context, sessionID, ipAddre
 		return &AccountResult{Success: false, Message: "account_inactive", ErrorCode: http.StatusForbidden}
 	}
 	if err != nil {
+		s.auditAccessDenied(ctx, ipAddress, userAgent, "invalid_session")
 		return &AccountResult{Success: false, Message: "invalid session", ErrorCode: http.StatusUnauthorized}
 	}
 
@@ -79,6 +81,14 @@ func (s *AccountService) RequestDeletion(ctx context.Context, sessionID, ipAddre
 	s.store.AuditLog(ctx, &user.ID, storage.EventAuthDeletionRequested, ipAddress, userAgent, s.deletionRequestedMetadata(ctx, user.ID, sessionID))
 
 	return &AccountResult{Success: true, Message: "Account scheduled for deletion in 30 days. Login to cancel."}
+}
+
+func (s *AccountService) auditAccessDenied(ctx context.Context, ipAddress, userAgent, reason string) {
+	s.store.AuditLog(ctx, nil, storage.EventAuthAccessDenied, ipAddress, userAgent, map[string]any{
+		"operation":   "account.delete",
+		"status_code": http.StatusUnauthorized,
+		"reason":      reason,
+	})
 }
 
 func (s *AccountService) deletionRequestedMetadata(ctx context.Context, userID, sessionID string) map[string]any {

@@ -90,6 +90,11 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 			"authRequestID", authRequestID,
 			"ipAddress", ipAddress,
 		)
+		s.store.AuditLog(ctx, nil, storage.EventAuthResourceBindingFailed, ipAddress, userAgent, map[string]any{
+			"client_id":   authReq.ClientID,
+			"client_name": resolveClientName(ctx, s.store, authReq.ClientID),
+			"reason":      "missing_resource",
+		})
 		return &CallbackResult{Action: ActionError, Error: "invalid_target", ErrorCode: http.StatusBadRequest}
 	}
 

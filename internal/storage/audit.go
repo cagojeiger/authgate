@@ -32,19 +32,21 @@ import (
 // fully invalidated" — see docs/spec/005-token-lifecycle.md "Logout vs.
 // Revoke" for the contract.
 const (
-	EventAuthRefreshReuseDetected = "auth.refresh_reuse_detected"
-	EventAuthRefreshFamilyRevoked = "auth.refresh_family_revoked"
-	EventAuthTokenRefreshed       = "auth.token_refreshed"
-	EventAuthDeletionRequested    = "auth.deletion_requested"
-	EventAuthDeletionCancelled    = "auth.deletion_cancelled"
-	EventAuthDeletionCompleted    = "auth.deletion_completed"
-	EventAuthLogout               = "auth.logout"
-	EventAuthTokenRevoked         = "auth.token_revoked"
-	EventAuthChannelMismatch      = "auth.channel_mismatch"
-	EventAuthDeviceCodeIssued     = "auth.device_code_issued"
-	EventAuthConnectionRevoked    = "auth.connection_revoked"
-	EventAuthSessionRevoked       = "auth.session_revoked"
-	EventAuthOtherSessionsRevoked = "auth.other_sessions_revoked"
+	EventAuthRefreshReuseDetected  = "auth.refresh_reuse_detected"
+	EventAuthRefreshFamilyRevoked  = "auth.refresh_family_revoked"
+	EventAuthTokenRefreshed        = "auth.token_refreshed"
+	EventAuthDeletionRequested     = "auth.deletion_requested"
+	EventAuthDeletionCancelled     = "auth.deletion_cancelled"
+	EventAuthDeletionCompleted     = "auth.deletion_completed"
+	EventAuthLogout                = "auth.logout"
+	EventAuthTokenRevoked          = "auth.token_revoked"
+	EventAuthChannelMismatch       = "auth.channel_mismatch"
+	EventAuthResourceBindingFailed = "auth.resource_binding_failed"
+	EventAuthAccessDenied          = "auth.access_denied"
+	EventAuthDeviceCodeIssued      = "auth.device_code_issued"
+	EventAuthConnectionRevoked     = "auth.connection_revoked"
+	EventAuthSessionRevoked        = "auth.session_revoked"
+	EventAuthOtherSessionsRevoked  = "auth.other_sessions_revoked"
 
 	EventConsoleClientsListed     = "console.clients_listed"
 	EventConsoleConnectionsListed = "console.connections_listed"
@@ -59,6 +61,16 @@ var auditMetadataAllowlist = map[string]map[string]struct{}{
 		"actual_channel":   {},
 		"client_id":        {},
 		"client_name":      {},
+	},
+	EventAuthResourceBindingFailed: {
+		"client_id":   {},
+		"client_name": {},
+		"reason":      {},
+	},
+	EventAuthAccessDenied: {
+		"operation":   {},
+		"status_code": {},
+		"reason":      {},
 	},
 	"auth.login": {
 		"channel":        {},

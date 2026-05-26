@@ -69,6 +69,41 @@ func TestSanitizeAuditMetadata_UnknownEventDropsMetadata(t *testing.T) {
 	}
 }
 
+func TestSanitizeAuditMetadata_ResourceBindingFailedDropsRequestDetails(t *testing.T) {
+	got := sanitizeAuditMetadata(context.Background(), EventAuthResourceBindingFailed, map[string]any{
+		"client_id":   "mcp-client",
+		"client_name": "MCP Client",
+		"reason":      "missing_resource",
+		"resource":    "https://example.com/mcp",
+		"code":        "secret-code",
+	})
+	want := map[string]any{
+		"client_id":   "mcp-client",
+		"client_name": "MCP Client",
+		"reason":      "missing_resource",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sanitized metadata = %#v, want %#v", got, want)
+	}
+}
+
+func TestSanitizeAuditMetadata_AuthAccessDeniedDropsSessionID(t *testing.T) {
+	got := sanitizeAuditMetadata(context.Background(), EventAuthAccessDenied, map[string]any{
+		"operation":   "account.delete",
+		"status_code": 401,
+		"reason":      "invalid_session",
+		"session_id":  "sess-1",
+	})
+	want := map[string]any{
+		"operation":   "account.delete",
+		"status_code": 401,
+		"reason":      "invalid_session",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sanitized metadata = %#v, want %#v", got, want)
+	}
+}
+
 func TestSanitizeAuditMetadata_EmptyResultReturnsNil(t *testing.T) {
 	got := sanitizeAuditMetadata(context.Background(), "auth.login", map[string]any{
 		"email": "person@example.com",

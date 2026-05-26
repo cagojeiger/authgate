@@ -137,12 +137,20 @@ func TestAccount_RequestDeletion_StorageRejectsClosedAccount(t *testing.T) {
 }
 
 func TestAccount_RequestDeletion_InvalidSession(t *testing.T) {
+	var gotUserID *string
+	var gotEventType string
+	var gotMetadata map[string]any
 	store := &fakeAccountStore{
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
 			return nil, errors.New("invalid")
 		},
 		requestDeletionFn: func(context.Context, string) (string, error) {
 			return "", nil
+		},
+		auditLogFn: func(_ context.Context, userID *string, eventType, _, _ string, metadata map[string]any) {
+			gotUserID = userID
+			gotEventType = eventType
+			gotMetadata = metadata
 		},
 	}
 	svc := NewAccountService(store)
@@ -154,5 +162,52 @@ func TestAccount_RequestDeletion_InvalidSession(t *testing.T) {
 	}
 	if result.ErrorCode != 401 {
 		t.Fatalf("errorCode = %d, want 401", result.ErrorCode)
+	}
+	if gotUserID != nil {
+		t.Fatalf("audit userID = %v, want nil", gotUserID)
+	}
+	if gotEventType != storage.EventAuthAccessDenied {
+		t.Fatalf("audit event = %q, want %s", gotEventType, storage.EventAuthAccessDenied)
+	}
+	if gotMetadata["operation"] != "account.delete" || gotMetadata["status_code"] != 401 || gotMetadata["reason"] != "invalid_session" {
+		t.Fatalf("audit metadata = %#v, want invalid account.delete denial", gotMetadata)
+	}
+}
+
+func TestAccount_RequestDeletion_MissingSession_AuditLogged(t *testing.T) {
+	var calledGetSession bool
+	var gotEventType string
+	var gotMetadata map[string]any
+	store := &fakeAccountStore{
+		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
+			calledGetSession = true
+			return nil, nil
+		},
+		requestDeletionFn: func(context.Context, string) (string, error) {
+			return "", nil
+		},
+		auditLogFn: func(_ context.Context, userID *string, eventType, _, _ string, metadata map[string]any) {
+			if userID != nil {
+				t.Fatalf("audit userID = %v, want nil", userID)
+			}
+			gotEventType = eventType
+			gotMetadata = metadata
+		},
+	}
+	svc := NewAccountService(store)
+
+	result := svc.RequestDeletion(context.Background(), "", "127.0.0.1", "ua")
+
+	if result.Success || result.ErrorCode != 401 {
+		t.Fatalf("result = %+v, want 401 failure", result)
+	}
+	if calledGetSession {
+		t.Fatal("GetValidSession should not be called without a session id")
+	}
+	if gotEventType != storage.EventAuthAccessDenied {
+		t.Fatalf("audit event = %q, want %s", gotEventType, storage.EventAuthAccessDenied)
+	}
+	if gotMetadata["operation"] != "account.delete" || gotMetadata["status_code"] != 401 || gotMetadata["reason"] != "missing_session" {
+		t.Fatalf("audit metadata = %#v, want missing account.delete denial", gotMetadata)
 	}
 }

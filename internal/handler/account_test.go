@@ -1,18 +1,34 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/kangheeyong/authgate/internal/service"
+	"github.com/kangheeyong/authgate/internal/storage"
 )
 
 // newTestAccountHandler creates an AccountHandler with nil service.
 // Safe for tests that exit before the service call (method check, origin check).
 func newTestAccountHandler() *AccountHandler {
 	return NewAccountHandler(nil, "http://authgate.example.com")
+}
+
+type accountHandlerTestStore struct{}
+
+func (accountHandlerTestStore) GetValidSession(ctx context.Context, sessionID string) (*storage.User, error) {
+	return nil, errors.New("invalid session")
+}
+
+func (accountHandlerTestStore) RequestDeletion(ctx context.Context, userID string) (string, error) {
+	return "", nil
+}
+
+func (accountHandlerTestStore) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 }
 
 // ── Method guard ──────────────────────────────────────────────────────────────
@@ -96,7 +112,7 @@ func TestDeleteAccount_OriginMatch_PassesOriginCheck(t *testing.T) {
 }
 
 func TestDeleteAccount_NoSession_Unauthorized(t *testing.T) {
-	svc := service.NewAccountService(nil)
+	svc := service.NewAccountService(accountHandlerTestStore{})
 	h := NewAccountHandler(svc, "http://authgate.example.com")
 
 	req := httptest.NewRequest(http.MethodDelete, "/account", nil)

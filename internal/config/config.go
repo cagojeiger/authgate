@@ -114,8 +114,29 @@ func Load() (*Config, error) {
 	if c.OIDCHTTPTimeout <= 0 {
 		return nil, fmt.Errorf("OIDC_HTTP_TIMEOUT_SEC must be > 0")
 	}
+	if c.SessionTTL <= 0 {
+		return nil, fmt.Errorf("SESSION_TTL must be > 0")
+	}
+	if c.AccessTokenTTL <= 0 {
+		return nil, fmt.Errorf("ACCESS_TOKEN_TTL must be > 0")
+	}
+	if c.RefreshTokenTTL <= 0 {
+		return nil, fmt.Errorf("REFRESH_TOKEN_TTL must be > 0")
+	}
 	if c.ShutdownTimeout <= 0 {
 		return nil, fmt.Errorf("SHUTDOWN_TIMEOUT_SEC must be > 0")
+	}
+	if c.HTTPReadHeaderTimeout <= 0 {
+		return nil, fmt.Errorf("HTTP_READ_HEADER_TIMEOUT_SEC must be > 0")
+	}
+	if c.HTTPReadTimeout <= 0 {
+		return nil, fmt.Errorf("HTTP_READ_TIMEOUT_SEC must be > 0")
+	}
+	if c.HTTPWriteTimeout <= 0 {
+		return nil, fmt.Errorf("HTTP_WRITE_TIMEOUT_SEC must be > 0")
+	}
+	if c.HTTPIdleTimeout <= 0 {
+		return nil, fmt.Errorf("HTTP_IDLE_TIMEOUT_SEC must be > 0")
 	}
 	if c.AuditLogPIIRetention < 365*24*time.Hour {
 		return nil, fmt.Errorf("AUDIT_LOG_PII_RETENTION_DAYS must be >= 365")

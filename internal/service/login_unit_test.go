@@ -321,6 +321,42 @@ func TestMCPLogin_HandleCallback_AuditLogIncludesSessionAndClient(t *testing.T) 
 	}
 }
 
+func TestMCPLogin_HandleCallback_MissingResource_AuditLogged(t *testing.T) {
+	var gotUserID *string
+	var gotEventType string
+	var gotMetadata map[string]any
+	store := &fakeLoginStore{
+		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
+			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "mcp-client"}, nil
+		},
+		resolveClientFn: func(context.Context, string) (*storage.ClientModel, error) {
+			return &storage.ClientModel{ID: "mcp-client", Name: "MCP Client"}, nil
+		},
+		auditLogFn: func(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
+			gotUserID = userID
+			gotEventType = eventType
+			gotMetadata = metadata
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
+	svc := NewMCPLoginService(store, provider, 24*time.Hour)
+
+	result := svc.HandleCallback(context.Background(), "code", "ar-1", "127.0.0.1", "ua")
+
+	if result.Action != ActionError || result.Error != "invalid_target" {
+		t.Fatalf("action=%v error=%q, want invalid_target error", result.Action, result.Error)
+	}
+	if gotUserID != nil {
+		t.Fatalf("userID = %v, want nil", gotUserID)
+	}
+	if gotEventType != storage.EventAuthResourceBindingFailed {
+		t.Fatalf("eventType = %q, want %s", gotEventType, storage.EventAuthResourceBindingFailed)
+	}
+	if gotMetadata["client_id"] != "mcp-client" || gotMetadata["client_name"] != "MCP Client" || gotMetadata["reason"] != "missing_resource" {
+		t.Fatalf("metadata = %#v", gotMetadata)
+	}
+}
+
 func TestLogin_HandleLogin_NoSession_Redirect(t *testing.T) {
 	store := &fakeLoginStore{
 		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
