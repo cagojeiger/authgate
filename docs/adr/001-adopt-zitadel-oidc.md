@@ -1,6 +1,11 @@
 # ADR-001: OAuth2/OIDC 구현에 zitadel/oidc v3 라이브러리 채택
+
 ## Status
+
 Accepted (2026-03-28)
+
+> Revised 2026-05-26: 구현 디테일(엔드포인트 경로, Storage 인터페이스 메서드 개수, "실제 코드 기준 경계 메모" 등)을 본 ADR에서 제거하고 `docs/spec/*`에 위임했다. **결정 자체는 변경되지 않았다** — 결정의 표현만 축약했다.
+
 ## Context
 ADR-000에서 authgate의 정체성을 "인증 경계이자 토큰 발급기"로 정의했다. 이 ADR은 그 정체성을 구현하기 위한 **기술 선택**을 다룬다.
 authgate는 OIDC 인증 게이트웨이로, 클라이언트에게는 OAuth2 서버 역할을 하면서 실제 인증은 upstream IdP에 위임하는 프록시 패턴을 사용한다.
