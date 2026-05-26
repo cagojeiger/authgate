@@ -55,7 +55,8 @@ audit_log
 | 기준 | authgate에서의 해석 |
 |------|------------------------|
 | 개인정보 보호법 §29, §34 | 안전조치, 침해사고 조사, 통지 판단에 필요한 로그 근거 |
-| 개인정보 보호법 시행령 §16 | 개인정보처리시스템 접속기록 보존기간의 하한선 |
+| 개인정보 보호법 시행령 제30조제1항제5호가목-다목 및 제30조제3항 | 접속기록 저장·점검·안전보관 및 위·변조 방지 조치의 직접 근거 |
+| 개인정보의 안전성 확보조치 기준 (보호위원회 고시) 제8조제1항제1호-제3호 | 접속기록 1년/2년 보존기간의 직접 근거 |
 | 통신비밀보호법 시행령 §41 | IP/접속시각 등 통신 메타데이터 보존기간 검토 기준 |
 | SOC 2 Trust Services Criteria | CC6(접근통제), CC7(시스템 운영/탐지), CC8(변경관리) 증거 |
 | ISMS-P 인증대상 기준 | 매출/이용자 임계 도달 시 별도 인증 범위 검토 기준 |
@@ -85,8 +86,8 @@ audit_log
 | ID | 요구/질문 | authgate evidence | 코드/문서 위치 | 테스트 위치 | 상태 |
 |----|-----------|-------------------|----------------|-------------|------|
 | KR-PIPA-LOG-001 | 개인정보처리시스템 접근/행위 기록을 남기는가 | `audit_log`에 `user_id`, `event_type`, `ip_address`, `user_agent`, `created_at` 저장 | `internal/storage/audit.go`, `docs/spec/007-data-model.md` | `internal/service/audit_test.go`, `internal/storage/audit_test.go` | DONE |
-| KR-PIPA-LOG-002 | 접속기록을 최소 1년 이상 보존하도록 설정할 수 있는가 | `AUDIT_LOG_PII_RETENTION_DAYS` 기본 1095일, 최소 365일 fail-fast | `internal/config/config.go`, `README.md` | `internal/config/config_test.go` | DONE |
-| KR-PIPA-LOG-003 | 규모/민감정보 조건에서 2년 보존으로 올릴 수 있는가 | env로 730일 이상 설정 가능 | `internal/config/config.go` | `internal/config/config_test.go` | DONE |
+| KR-PIPA-LOG-002 | 개인정보 보호법 제29조, 시행령 제30조제1항제5호가목·나목 및 개인정보의 안전성 확보조치 기준 제8조제1항 본문에 따라 접속기록을 최소 1년 이상 보존하도록 fail-fast 설정하는가 | `AUDIT_LOG_PII_RETENTION_DAYS` 기본 1095일, 최소 365일 fail-fast | `internal/config/config.go:85`, `internal/config/config.go:120`, `README.md` | `internal/config/config_test.go:148`, `internal/config/config_test.go:245` | DONE |
+| KR-PIPA-LOG-003 | 개인정보의 안전성 확보조치 기준 제8조제1항제1호-제3호의 2년 보존 대상 조건(5만명 이상 정보주체 / 고유식별·민감정보 처리 / 기간통신사업자)에 대응하여 730일 이상 설정할 수 있는가 | env로 730일 이상 설정 가능 | `internal/config/config.go:85` | `internal/config/config_test.go:148` | DONE |
 | KR-PIPA-SEC-001 | 접속기록 위변조를 제한하는가 | audit_log append-only trigger, PII redaction 예외만 허용 | `migrations/003_audit_log_immutability.*.sql` | `internal/storage/audit_test.go` | DONE |
 | KR-PIPA-SEC-002 | 불필요한 PII/secret이 audit metadata에 저장되지 않는가 | event별 metadata allowlist | `internal/storage/audit.go` | `internal/storage/audit_unit_test.go` | DONE |
 | KR-PIPA-DEL-001 | 사용자 삭제/익명화 흐름을 추적할 수 있는가 | `auth.deletion_requested`, `auth.deletion_cancelled`, `auth.deletion_completed` | `internal/service/account.go`, `internal/service/login.go`, `internal/storage/cleanup_runner.go` | `internal/service/audit_test.go`, `internal/service/cleanup_test.go` | DONE |
