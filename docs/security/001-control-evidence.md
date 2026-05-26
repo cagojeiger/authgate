@@ -59,6 +59,7 @@ audit_log
 | 개인정보의 안전성 확보조치 기준 (보호위원회 고시) 제8조제1항제1호-제3호 | 접속기록 1년/2년 보존기간의 직접 근거 |
 | 통신비밀보호법 시행령 §41 | IP/접속시각 등 통신 메타데이터 보존기간 검토 기준 |
 | SOC 2 Trust Services Criteria | CC6(접근통제), CC7(시스템 운영/탐지), CC8(변경관리) 증거 |
+| OAuth/OIDC IETF RFC, OAuth 2.1 draft, OWASP API Security Top 10 | PKCE, Device polling interval, proxy trust, SSRF 방어 등 protocol·web 보안 통제 근거 |
 | ISMS-P 인증대상 기준 | 매출/이용자 임계 도달 시 별도 인증 범위 검토 기준 |
 
 참고 URL:
@@ -111,11 +112,23 @@ audit_log
 | SOC2-CC8-001 | 변경관리 evidence를 확보할 수 있는가 (CC8.1 — 변경의 문서화·테스트·승인) | GitHub PR, CI checks, vulnerability check | `.github/pull_request_template.md`, `.github/workflows/ci.yml:104-118`, `:164-192` | PR checks | DONE |
 | SOC2-CC8-002 | dependency vulnerability evidence가 있는가 (CC8.1 — 변경관리 중 dependency 변경 검증) | `govulncheck` local/CI 실행 | `.github/workflows/ci.yml:194-213`, `.github/workflows/vuln-full-scan.yml:23-49` | CI `Vulnerability Check` | DONE |
 
+### Standards / RFC / OWASP
+
+OAuth/OIDC 표준, IETF RFC, OWASP API Security Top 10 등 protocol·web 보안 통제. PIPA·SOC 2와 별개로 "어떤 표준 근거로 어떤 로직을 추가했는가"의 추적성을 위해 별도 그룹으로 관리한다.
+
+| ID | 요구/질문 | authgate evidence | 코드/문서 위치 | 테스트 위치 | 상태 |
+|----|-----------|-------------------|----------------|-------------|------|
+| STD-OAUTH-PKCE-001 | 모든 authorization code 요청이 PKCE S256 없이는 거부되는가 (RFC 7636 §4.4.1, §4.6 / OAuth 2.1 draft-ietf-oauth-v2-1-14 §4.1.1) | `CreateAuthRequest`가 `code_challenge` 누락 또는 S256 외 method를 `invalid_request`로 거부 | `internal/storage/storage_auth_tokens.go:21`, `internal/storage/storage_auth_tokens.go:26`, `internal/storage/storage_auth_tokens.go:52` | `internal/integration/integration_pkce_enforcement_test.go:13` `TestPKCEEnforcement`, `internal/integration/integration_mcp_test.go:16` | DONE |
+| STD-OAUTH-DEVICE-001 | Device Authorization Grant polling 간격 위반 시 `slow_down`을 강제하는가 (RFC 8628 §3.5 — polling interval +5초 backoff) | `last_polled_at` 갱신, pending 상태에서 interval 미만 재poll이면 `context.DeadlineExceeded`로 slow_down 변환 | `internal/storage/storage_oidc_device.go:147`, `internal/storage/storage_oidc_device.go:162`, `internal/storage/storage_oidc_device.go:169`, `internal/storage/storage_oidc_device.go:183` | `internal/integration/integration_device_test.go:256` `TestIntegration_DevicePolling_EnforcesSlowDown`, `:288` | DONE |
+| STD-HTTP-PROXY-001 | 감사 IP 산정에 사용하는 proxy header가 신뢰된 proxy hop에서만 반영되는가 (RFC 7239 §4, §8.1 / OWASP X-Forwarded-For spoofing 대응) | `TRUSTED_PROXIES`가 비었으면 proxy header 무시. 직전 hop이 trusted CIDR일 때만 `X-Envoy-External-Address` 또는 `X-Forwarded-For` rightmost-untrusted walk 사용 | `internal/config/config.go:56`, `internal/config/config.go:102`, `internal/app/app.go:81`, `internal/clientinfo/clientinfo.go:52`, `internal/clientinfo/clientinfo.go:69`, `internal/clientinfo/clientinfo.go:137` | `internal/clientinfo/clientinfo_test.go:33`, `:46`, `:67`, `:299`, `:332` | DONE |
+| STD-OWASP-SSRF-001 | CIMD/MCP `client_id` URL fetch가 SSRF 및 resource exhaustion을 방어하는가 (OWASP API7:2023 SSRF, API4:2023 Unrestricted Resource Consumption / RFC 6890 §2.2.2 special-purpose IP) | DNS 결과 중 private/loopback/link-local/unspecified IP 차단, redirect 금지, 3초 timeout, 10KB 응답 제한, failure rate limit | `internal/adapter/mcp/cimd.go:215`, `:220`, `:226`, `:240`, `:329`, `:444` | `internal/adapter/mcp/cimd_fetcher_basic_test.go:170`, `internal/adapter/mcp/cimd_fetcher_validation_test.go:64`, `:231`, `internal/adapter/mcp/cimd_fetcher_ratelimit_test.go:18` | PARTIAL — RFC 6890 전체 special-purpose range(multicast, documentation, benchmarking, reserved 등) 포괄 차단 여부는 추가 검증 필요 |
+
 ## 남은 GAP
 
 | GAP | 설명 | 다음 작업 후보 |
 |-----|------|----------------|
 | GAP-OPS-001 | SOC 2 운영 evidence(PR 리뷰, access review, backup restore test)는 GitHub/운영 시스템에 존재해야 하며 authgate DB에는 저장하지 않는다. | 운영 evidence export/checklist 문서 |
+| GAP-STD-SSRF-001 | STD-OWASP-SSRF-001은 private/loopback/link-local/unspecified는 차단하나, RFC 6890 §2.2.2의 전체 special-purpose range(multicast, documentation, benchmarking, reserved 등) 포괄 차단 여부는 코드상 미확정. | `internal/adapter/mcp/cimd.go`에 RFC 6890 전체 range 매칭 보강 또는 검증 테스트 추가 |
 
 ## 완료 기준
 
