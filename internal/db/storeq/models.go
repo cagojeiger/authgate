@@ -94,7 +94,5 @@ type UserIdentity struct {
 	UserID         string
 	Provider       string
 	ProviderUserID string
-	ProviderEmail  sql.NullString
-	ProviderRaw    pqtype.NullRawMessage
 	CreatedAt      time.Time
 }

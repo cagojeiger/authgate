@@ -31,7 +31,7 @@ func TestCleanup_ExpiredSessions(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user + expired session
-	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "cleanup-session@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "cleanup-session-sub", ProviderEmail: "c@test.com"})
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "cleanup-session@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "cleanup-session-sub"})
 	db.ExecContext(ctx,
 		`INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (uuid_generate_v4(), $1, $2, $3)`,
 		user.ID, clk.Now().Add(-1*time.Hour), clk.Now().Add(-25*time.Hour), // expired 1 hour ago
@@ -86,7 +86,7 @@ func TestCleanup_DeletionPIIScrub(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user, then set to pending_deletion with past scheduled date
-	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "delete-me@test.com", EmailVerified: true, Name: "Delete Me", Provider: "google", ProviderUserID: "delete-sub", ProviderEmail: "d@test.com"})
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "delete-me@test.com", EmailVerified: true, Name: "Delete Me", Provider: "google", ProviderUserID: "delete-sub"})
 	db.ExecContext(ctx,
 		`UPDATE users SET status = 'pending_deletion', deletion_scheduled_at = $1 WHERE id = $2`,
 		clk.Now().Add(-1*time.Hour), user.ID, // scheduled in the past
@@ -143,7 +143,7 @@ func TestE2E8_CleanupRollback(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user set for deletion
-	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "rollback@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "rollback-sub", ProviderEmail: "rb@test.com"})
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "rollback@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "rollback-sub"})
 	fx.DB.ExecContext(ctx, `UPDATE users SET status='pending_deletion', deletion_scheduled_at=$1 WHERE id=$2`,
 		fx.Clock.Now().Add(-1*time.Hour), user.ID)
 
@@ -200,7 +200,7 @@ func TestCleanup_DeletionPIIScrub_Idempotent(t *testing.T) {
 	db, store, clk := setupCleanupTest(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "cleanup-idem@test.com", EmailVerified: true, Name: "Idem", Provider: "google", ProviderUserID: "cleanup-idem-sub", ProviderEmail: "cleanup-idem@test.com"})
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "cleanup-idem@test.com", EmailVerified: true, Name: "Idem", Provider: "google", ProviderUserID: "cleanup-idem-sub"})
 	db.ExecContext(ctx,
 		`UPDATE users SET status = 'pending_deletion', deletion_scheduled_at = $1 WHERE id = $2`,
 		clk.Now().Add(-1*time.Hour), user.ID,
@@ -249,7 +249,7 @@ func TestCleanup_DeletionRaceWithRecovery(t *testing.T) {
 
 	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 		Email: "race-recover@test.com", EmailVerified: true, Name: "Race",
-		Provider: "google", ProviderUserID: "race-recover-sub", ProviderEmail: "race@test.com",
+		Provider: "google", ProviderUserID: "race-recover-sub",
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)

@@ -16,7 +16,6 @@ type CreateUserWithIdentityInput struct {
 	Name           string
 	Provider       string
 	ProviderUserID string
-	ProviderEmail  string
 }
 
 func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWithIdentityInput) (*User, error) {
@@ -73,7 +72,6 @@ func (s *Storage) insertIdentityForSignup(ctx context.Context, qtx *storeq.Queri
 		UserID:         userID,
 		Provider:       input.Provider,
 		ProviderUserID: input.ProviderUserID,
-		ProviderEmail:  sql.NullString{String: input.ProviderEmail, Valid: true},
 		CreatedAt:      now,
 	})
 }

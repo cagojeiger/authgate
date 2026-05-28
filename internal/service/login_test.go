@@ -87,7 +87,7 @@ func TestHandleCallback_ExistingUser_AutoApprove(t *testing.T) {
 	ctx := context.Background()
 
 	// Pre-create user
-	_, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "existing@example.com", EmailVerified: true, Name: "Existing", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "existing@example.com"})
+	_, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "existing@example.com", EmailVerified: true, Name: "Existing", Provider: "google", ProviderUserID: "google-sub-123"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestHandleCallback_PendingDeletion_RecoveryAutoApprove(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user, then set to pending_deletion
-	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "pending@example.com", EmailVerified: true, Name: "Pending", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "pending@example.com"})
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "pending@example.com", EmailVerified: true, Name: "Pending", Provider: "google", ProviderUserID: "google-sub-123"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestHandleCallback_InactiveUser_Error(t *testing.T) {
 	ctx := context.Background()
 
 	// Create disabled user
-	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "disabled@example.com", EmailVerified: true, Name: "Disabled", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "disabled@example.com"})
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "disabled@example.com", EmailVerified: true, Name: "Disabled", Provider: "google", ProviderUserID: "google-sub-123"})
 	store.DisableUser(ctx, user.ID)
 	arID, err := store.CreateTestAuthRequest(ctx, "req-disabled")
 	if err != nil {
@@ -169,7 +169,7 @@ func TestBrowser007_RecoveryRetryIdempotent(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user, then set to pending_deletion
-	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "retry@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "gap-sub", ProviderEmail: "r@test.com"})
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "retry@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "gap-sub"})
 	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	// First attempt: callback with bogus authRequestID is rejected before

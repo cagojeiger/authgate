@@ -18,7 +18,7 @@ func TestIntegration_DeleteAccount_WrongOrigin_Rejected(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user + get session
-	user, _ := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "origin-test@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "test-google-sub", ProviderEmail: "o@test.com"})
+	user, _ := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "origin-test@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "test-google-sub"})
 	sessionID, _ := ts.Store.CreateSession(ctx, user.ID, 24*3600*1e9)
 
 	req, _ := http.NewRequest("DELETE", ts.BaseURL+"/account", nil)
@@ -51,7 +51,7 @@ func TestIntegration_DeleteAccount_InactiveUser_Rejected(t *testing.T) {
 			ts := SetupTestServer(t)
 			ctx := context.Background()
 
-			user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "inactive-delete-" + tt.name + "@test.com", EmailVerified: true, Name: "Inactive Delete", Provider: "google", ProviderUserID: "inactive-delete-sub-" + tt.name, ProviderEmail: "inactive-delete-" + tt.name + "@test.com"})
+			user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "inactive-delete-" + tt.name + "@test.com", EmailVerified: true, Name: "Inactive Delete", Provider: "google", ProviderUserID: "inactive-delete-sub-" + tt.name})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
 			}
@@ -95,7 +95,7 @@ func TestIntegration_DeleteAccount_ResponseShape(t *testing.T) {
 	ts := SetupTestServer(t)
 	ctx := context.Background()
 
-	user, _ := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "shape@test.com", EmailVerified: true, Name: "Shape", Provider: "google", ProviderUserID: "shape-sub", ProviderEmail: "shape@test.com"})
+	user, _ := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "shape@test.com", EmailVerified: true, Name: "Shape", Provider: "google", ProviderUserID: "shape-sub"})
 	sessionID, _ := ts.Store.CreateSession(ctx, user.ID, 24*3600*1e9)
 
 	req, _ := http.NewRequest(http.MethodDelete, ts.BaseURL+"/account", nil)

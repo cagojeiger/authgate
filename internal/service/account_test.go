@@ -52,7 +52,7 @@ func setupAccountTest(t *testing.T) *accountFixture {
 func createUserWithSession(t *testing.T, store *storage.Storage, email, sub string) (string, string) {
 	t.Helper()
 	ctx := context.Background()
-	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: email, EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: sub, ProviderEmail: email})
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: email, EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: sub})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestAccount004_PendingDeletion_DeviceRejected(t *testing.T) {
 	fx := setupGapTest(t)
 	ctx := context.Background()
 
-	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "pd-device@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "gap-sub", ProviderEmail: "pd@test.com"})
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "pd-device@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "gap-sub"})
 	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 	insertDeviceCode(t, fx.Store, "PD-CODE", fx.Clock)
 
@@ -232,7 +232,7 @@ func TestAccount004b_PendingDeletion_MCPRejected(t *testing.T) {
 	fx := setupGapTest(t)
 	ctx := context.Background()
 
-	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "pd-mcp@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "gap-sub", ProviderEmail: "pdm@test.com"})
+	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "pd-mcp@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "gap-sub"})
 	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	arID, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "pd-mcp", "http://localhost/mcp")

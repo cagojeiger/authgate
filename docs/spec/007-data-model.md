@@ -31,8 +31,6 @@ erDiagram
         uuid user_id FK "NOT NULL, CASCADE"
         text provider "NOT NULL, OIDC issuer에서 파생 (예: google, mock 등)"
         text provider_user_id "NOT NULL, UNIQUE(provider, provider_user_id)"
-        text provider_email "nullable"
-        jsonb provider_raw "nullable"
         timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 

@@ -28,7 +28,7 @@ func TestCreateUserWithIdentity_Atomic(t *testing.T) {
 	s := testStorage(t)
 	ctx := context.Background()
 
-	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "atomic@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "atomic-sub-1", ProviderEmail: "atomic@test.com"})
+	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "atomic@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "atomic-sub-1"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestCreateUserWithIdentity_Atomic(t *testing.T) {
 	}
 
 	// Duplicate email should fail
-	_, err = s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "atomic@test.com", EmailVerified: true, Name: "Test2", Provider: "google", ProviderUserID: "atomic-sub-2", ProviderEmail: "dup@test.com"})
+	_, err = s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "atomic@test.com", EmailVerified: true, Name: "Test2", Provider: "google", ProviderUserID: "atomic-sub-2"})
 	if err == nil {
 		t.Fatal("expected error for duplicate email")
 	}
@@ -67,7 +67,7 @@ func TestRefreshTokenRotation_Atomicity(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup: create user
-	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "refresh@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "refresh-sub", ProviderEmail: "r@test.com"})
+	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "refresh@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "refresh-sub"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestSession_CreateAndValidate(t *testing.T) {
 	s := testStorage(t)
 	ctx := context.Background()
 
-	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "session@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "session-sub", ProviderEmail: "s@test.com"})
+	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "session@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "session-sub"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestSession_StatusFilter(t *testing.T) {
 
 			user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{
 				Email: tc.name + "@test.com", EmailVerified: true, Name: "Test",
-				Provider: "google", ProviderUserID: "filter-" + tc.name, ProviderEmail: tc.name + "@test.com",
+				Provider: "google", ProviderUserID: "filter-" + tc.name,
 			})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
@@ -258,7 +258,7 @@ func TestRequestDeletion_RejectsClosedAccount(t *testing.T) {
 			s := testStorage(t)
 			user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{
 				Email: "del-" + tc.flipStatus + "@test.com", EmailVerified: true, Name: "Del " + tc.flipStatus,
-				Provider: "google", ProviderUserID: "del-sub-" + tc.flipStatus, ProviderEmail: "del-" + tc.flipStatus + "@test.com",
+				Provider: "google", ProviderUserID: "del-sub-" + tc.flipStatus,
 			})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
@@ -303,7 +303,7 @@ func TestRequestDeletion_PendingDeletionIsIdempotent(t *testing.T) {
 
 	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{
 		Email: "del-idem@test.com", EmailVerified: true, Name: "Del Idem",
-		Provider: "google", ProviderUserID: "del-idem-sub", ProviderEmail: "del-idem@test.com",
+		Provider: "google", ProviderUserID: "del-idem-sub",
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
