@@ -62,7 +62,8 @@ sequenceDiagram
     participant AG as authgate
     participant DB as PostgreSQL
 
-    U->>AG: DELETE /account (세션 쿠키 필요)
+    U->>AG: DELETE /account (세션 쿠키 + Origin 필요)
+    AG->>AG: Origin == PUBLIC_URL 확인
     AG->>AG: getSessionUser → 유저 확인
     AG->>DB: BEGIN
     AG->>DB: UPDATE users SET status='pending_deletion', deletion_scheduled_at=NOW()+30일
@@ -104,13 +105,9 @@ sequenceDiagram
 ```sql
 BEGIN;
 
--- 1. 연관 데이터 명시적 삭제
--- NOTE: UPDATE로는 CASCADE가 트리거되지 않으므로 명시적 DELETE 필요
-DELETE FROM user_identities WHERE user_id = $1;
-DELETE FROM sessions WHERE user_id = $1;
-DELETE FROM refresh_tokens WHERE user_id = $1;
-
--- 2. PII 스크러빙 + 상태 전이
+-- 1. eligibility 재검사 + PII 스크러빙 + 상태 전이
+-- 성공한 UPDATE가 users row lock을 잡아, 스냅샷 조회 후 브라우저 복구와 경합해도
+-- active로 복구된 유저의 identity/session/token을 지우지 않는다.
 UPDATE users SET
   email = 'deleted-' || id::text || '@deleted.invalid',
   name = NULL,
@@ -123,10 +120,24 @@ WHERE id = $1
   AND status = 'pending_deletion'
   AND deletion_scheduled_at < NOW();
 
+-- rows affected = 1일 때만 2단계 진행. 0이면 이미 복구/삭제된 것으로 보고 skip.
+
+-- 2. 연관 데이터 명시적 삭제
+-- NOTE: UPDATE로는 CASCADE가 트리거되지 않으므로 명시적 DELETE 필요
+DELETE FROM user_identities WHERE user_id = $1;
+DELETE FROM sessions WHERE user_id = $1;
+DELETE FROM refresh_tokens WHERE user_id = $1;
+
+-- 3. audit_log PII redaction
+UPDATE audit_log
+SET ip_address = NULL,
+    user_agent = NULL
+WHERE user_id = $1;
+
 COMMIT;
 ```
 
-**순서가 중요하다**: 연관 데이터를 먼저 삭제한 후 users를 UPDATE한다. FK CASCADE는 `DELETE FROM users` 시에만 동작하므로, `UPDATE users SET status='deleted'`에서는 자동 삭제가 발생하지 않는다.
+**순서가 중요하다**: cleanup은 먼저 `users` row를 `status='pending_deletion' AND deletion_scheduled_at < NOW()` 조건으로 UPDATE해 eligibility를 재검사하고 row lock을 확보한다. 그 다음 연관 데이터를 명시적으로 삭제한다. FK CASCADE는 `DELETE FROM users` 시에만 동작하므로, `UPDATE users SET status='deleted'`에서는 자동 삭제가 발생하지 않는다.
 
 ### 재가입
 
@@ -152,7 +163,8 @@ authgate는 2종의 account cleanup을 별도 lifecycle로 관리한다:
 
 | 상황 | 에러 코드 | HTTP | 설명 |
 |------|----------|------|------|
-| 비로그인 상태 삭제 요청 | `unauthorized` | 401 | 세션 쿠키 필요 |
+| Origin 누락/불일치 | `origin mismatch` | 403 | destructive action CSRF 방어. `Origin`은 `PUBLIC_URL`과 정확히 일치해야 함 |
+| 비로그인 상태 삭제 요청 | `unauthorized` | 401 | 세션 쿠키 필요. Origin 검사를 통과한 뒤 세션이 없을 때 |
 | 이미 pending_deletion | — | 200 | 멱등 (재요청 무시) |
 | disabled 계정 로그인 | `account_inactive` | 403 | |
 | deleted 계정 로그인 (브라우저) | — | — | `user_identities` 삭제됨 → `ErrNotFound` → 신규 가입으로 처리 (Spec 001) |

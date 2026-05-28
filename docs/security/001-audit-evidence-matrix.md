@@ -84,7 +84,7 @@ audit_log
 | SOC2-CC6-001 | 민감한 console 조회 접근을 추적하는가 | console read/denied access audit events | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 | SOC2-CC6-002 | session/connection revoke 같은 권한성 작업을 추적하는가 | `auth.connection_revoked`, `auth.session_revoked`, `auth.other_sessions_revoked` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 | SOC2-CC7-001 | 보안 이상징후를 탐지할 이벤트가 있는가 | inactive user access, refresh reuse detection, channel mismatch | `internal/service/*`, `internal/storage/storage_auth_tokens.go` | `internal/service/audit_test.go`, `internal/service/login_unit_test.go` | DONE |
-| SOC2-CC7-002 | abuse 방어가 있는가 | per-IP rate limit for auth/token/callback/console endpoints, CIMD failure rate limit | `cmd/authgate/main.go`, `internal/middleware/ratelimit.go`, `internal/adapter/mcp/cimd.go` | `cmd/authgate/main_test.go`, `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/*ratelimit*_test.go` | DONE |
+| SOC2-CC7-002 | abuse 방어가 있는가 | per-IP rate limit for auth/token/callback/console endpoints, CIMD failure rate limit | `internal/app/routes.go`, `internal/middleware/ratelimit.go`, `internal/adapter/mcp/cimd.go` | `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/*ratelimit*_test.go` | DONE |
 | SOC2-CC8-001 | 변경관리 evidence를 확보할 수 있는가 | GitHub PR, CI checks, vulnerability check | GitHub repository / Actions | PR checks | DONE |
 | SOC2-CC8-002 | dependency vulnerability evidence가 있는가 | `govulncheck` local/CI 실행 | GitHub Actions, PR body | CI `Vulnerability Check` | DONE |
 

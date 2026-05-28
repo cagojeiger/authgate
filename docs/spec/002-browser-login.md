@@ -195,7 +195,7 @@ RecoverUser 자체는 원자적이다 (단일 UPDATE).
 - `state` 파라미터: authRequestID를 state로 사용. CSRF 보호 역할
 - confidential 클라이언트: client_secret bcrypt 검증
 - public 클라이언트: client_secret 없음, PKCE가 유일한 보호
-- 세션 쿠키: `HttpOnly`, `SameSite=Lax`, `Secure=!DevMode`
+- 세션 쿠키: `HttpOnly`, `SameSite=Strict`, `Secure=!DevMode`
 - access_token: 15분 (ACCESS_TOKEN_TTL)
 - refresh_token: SHA-256 해시 저장, family_id로 rotation 추적
 

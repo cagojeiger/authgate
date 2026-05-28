@@ -176,6 +176,9 @@ device_code의 `approved → consumed` 전이는 원자적이어야 한다:
 SELECT ... FOR UPDATE → state 확인 → UPDATE
 ```
 
+현재 구현은 `SELECT ... FOR UPDATE`로 device_code row를 잠근 뒤, `approved`일 때
+`UPDATE device_codes SET state='consumed' WHERE id=$1`를 같은 트랜잭션에서 실행한다.
+
 동시 polling 요청이 오더라도 정확히 1번만 토큰을 발급한다. 두 번째 요청은 `invalid_grant`.
 
 상태 검사: `/device/auth/callback`(세션 생성 전)과 `approve` 두 시점 모두에서 [ADR-000](../adr/000-authgate-identity.md#채널별-상태-검사-규칙)의 규칙을 적용한다. `user.Status`가 `active`가 아니면 세션 생성/승인 불가 (403).
