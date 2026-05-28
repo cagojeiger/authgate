@@ -81,7 +81,6 @@ type User struct {
 	Email               string
 	EmailVerified       bool
 	Name                sql.NullString
-	AvatarUrl           sql.NullString
 	Status              string
 	DeletionRequestedAt sql.NullTime
 	DeletionScheduledAt sql.NullTime

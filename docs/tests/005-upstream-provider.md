@@ -105,7 +105,7 @@ rp 라이브러리가 ID token을 검증하므로, fake IdP는:
 
 | ID | 시나리오 | 입력 | 기대 결과 | 검증 포인트 |
 |----|----------|------|----------|-------------|
-| `oidc-exchange-001` | 정상 교환 | 유효한 code | `UserInfo` 반환 | sub, email, name, picture 올바르게 매핑 |
+| `oidc-exchange-001` | 정상 교환 | 유효한 code | `UserInfo` 반환 | sub, email, name 올바르게 매핑 |
 | `oidc-exchange-002` | 토큰 엔드포인트 에러 | 401 응답 | 에러 반환 | rp 라이브러리 에러 전파 |
 | `oidc-exchange-003` | UserInfo 엔드포인트 에러 | 토큰 성공 + userinfo 401 | 에러 반환 | 2단계 에러 전파 |
 
@@ -113,11 +113,10 @@ rp 라이브러리가 ID token을 검증하므로, fake IdP는:
 
 | ID | 시나리오 | 입력 | 기대 결과 | 검증 포인트 |
 |----|----------|------|----------|-------------|
-| `oidc-map-001` | 전체 필드 매핑 | 모든 필드 포함 UserInfo | 모든 필드 올바르게 매핑 | sub, email, email_verified, name, picture |
+| `oidc-map-001` | 전체 필드 매핑 | 필수/표시 필드 포함 UserInfo | 필드 올바르게 매핑 | sub, email, email_verified, name |
 | `oidc-map-002` | email_verified=true | `"email_verified": true` | `UserInfo.EmailVerified == true` | **email_verified 버그 수정 회귀 테스트 (핵심)** |
 | `oidc-map-003` | email_verified=false | `"email_verified": false` | `UserInfo.EmailVerified == false` | false도 정상 매핑 |
 | `oidc-map-004` | email_verified 누락 | 필드 없음 | `UserInfo.EmailVerified == false` | 기본값 처리 |
-| `oidc-map-005` | picture 포함 | `"picture": "https://..."` | `UserInfo.Picture` 설정 | avatar_url 저장 연계 |
 
 ### 전체 통합
 

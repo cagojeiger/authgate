@@ -108,7 +108,6 @@ func (p *OIDCProvider) Exchange(ctx context.Context, code string) (*UserInfo, er
 		Email:         info.Email,
 		EmailVerified: bool(info.EmailVerified),
 		Name:          info.Name,
-		Picture:       info.Picture,
 	}, nil
 }
 

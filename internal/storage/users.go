@@ -14,7 +14,6 @@ type CreateUserWithIdentityInput struct {
 	Email          string
 	EmailVerified  bool
 	Name           string
-	AvatarURL      string
 	Provider       string
 	ProviderUserID string
 	ProviderEmail  string
@@ -64,7 +63,6 @@ func (s *Storage) insertUserForSignup(ctx context.Context, qtx *storeq.Queries, 
 		Email:         input.Email,
 		EmailVerified: input.EmailVerified,
 		Name:          sql.NullString{String: input.Name, Valid: true},
-		AvatarUrl:     sql.NullString{String: input.AvatarURL, Valid: true},
 		CreatedAt:     now,
 	})
 }
@@ -91,7 +89,7 @@ func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, provi
 	if err != nil {
 		return nil, err
 	}
-	return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.AvatarUrl, row.Status, row.CreatedAt, row.UpdatedAt), nil
+	return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.Status, row.CreatedAt, row.UpdatedAt), nil
 }
 
 func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*User, error) {
@@ -114,7 +112,7 @@ func (s *Storage) GetUserByID(ctx context.Context, userID string) (*User, error)
 	if err != nil {
 		return nil, err
 	}
-	return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.AvatarUrl, row.Status, row.CreatedAt, row.UpdatedAt), nil
+	return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.Status, row.CreatedAt, row.UpdatedAt), nil
 }
 
 // RecoverUser recovers a pending_deletion user to active.
@@ -327,7 +325,7 @@ func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User,
 	if err != nil {
 		return nil, err
 	}
-	user := buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.AvatarUrl, row.Status, row.CreatedAt, row.UpdatedAt)
+	user := buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.Status, row.CreatedAt, row.UpdatedAt)
 	if err := requireUsableUser(user); err != nil {
 		return user, err
 	}
@@ -360,13 +358,12 @@ func buildCoreUser(id, email string, emailVerified bool, name sql.NullString, st
 	}
 }
 
-func buildFullUser(id, email string, emailVerified bool, name, avatar sql.NullString, status string, createdAt, updatedAt time.Time) *User {
+func buildFullUser(id, email string, emailVerified bool, name sql.NullString, status string, createdAt, updatedAt time.Time) *User {
 	return &User{
 		ID:            id,
 		Email:         email,
 		EmailVerified: emailVerified,
 		Name:          nullStringToString(name),
-		AvatarURL:     nullStringToPtr(avatar),
 		Status:        status,
 		CreatedAt:     createdAt,
 		UpdatedAt:     updatedAt,

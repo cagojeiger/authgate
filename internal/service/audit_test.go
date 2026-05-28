@@ -92,7 +92,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		svc, store := setupBrowserExtTest(t)
 		ctx := context.Background()
 
-		user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-browser@test.com", EmailVerified: true, Name: "Browser", AvatarURL: "", Provider: "google", ProviderUserID: "browser-ext-sub", ProviderEmail: "audit-browser@test.com"})
+		user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-browser@test.com", EmailVerified: true, Name: "Browser", Provider: "google", ProviderUserID: "browser-ext-sub", ProviderEmail: "audit-browser@test.com"})
 		if err != nil {
 			t.Fatalf("create user: %v", err)
 		}
@@ -113,7 +113,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		svc, store, clk := setupDeviceExtTest(t, "audit-device-sub")
 		ctx := context.Background()
 
-		user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device@test.com", EmailVerified: true, Name: "Device", AvatarURL: "", Provider: "google", ProviderUserID: "audit-device-sub", ProviderEmail: "audit-device@test.com"})
+		user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device@test.com", EmailVerified: true, Name: "Device", Provider: "google", ProviderUserID: "audit-device-sub", ProviderEmail: "audit-device@test.com"})
 		if err != nil {
 			t.Fatalf("create user: %v", err)
 		}
@@ -134,7 +134,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		svc, store := setupMCPExtTest(t, "audit-mcp-sub")
 		ctx := context.Background()
 
-		user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp@test.com", EmailVerified: true, Name: "MCP", AvatarURL: "", Provider: "google", ProviderUserID: "audit-mcp-sub", ProviderEmail: "audit-mcp@test.com"})
+		user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "audit-mcp-sub", ProviderEmail: "audit-mcp@test.com"})
 		if err != nil {
 			t.Fatalf("create user: %v", err)
 		}
@@ -160,7 +160,7 @@ func TestAudit_ReusedSession_AuthLoginRecorded(t *testing.T) {
 	svc, store := setupBrowserExtTest(t)
 	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-reuse@test.com", EmailVerified: true, Name: "Reuse", AvatarURL: "", Provider: "google", ProviderUserID: "browser-ext-sub", ProviderEmail: "audit-reuse@test.com"})
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-reuse@test.com", EmailVerified: true, Name: "Reuse", Provider: "google", ProviderUserID: "browser-ext-sub", ProviderEmail: "audit-reuse@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestAudit_ReusedSession_MCP_AuthLoginRecorded(t *testing.T) {
 	svc, store := setupMCPExtTest(t, "audit-mcp-reuse-sub")
 	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp-reuse@test.com", EmailVerified: true, Name: "MCP Reuse", AvatarURL: "", Provider: "google", ProviderUserID: "audit-mcp-reuse-sub", ProviderEmail: "audit-mcp-reuse@test.com"})
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp-reuse@test.com", EmailVerified: true, Name: "MCP Reuse", Provider: "google", ProviderUserID: "audit-mcp-reuse-sub", ProviderEmail: "audit-mcp-reuse@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestAudit004_DeviceApproved(t *testing.T) {
 	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-approve@test.com", EmailVerified: true, Name: "Approve", AvatarURL: "", Provider: "google", ProviderUserID: "device-sub-123", ProviderEmail: "audit-approve@test.com"})
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-approve@test.com", EmailVerified: true, Name: "Approve", Provider: "google", ProviderUserID: "device-sub-123", ProviderEmail: "audit-approve@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestAudit005_DeviceDenied(t *testing.T) {
 	svc, store, clk := setupDeviceService(t)
 	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-deny@test.com", EmailVerified: true, Name: "Deny", AvatarURL: "", Provider: "google", ProviderUserID: "device-sub-123", ProviderEmail: "audit-deny@test.com"})
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-deny@test.com", EmailVerified: true, Name: "Deny", Provider: "google", ProviderUserID: "device-sub-123", ProviderEmail: "audit-deny@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestAudit007_DeletionCancelled(t *testing.T) {
 	svc, store := setupLoginService(t)
 	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-recover@test.com", EmailVerified: true, Name: "Recover", AvatarURL: "", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "audit-recover@test.com"})
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-recover@test.com", EmailVerified: true, Name: "Recover", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "audit-recover@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -370,7 +370,7 @@ func TestAudit009_InactiveUser(t *testing.T) {
 			svc, store := setupLoginService(t)
 			ctx := context.Background()
 
-			user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-inactive-" + tt.name + "@test.com", EmailVerified: true, Name: "Inactive", AvatarURL: "", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "audit-inactive@test.com"})
+			user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-inactive-" + tt.name + "@test.com", EmailVerified: true, Name: "Inactive", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "audit-inactive@test.com"})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
 			}
@@ -399,7 +399,7 @@ func TestAuditSecurity003_DeviceInactiveUser(t *testing.T) {
 	svc, store, clk := setupDeviceExtTest(t, "audit-device-inactive-sub")
 	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device-inactive@test.com", EmailVerified: true, Name: "Inactive Device", AvatarURL: "", Provider: "google", ProviderUserID: "audit-device-inactive-sub", ProviderEmail: "audit-device-inactive@test.com"})
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device-inactive@test.com", EmailVerified: true, Name: "Inactive Device", Provider: "google", ProviderUserID: "audit-device-inactive-sub", ProviderEmail: "audit-device-inactive@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestAuditSecurity_DevicePendingDeletionInactiveUser(t *testing.T) {
 	svc, store, clk := setupDeviceExtTest(t, "audit-device-pending-sub")
 	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device-pending@test.com", EmailVerified: true, Name: "Pending Device", AvatarURL: "", Provider: "google", ProviderUserID: "audit-device-pending-sub", ProviderEmail: "audit-device-pending@test.com"})
+	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device-pending@test.com", EmailVerified: true, Name: "Pending Device", Provider: "google", ProviderUserID: "audit-device-pending-sub", ProviderEmail: "audit-device-pending@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -461,7 +461,7 @@ func TestAuditSecurity_MCPInactiveUser_Metadata(t *testing.T) {
 			svc, store := setupMCPExtTest(t, "audit-mcp-"+tt.name+"-sub")
 			ctx := context.Background()
 
-			user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp-" + tt.name + "@test.com", EmailVerified: true, Name: "MCP Inactive", AvatarURL: "", Provider: "google", ProviderUserID: "audit-mcp-" + tt.name + "-sub", ProviderEmail: "audit-mcp-" + tt.name + "@test.com"})
+			user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp-" + tt.name + "@test.com", EmailVerified: true, Name: "MCP Inactive", Provider: "google", ProviderUserID: "audit-mcp-" + tt.name + "-sub", ProviderEmail: "audit-mcp-" + tt.name + "@test.com"})
 			if err != nil {
 				t.Fatalf("create user: %v", err)
 			}

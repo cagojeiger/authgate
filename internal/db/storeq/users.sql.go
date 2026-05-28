@@ -32,7 +32,7 @@ func (q *Queries) CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthR
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, email_verified, name, avatar_url, status,
+SELECT id, email, email_verified, name, status,
        created_at, updated_at
 FROM users
 WHERE id = $1
@@ -43,7 +43,6 @@ type GetUserByIDRow struct {
 	Email         string
 	EmailVerified bool
 	Name          sql.NullString
-	AvatarUrl     sql.NullString
 	Status        string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -57,7 +56,6 @@ func (q *Queries) GetUserByID(ctx context.Context, id string) (GetUserByIDRow, e
 		&i.Email,
 		&i.EmailVerified,
 		&i.Name,
-		&i.AvatarUrl,
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -66,7 +64,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id string) (GetUserByIDRow, e
 }
 
 const getUserByProviderIdentity = `-- name: GetUserByProviderIdentity :one
-SELECT u.id, u.email, u.email_verified, u.name, u.avatar_url, u.status,
+SELECT u.id, u.email, u.email_verified, u.name, u.status,
        u.created_at, u.updated_at
 FROM users u
 JOIN user_identities ui ON u.id = ui.user_id
@@ -83,7 +81,6 @@ type GetUserByProviderIdentityRow struct {
 	Email         string
 	EmailVerified bool
 	Name          sql.NullString
-	AvatarUrl     sql.NullString
 	Status        string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -97,7 +94,6 @@ func (q *Queries) GetUserByProviderIdentity(ctx context.Context, arg GetUserByPr
 		&i.Email,
 		&i.EmailVerified,
 		&i.Name,
-		&i.AvatarUrl,
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -250,8 +246,8 @@ func (q *Queries) InsertTestAuthRequestWithResource(ctx context.Context, arg Ins
 }
 
 const insertUser = `-- name: InsertUser :exec
-INSERT INTO users (id, email, email_verified, name, avatar_url, status, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, 'active', $6, $6)
+INSERT INTO users (id, email, email_verified, name, status, created_at, updated_at)
+VALUES ($1, $2, $3, $4, 'active', $5, $5)
 `
 
 type InsertUserParams struct {
@@ -259,7 +255,6 @@ type InsertUserParams struct {
 	Email         string
 	EmailVerified bool
 	Name          sql.NullString
-	AvatarUrl     sql.NullString
 	CreatedAt     time.Time
 }
 
@@ -269,7 +264,6 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 		arg.Email,
 		arg.EmailVerified,
 		arg.Name,
-		arg.AvatarUrl,
 		arg.CreatedAt,
 	)
 	return err

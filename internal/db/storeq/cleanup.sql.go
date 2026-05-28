@@ -177,7 +177,6 @@ const markUserDeletedByID = `-- name: MarkUserDeletedByID :execrows
 UPDATE users SET
   email = 'deleted-' || id::text || '@deleted.invalid',
   name = NULL,
-  avatar_url = NULL,
   status = 'deleted',
   deleted_at = $1,
   deletion_requested_at = NULL,

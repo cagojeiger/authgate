@@ -58,7 +58,7 @@ func TestMCPResourceBinding(t *testing.T) {
 
 		if _, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 			Email: "mcp-resource-ok@test.com", EmailVerified: true, Name: "MCP Resource OK",
-			AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub",
+			Provider: "google", ProviderUserID: "test-google-sub",
 			ProviderEmail: "mcp-resource-ok@test.com",
 		}); err != nil {
 			t.Fatalf("create user: %v", err)
@@ -179,7 +179,7 @@ func TestMCPResourceBinding(t *testing.T) {
 
 		if _, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 			Email: "mcp-resource-mismatch@test.com", EmailVerified: true, Name: "MCP Resource Mismatch",
-			AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub",
+			Provider: "google", ProviderUserID: "test-google-sub",
 			ProviderEmail: "mcp-resource-mismatch@test.com",
 		}); err != nil {
 			t.Fatalf("create user: %v", err)
