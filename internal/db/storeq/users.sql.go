@@ -270,8 +270,8 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 }
 
 const insertUserIdentity = `-- name: InsertUserIdentity :exec
-INSERT INTO user_identities (id, user_id, provider, provider_user_id, provider_email, created_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO user_identities (id, user_id, provider, provider_user_id, created_at)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type InsertUserIdentityParams struct {
@@ -279,7 +279,6 @@ type InsertUserIdentityParams struct {
 	UserID         string
 	Provider       string
 	ProviderUserID string
-	ProviderEmail  sql.NullString
 	CreatedAt      time.Time
 }
 
@@ -289,7 +288,6 @@ func (q *Queries) InsertUserIdentity(ctx context.Context, arg InsertUserIdentity
 		arg.UserID,
 		arg.Provider,
 		arg.ProviderUserID,
-		arg.ProviderEmail,
 		arg.CreatedAt,
 	)
 	return err

@@ -266,7 +266,6 @@ func (s *LoginService) signupBrowserUser(ctx context.Context, providerName strin
 		Name:           userInfo.Name,
 		Provider:       providerName,
 		ProviderUserID: userInfo.Sub,
-		ProviderEmail:  userInfo.Email,
 	})
 	if errors.Is(err, storage.ErrEmailConflict) {
 		return nil, &CallbackResult{Action: ActionError, Error: "email_conflict", ErrorCode: http.StatusConflict}

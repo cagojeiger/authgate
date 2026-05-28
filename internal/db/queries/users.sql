@@ -3,8 +3,8 @@ INSERT INTO users (id, email, email_verified, name, status, created_at, updated_
 VALUES ($1, $2, $3, $4, 'active', $5, $5);
 
 -- name: InsertUserIdentity :exec
-INSERT INTO user_identities (id, user_id, provider, provider_user_id, provider_email, created_at)
-VALUES ($1, $2, $3, $4, $5, $6);
+INSERT INTO user_identities (id, user_id, provider, provider_user_id, created_at)
+VALUES ($1, $2, $3, $4, $5);
 
 -- name: GetUserByProviderIdentity :one
 SELECT u.id, u.email, u.email_verified, u.name, u.status,

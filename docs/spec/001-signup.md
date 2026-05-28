@@ -109,7 +109,6 @@ user_identities:
   user_id:          위 users.id
   provider:         'google'
   provider_user_id: IdP sub (불변 식별자, 조회 기준)
-  provider_email:   IdP 이메일 (가입 시점 기록)
 ```
 
 상세 스키마는 [Spec 007 데이터 모델](007-data-model.md)을 참조.

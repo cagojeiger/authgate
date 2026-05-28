@@ -26,7 +26,6 @@ func TestAccessToken_TypIsAtJWTAndIDTokenStaysJWT(t *testing.T) {
 	if _, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 		Email: "atjwt@test.com", EmailVerified: true, Name: "AT JWT",
 		Provider: "google", ProviderUserID: "test-google-sub",
-		ProviderEmail: "atjwt@test.com",
 	}); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -66,7 +65,6 @@ func TestRefreshGrant_AccessTokenTypIsAtJWT(t *testing.T) {
 	if _, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 		Email: "atjwt-refresh@test.com", EmailVerified: true, Name: "AT JWT Refresh",
 		Provider: "google", ProviderUserID: "test-google-sub",
-		ProviderEmail: "atjwt-refresh@test.com",
 	}); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -99,7 +97,6 @@ func TestDeviceGrant_AccessTokenTypIsAtJWT(t *testing.T) {
 	user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 		Email: "atjwt-device@test.com", EmailVerified: true, Name: "AT JWT Device",
 		Provider: "google", ProviderUserID: "test-google-sub",
-		ProviderEmail: "atjwt-device@test.com",
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)

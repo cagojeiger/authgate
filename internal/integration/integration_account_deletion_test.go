@@ -25,7 +25,6 @@ func TestAccountDeletion_IdempotentAndSessionAlive(t *testing.T) {
 		Name:           "Deletion Test",
 		Provider:       "google",
 		ProviderUserID: "deletion-idempotent-sub",
-		ProviderEmail:  "deletion-idempotent@test.com",
 	})
 	if err != nil {
 		t.Fatalf("create user: %v", err)

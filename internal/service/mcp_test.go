@@ -37,7 +37,7 @@ func TestMCP_CompleteUser_AutoApprove(t *testing.T) {
 	svc, store, fakeUser := setupMCPTest(t)
 	ctx := context.Background()
 
-	store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-ok@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "mcp-sub-123", ProviderEmail: "mcp@test.com"})
+	store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-ok@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "mcp-sub-123"})
 	arID, _ := store.CreateTestAuthRequestWithResource(ctx, "mcp-ok", "http://localhost/mcp")
 
 	result := svc.CompleteMCPLogin(ctx, arID, fakeUser, "127.0.0.1", "mcp-client")
@@ -66,7 +66,7 @@ func TestMCP_DisabledUser_Rejected(t *testing.T) {
 	svc, store, fakeUser := setupMCPTest(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-dis@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "mcp-sub-123", ProviderEmail: "mcp@test.com"})
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-dis@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "mcp-sub-123"})
 	store.DisableUser(ctx, user.ID)
 
 	arID, _ := store.CreateTestAuthRequestWithResource(ctx, "mcp-dis", "http://localhost/mcp")
@@ -85,7 +85,7 @@ func TestMCP005_Recoverable_Rejected(t *testing.T) {
 	svc, store, fakeUser := setupMCPExtTest(t, "mcp-005-sub")
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-recover@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "mcp-005-sub", ProviderEmail: "mrc@test.com"})
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-recover@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "mcp-005-sub"})
 	store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	arID, _ := store.CreateTestAuthRequestWithResource(ctx, "mcp-005", "http://localhost/mcp")
@@ -104,7 +104,7 @@ func TestMCPLogin_PendingDeletionSession_Rejected(t *testing.T) {
 	svc, store, _ := setupMCPTest(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-login-pending@test.com", EmailVerified: true, Name: "MCP Pending", Provider: "google", ProviderUserID: "mcp-login-pending-sub", ProviderEmail: "mcp-login-pending@test.com"})
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-login-pending@test.com", EmailVerified: true, Name: "MCP Pending", Provider: "google", ProviderUserID: "mcp-login-pending-sub"})
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 	_ = store.SetUserStatus(ctx, user.ID, "pending_deletion")
 	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-login-pending")
@@ -129,7 +129,7 @@ func TestMCPLogin_DeletedSession_Rejected(t *testing.T) {
 	svc, store, _ := setupMCPTest(t)
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-login-deleted@test.com", EmailVerified: true, Name: "MCP Deleted", Provider: "google", ProviderUserID: "mcp-login-deleted-sub", ProviderEmail: "mcp-login-deleted@test.com"})
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-login-deleted@test.com", EmailVerified: true, Name: "MCP Deleted", Provider: "google", ProviderUserID: "mcp-login-deleted-sub"})
 	sessionID, _ := store.CreateSession(ctx, user.ID, 24*time.Hour)
 	_ = store.SetUserStatus(ctx, user.ID, "deleted")
 	arID, _ := store.CreateTestAuthRequest(ctx, "mcp-login-deleted")
@@ -154,7 +154,7 @@ func TestMCP_DeletedUser_Rejected(t *testing.T) {
 	svc, store, fakeUser := setupMCPExtTest(t, "mcp-deleted-sub")
 	ctx := context.Background()
 
-	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-deleted@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "mcp-deleted-sub", ProviderEmail: "mcp-deleted@test.com"})
+	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-deleted@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "mcp-deleted-sub"})
 	_ = store.SetUserStatus(ctx, user.ID, "deleted")
 	arID, _ := store.CreateTestAuthRequestWithResource(ctx, "mcp-deleted", "http://localhost/mcp")
 
