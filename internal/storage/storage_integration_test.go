@@ -232,7 +232,6 @@ func TestSession_StatusFilter(t *testing.T) {
 	}
 }
 
-
 // #183: RequestDeletion must NOT overwrite a closed-account status. The
 // browser-channel recovery path treats `pending_deletion` as recoverable, so
 // if `disabled` (operator suspension) silently became `pending_deletion`
