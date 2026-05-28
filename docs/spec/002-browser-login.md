@@ -193,7 +193,8 @@ RecoverUser 자체는 원자적이다 (단일 UPDATE).
 
 - 모든 `/authorize` 요청에서 PKCE S256 필수 (plain 불허, code_challenge 누락 불허)
 - 상위 IdP 로그인 CSRF 방어: `state`(authRequestID)를 암호화된 state 쿠키에 바인딩하고 콜백에서 대조 (`rp.AuthURLHandler` / `rp.CodeExchangeHandler`). 콜백을 시작한 브라우저만 완료 가능 → 인가코드 인젝션/세션 스왑 차단
-- 상위 IdP 교환에 PKCE(S256) 적용 (`rp.WithPKCE`). nonce 검증은 후속 작업 (아래 GAP 참조)
+- 상위 IdP 교환에 PKCE(S256) 적용 (`rp.WithPKCE`)
+- 상위 IdP id_token `nonce` 검증: 로그인 시작 시 요청별 nonce를 생성해 nonce 쿠키 + authorize 파라미터로 보내고, 콜백에서 id_token의 nonce와 대조 (`rp.WithNonce`) → id_token 재생/주입 차단
 - confidential 클라이언트: client_secret bcrypt 검증
 - public 클라이언트: client_secret 없음, PKCE가 유일한 보호
 - 세션 쿠키: `HttpOnly`, `SameSite=Strict`, `Secure=!DevMode`
