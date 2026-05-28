@@ -42,15 +42,6 @@ const (
 	EventAuthTokenRevoked         = "auth.token_revoked"
 	EventAuthChannelMismatch      = "auth.channel_mismatch"
 	EventAuthDeviceCodeIssued     = "auth.device_code_issued"
-	EventAuthConnectionRevoked    = "auth.connection_revoked"
-	EventAuthSessionRevoked       = "auth.session_revoked"
-	EventAuthOtherSessionsRevoked = "auth.other_sessions_revoked"
-
-	EventConsoleClientsListed     = "console.clients_listed"
-	EventConsoleConnectionsListed = "console.connections_listed"
-	EventConsoleSessionsListed    = "console.sessions_listed"
-	EventConsoleAuditLogViewed    = "console.audit_log_viewed"
-	EventConsoleAccessDenied      = "console.access_denied"
 )
 
 var auditMetadataAllowlist = map[string]map[string]struct{}{
@@ -105,16 +96,6 @@ var auditMetadataAllowlist = map[string]map[string]struct{}{
 		"client_id":   {},
 		"client_name": {},
 	},
-	EventAuthConnectionRevoked: {
-		"client_id":   {},
-		"client_name": {},
-	},
-	EventAuthSessionRevoked: {
-		"session_id": {},
-	},
-	EventAuthOtherSessionsRevoked: {
-		"current_session_id": {},
-	},
 	EventAuthTokenRefreshed: {
 		"client_id":   {},
 		"client_name": {},
@@ -133,26 +114,6 @@ var auditMetadataAllowlist = map[string]map[string]struct{}{
 	},
 	EventAuthRefreshFamilyRevoked: {
 		"family_id": {},
-	},
-	EventConsoleClientsListed: {
-		"result_count": {},
-	},
-	EventConsoleConnectionsListed: {
-		"result_count": {},
-	},
-	EventConsoleSessionsListed: {
-		"result_count": {},
-	},
-	EventConsoleAuditLogViewed: {
-		"page":         {},
-		"limit":        {},
-		"result_count": {},
-	},
-	EventConsoleAccessDenied: {
-		"operation":   {},
-		"status_code": {},
-		"reason":      {},
-		"user_status": {},
 	},
 }
 

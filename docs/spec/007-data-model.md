@@ -156,14 +156,6 @@ erDiagram
 | `auth.token_revoked` | refresh token 폐기 | RFC 7009 revoke |
 | `auth.refresh_reuse_detected` | refresh token 재사용 감지 | 토큰 갱신 |
 | `auth.refresh_family_revoked` | refresh token 패밀리 전체 폐기 | 토큰 갱신 (재사용 시) |
-| `auth.connection_revoked` | 연결 앱 refresh token 폐기 | Console 연결 관리 |
-| `auth.session_revoked` | 개별 세션 폐기 | Console 세션 관리 |
-| `auth.other_sessions_revoked` | 현재 세션 외 전체 폐기 | Console 세션 관리 |
-| `console.clients_listed` | 연결 앱 목록 조회 | Console 조회 |
-| `console.connections_listed` | 연결/권한 목록 조회 | Console 조회 |
-| `console.sessions_listed` | 세션 목록 조회 | Console 조회 |
-| `console.audit_log_viewed` | 감사 로그 조회 | Console 조회 |
-| `console.access_denied` | Console 401/403 접근 거부 | Console 인증/권한 확인 |
 
 ## 인덱스
 
@@ -171,7 +163,7 @@ PK/UNIQUE/FK 제약 인덱스 외에 현재 명시적으로 생성하는 보조 
 
 | 인덱스 | 대상 | 목적 |
 |--------|------|------|
-| `audit_log_user_created_idx` | `audit_log (user_id, created_at DESC)` | Console 사용자별 audit timeline 조회 |
+| `audit_log_user_created_idx` | `audit_log (user_id, created_at DESC)` | 사용자별 audit timeline 조회 (migration 004) |
 | `audit_log_event_created_idx` | `audit_log (event_type, created_at DESC)` | 운영 이벤트 timeline 조회 |
 | `audit_log_created_brin_idx` | `audit_log USING BRIN (created_at)` | 보존기간 cutoff 기반 PII 익명화 스캔 보조 |
 
@@ -263,14 +255,6 @@ MCP
 | `auth.refresh_reuse_detected` | 폐기된 refresh_token 재사용 탐지 | `{family_id}` |
 | `auth.refresh_family_revoked` | family 전체 revoke (탈취 의심) | `{family_id}` |
 | `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 | `{status, channel, phase}` |
-| `auth.connection_revoked` | Console 연결 폐기 | `{client_id, client_name}` |
-| `auth.session_revoked` | Console 세션 폐기 | `{session_id}` |
-| `auth.other_sessions_revoked` | Console 현재 세션 외 폐기 | `{current_session_id}` |
-| `console.clients_listed` | Console 연결 앱 조회 | `{result_count}` |
-| `console.connections_listed` | Console 연결/권한 조회 | `{result_count}` |
-| `console.sessions_listed` | Console 세션 조회 | `{result_count}` |
-| `console.audit_log_viewed` | Console audit log 조회 | `{page, limit, result_count}` |
-| `console.access_denied` | Console 접근 거부 | `{operation, status_code, reason, user_status}` |
 
 `metadata`는 `Storage.AuditLog`에서 event별 allowlist를 통과한 key만 저장한다.
 allowlist에 없는 email, token, secret, raw request payload 등은 저장하지 않는다.

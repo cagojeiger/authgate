@@ -76,7 +76,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `BRAND_NAME` | X | `authgate` | 디바이스 플로우 및 에러 페이지 좌측 상단에 표시되는 브랜드 이름 |
 | `RATE_LIMIT_TOKEN_RPS` | X | `30` | 토큰성 엔드포인트 (`/oauth/token`, `/oauth/revoke`, `/oauth/introspect`, `/oauth/device/authorize`, `/device/approve`) 초당 허용 요청 수 |
 | `RATE_LIMIT_TOKEN_BURST` | X | `60` | 토큰 엔드포인트 버스트 허용 요청 수 (최솟값: 1) |
-| `RATE_LIMIT_AUTH_RPS` | X | `10` | 인증/계정/console 엔드포인트 (`/authorize`, `/login`, `/login/callback`, `/mcp/*`, `/account`, `/device`, `/device/auth/callback`, `/console/*`) 초당 허용 요청 수 |
+| `RATE_LIMIT_AUTH_RPS` | X | `10` | 인증/계정 엔드포인트 (`/authorize`, `/login`, `/login/callback`, `/mcp/*`, `/account`, `/device`, `/device/auth/callback`) 초당 허용 요청 수 |
 | `RATE_LIMIT_AUTH_BURST` | X | `20` | 인증 엔드포인트 버스트 허용 요청 수 (최솟값: 1) |
 | `TRUSTED_PROXIES` | X | — | 프록시 hop으로 신뢰할 CIDR 목록 (콤마 구분). 직전 hop이 이 범위에 속할 때만 클라이언트 IP 추정에 (1) `X-Envoy-External-Address` 헤더 (envoy/istio 가 직접 계산하므로 spoof 불가), (2) `X-Forwarded-For` rightmost-untrusted walk 폴백을 사용한다. 비워두면 모든 프록시 헤더 무시. 예: `10.244.0.0/16,127.0.0.1/32`. istio ingressgateway 등 reverse proxy 뒤에서 운영할 때만 설정. |
 
