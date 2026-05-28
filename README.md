@@ -52,7 +52,7 @@ Authgate is a pure authentication service. Business logic such as terms of servi
 | `/oauth/device/authorize` | Device authorization (RFC 8628) |
 | `/end_session` | RP-Initiated Logout |
 | `/userinfo` | UserInfo endpoint |
-| `/account` | Account deletion (DELETE) |
+| `/account` | Account deletion request (DELETE, disabled unless `ENABLE_ACCOUNT_DELETION=true`) |
 | `/health` | Liveness check |
 | `/ready` | Readiness check (DB ping) |
 
@@ -157,6 +157,7 @@ go run ./cmd/authgate
 | `SHUTDOWN_TIMEOUT_SEC` | `10` | graceful shutdown timeout in seconds before forced close |
 | `METRICS_ADDR` | empty | Optional internal metrics listener address. Empty disables metrics; when set, only Go runtime/process Prometheus metrics are exposed on this separate listener. |
 | `ENABLE_MCP` | `true` | enable MCP optional adapter routes/policies (`/mcp/*`, CIMD/resource binding) |
+| `ENABLE_ACCOUNT_DELETION` | `false` | enable self-service account deletion via `DELETE /account`; keep disabled unless Authgate-owned confirmation UX/policy is ready |
 | `CLIENT_CONFIG` | `/etc/authgate/clients.yaml` | YAML path for client metadata preload |
 
 `ENABLE_MCP=false`일 때는 `clients.yaml`의 `login_channel: mcp` 클라이언트가 허용되지 않으며 서버 시작 시 실패합니다.

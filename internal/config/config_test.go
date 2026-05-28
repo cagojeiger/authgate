@@ -13,7 +13,7 @@ func clearEnv() {
 		"OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"OIDC_HTTP_TIMEOUT_SEC",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "AUDIT_LOG_PII_RETENTION_DAYS",
-		"DEV_MODE", "ENABLE_MCP",
+		"DEV_MODE", "ENABLE_MCP", "ENABLE_ACCOUNT_DELETION",
 		"SIGNING_KEY_PATH",
 		"DB_MAX_OPEN_CONNS", "DB_MAX_IDLE_CONNS",
 		"DB_CONN_MAX_LIFETIME_SEC", "DB_CONN_MAX_IDLE_TIME_SEC",
@@ -154,6 +154,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if !cfg.EnableMCP {
 		t.Error("EnableMCP = false, want true by default")
 	}
+	if cfg.EnableAccountDeletion {
+		t.Error("EnableAccountDeletion = true, want false by default")
+	}
 	if cfg.HTTPReadHeaderTimeout.Seconds() != 5 {
 		t.Errorf("HTTPReadHeaderTimeout = %v, want 5s", cfg.HTTPReadHeaderTimeout)
 	}
@@ -229,16 +232,20 @@ func TestLoad_InvalidNumericEnvFails(t *testing.T) {
 }
 
 func TestLoad_InvalidBoolEnvFails(t *testing.T) {
-	clearEnv()
-	setMinimal()
-	os.Setenv("ENABLE_MCP", "sometimes")
+	for _, key := range []string{"ENABLE_MCP", "ENABLE_ACCOUNT_DELETION"} {
+		t.Run(key, func(t *testing.T) {
+			clearEnv()
+			setMinimal()
+			os.Setenv(key, "sometimes")
 
-	_, err := Load()
-	if err == nil {
-		t.Fatal("expected error for invalid ENABLE_MCP")
-	}
-	if !strings.Contains(err.Error(), "ENABLE_MCP") {
-		t.Errorf("error = %v, want one mentioning ENABLE_MCP", err)
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("expected error for invalid %s", key)
+			}
+			if !strings.Contains(err.Error(), key) {
+				t.Errorf("error = %v, want one mentioning %s", err, key)
+			}
+		})
 	}
 }
 
@@ -354,6 +361,20 @@ func TestLoad_EnableMCPFalse(t *testing.T) {
 	}
 	if cfg.EnableMCP {
 		t.Fatal("EnableMCP should be false")
+	}
+}
+
+func TestLoad_EnableAccountDeletionTrue(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("ENABLE_ACCOUNT_DELETION", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.EnableAccountDeletion {
+		t.Fatal("EnableAccountDeletion should be true")
 	}
 }
 

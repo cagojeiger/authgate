@@ -58,7 +58,7 @@ func Run() {
 	// Handler layer
 	loginHandler := handler.NewLoginHandler(loginService, browserProvider, cfg.DevMode, cfg.BrandName)
 	deviceHandler := handler.NewDeviceHandler(deviceService, deviceProvider, cfg.DevMode, cfg.BrandName)
-	accountHandler := handler.NewAccountHandler(accountService, cfg.PublicURL)
+	accountHandler := handler.NewAccountHandler(accountService, cfg.PublicURL, cfg.EnableAccountDeletion)
 
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if cfg.EnableMCP {
