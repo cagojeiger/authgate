@@ -81,10 +81,8 @@ audit_log
 | KR-PIPA-INC-001 | 침해 의심 이벤트를 조사할 수 있는가 | refresh token reuse와 family revoke 이벤트 | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
 | KR-PIPA-INC-002 | audit log write 실패를 감지하는가 | `Storage.AuditLog` best-effort 실패 시 `slog.Error` 기록 | `internal/storage/audit.go`, `docs/spec/009-operations.md` | `internal/storage/audit_failure_unit_test.go` | DONE |
 | KR-COMM-001 | IP/UA 등 접속 메타데이터를 추적할 수 있는가 | `audit_log.ip_address`, `audit_log.user_agent` | `internal/storage/audit.go`, `internal/clientinfo/*` | `internal/clientinfo/clientinfo_test.go` | DONE |
-| SOC2-CC6-001 | 민감한 console 조회 접근을 추적하는가 | console read/denied access audit events | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
-| SOC2-CC6-002 | session/connection revoke 같은 권한성 작업을 추적하는가 | `auth.connection_revoked`, `auth.session_revoked`, `auth.other_sessions_revoked` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 | SOC2-CC7-001 | 보안 이상징후를 탐지할 이벤트가 있는가 | inactive user access, refresh reuse detection, channel mismatch | `internal/service/*`, `internal/storage/storage_auth_tokens.go` | `internal/service/audit_test.go`, `internal/service/login_unit_test.go` | DONE |
-| SOC2-CC7-002 | abuse 방어가 있는가 | per-IP rate limit for auth/token/callback/console endpoints, CIMD failure rate limit | `internal/app/routes.go`, `internal/middleware/ratelimit.go`, `internal/adapter/mcp/cimd.go` | `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/*ratelimit*_test.go` | DONE |
+| SOC2-CC7-002 | abuse 방어가 있는가 | per-IP rate limit for auth/token/callback endpoints, CIMD failure rate limit | `internal/app/routes.go`, `internal/middleware/ratelimit.go`, `internal/adapter/mcp/cimd.go` | `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/*ratelimit*_test.go` | DONE |
 | SOC2-CC8-001 | 변경관리 evidence를 확보할 수 있는가 | GitHub PR, CI checks, vulnerability check | GitHub repository / Actions | PR checks | DONE |
 | SOC2-CC8-002 | dependency vulnerability evidence가 있는가 | `govulncheck` local/CI 실행 | GitHub Actions, PR body | CI `Vulnerability Check` | DONE |
 
@@ -107,14 +105,6 @@ audit_log
 | `auth.token_revoked` | RFC 7009 revoke에서 refresh token 매칭 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
 | `auth.refresh_reuse_detected` | 폐기 refresh token 재사용 | user_id, IP, UA, created_at | `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
 | `auth.refresh_family_revoked` | reuse 감지 후 family revoke | user_id, IP, UA, created_at | `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
-| `auth.connection_revoked` | console connection revoke | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
-| `auth.session_revoked` | console session revoke | user_id, IP, UA, created_at | `session_id` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
-| `auth.other_sessions_revoked` | current session 외 revoke | user_id, IP, UA, created_at | `current_session_id` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
-| `console.clients_listed` | `/console/clients` 성공 조회 | user_id, IP, UA, created_at | `result_count` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
-| `console.connections_listed` | `/console/me/connections` 성공 조회 | user_id, IP, UA, created_at | `result_count` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
-| `console.sessions_listed` | `/console/me/sessions` 성공 조회 | user_id, IP, UA, created_at | `result_count` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
-| `console.audit_log_viewed` | `/console/me/audit-log` 성공 조회 | user_id, IP, UA, created_at | `page`, `limit`, `result_count` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
-| `console.access_denied` | Console 401/403 접근 거부 | user_id(403만), IP, UA, created_at | `operation`, `status_code`, `reason`, `user_status` | `internal/service/console.go` | `internal/service/console_unit_test.go` | DONE |
 
 ## Endpoint Coverage Matrix
 
@@ -132,13 +122,6 @@ audit_log
 | `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
 | `POST /device/approve` | Device 승인/거부 | `auth.device_approved`, `auth.device_denied`, `auth.inactive_user` | token limiter | DONE |
 | `DELETE /account` | 계정 삭제 요청 | `auth.deletion_requested`, inactive user block | auth limiter | DONE |
-| `GET /console/clients` | 연결 앱 조회 | `console.clients_listed` | auth limiter | DONE |
-| `GET /console/me/connections` | 연결/권한 조회 | `console.connections_listed` | auth limiter | DONE |
-| `DELETE /console/me/connections/{client_id}` | 연결 폐기 | `auth.connection_revoked` | auth limiter | DONE |
-| `GET /console/me/sessions` | 세션/IP/UA 조회 | `console.sessions_listed` | auth limiter | DONE |
-| `DELETE /console/me/sessions/{id}` | 세션 폐기 | `auth.session_revoked` | auth limiter | DONE |
-| `POST /console/me/sessions/revoke-others` | 세션 일괄 폐기 | `auth.other_sessions_revoked` | auth limiter | DONE |
-| `GET /console/me/audit-log` | 감사 로그 조회 | `console.audit_log_viewed` | auth limiter | DONE |
 
 ## 남은 GAP
 

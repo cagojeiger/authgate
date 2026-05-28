@@ -108,13 +108,6 @@ func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.
 		{http.MethodGet, "/device"},
 		{http.MethodPost, "/device/approve"},
 		{http.MethodGet, "/device/auth/callback"},
-		{http.MethodGet, "/console/clients"},
-		{http.MethodGet, "/console/me/connections"},
-		{http.MethodDelete, "/console/me/connections/client-a"},
-		{http.MethodGet, "/console/me/sessions"},
-		{http.MethodDelete, "/console/me/sessions/session-a"},
-		{http.MethodPost, "/console/me/sessions/revoke-others"},
-		{http.MethodGet, "/console/me/audit-log"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -126,7 +119,6 @@ func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.
 				handler.NewDeviceHandler(nil, true, "authgate"),
 				handler.NewAccountHandler(nil, "http://authgate.example.com"),
 				handler.NewMCPLoginHandler(nil, true, "authgate"),
-				handler.NewConsoleHandler(nil),
 			)
 
 			assertRateLimited(t, mux, tt.method, tt.path)

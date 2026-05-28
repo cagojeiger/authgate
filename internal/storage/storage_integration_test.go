@@ -4,15 +4,11 @@ package storage
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"database/sql"
 	"errors"
 	"sync"
 	"testing"
 	"time"
-
-	josejwt "github.com/go-jose/go-jose/v4/jwt"
 
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/idgen"
@@ -236,76 +232,6 @@ func TestSession_StatusFilter(t *testing.T) {
 	}
 }
 
-// TestValidateBearerTokenWithClientID_StatusFilter covers #161: the bearer
-// validation path must reject `disabled` / `deleted` accounts at the
-// storage layer with ErrUserAccountClosed (and pass through `active` /
-// `pending_deletion` so service.CheckAccess can apply channel-aware
-// policy).
-func TestValidateBearerTokenWithClientID_StatusFilter(t *testing.T) {
-	cases := []struct {
-		name    string
-		status  string
-		wantErr error
-	}{
-		{name: "active passes through", status: "active", wantErr: nil},
-		{name: "pending_deletion passes through", status: "pending_deletion", wantErr: nil},
-		{name: "disabled is rejected", status: "disabled", wantErr: ErrUserAccountClosed},
-		{name: "deleted is rejected", status: "deleted", wantErr: ErrUserAccountClosed},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			s := testStorage(t)
-			key, err := rsa.GenerateKey(rand.Reader, 2048)
-			if err != nil {
-				t.Fatalf("rsa key: %v", err)
-			}
-			s.SetSigningKey(key, "kid-1")
-			s.SetIssuer("https://test.authgate")
-
-			ctx := context.Background()
-			user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{
-				Email: tc.name + "@bearer.test", EmailVerified: true, Name: "Bearer", AvatarURL: "",
-				Provider: "google", ProviderUserID: "bearer-" + tc.name, ProviderEmail: tc.name + "@bearer.test",
-			})
-			if err != nil {
-				t.Fatalf("create user: %v", err)
-			}
-			if tc.status != "active" {
-				if err := s.SetUserStatus(ctx, user.ID, tc.status); err != nil {
-					t.Fatalf("set status %q: %v", tc.status, err)
-				}
-			}
-
-			now := s.clock.Now()
-			token := signTestToken(t, key, josejwt.Claims{
-				Issuer:   "https://test.authgate",
-				Subject:  user.ID,
-				Audience: josejwt.Audience{"client-a"},
-				IssuedAt: josejwt.NewNumericDate(now),
-				Expiry:   josejwt.NewNumericDate(now.Add(15 * time.Minute)),
-			})
-
-			got, gotClientID, err := s.ValidateBearerTokenWithClientID(ctx, "Bearer "+token)
-			if tc.wantErr == nil {
-				if err != nil {
-					t.Fatalf("err = %v, want nil", err)
-				}
-			} else if !errors.Is(err, tc.wantErr) {
-				t.Fatalf("err = %v, want %v", err, tc.wantErr)
-			}
-			if got == nil {
-				t.Fatalf("user = nil, want non-nil so caller can audit")
-			}
-			if gotClientID != "client-a" {
-				t.Errorf("client_id = %q, want client-a", gotClientID)
-			}
-			if got.Status != tc.status {
-				t.Errorf("status = %q, want %q", got.Status, tc.status)
-			}
-		})
-	}
-}
 
 // #183: RequestDeletion must NOT overwrite a closed-account status. The
 // browser-channel recovery path treats `pending_deletion` as recoverable, so

@@ -25,12 +25,11 @@ func registerRoutes(
 	deviceHandler *handler.DeviceHandler,
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
-	consoleHandler *handler.ConsoleHandler,
 	isShuttingDown *atomic.Bool,
 ) {
 	registerOAuthMetadataRoute(mux, cfg)
 	registerProviderRoutes(mux, cfg, store, provider)
-	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, consoleHandler)
+	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler)
 	registerHealthRoutes(mux, db, isShuttingDown)
 }
 
@@ -126,7 +125,6 @@ func registerAuthgateRoutes(
 	deviceHandler *handler.DeviceHandler,
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
-	consoleHandler *handler.ConsoleHandler,
 ) {
 	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
 	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
@@ -141,13 +139,6 @@ func registerAuthgateRoutes(
 	mux.Handle("/device", authLimiter(http.HandlerFunc(deviceHandler.HandleDevicePage)))
 	mux.Handle("/device/approve", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
 	mux.Handle("/device/auth/callback", authLimiter(http.HandlerFunc(deviceHandler.HandleDeviceCallback)))
-	mux.Handle("/console/clients", authLimiter(http.HandlerFunc(consoleHandler.HandleListClients)))
-	mux.Handle("/console/me/connections", authLimiter(http.HandlerFunc(consoleHandler.HandleListConnections)))
-	mux.Handle("/console/me/connections/{client_id}", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeConnection)))
-	mux.Handle("/console/me/sessions", authLimiter(http.HandlerFunc(consoleHandler.HandleListSessions)))
-	mux.Handle("/console/me/sessions/{id}", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeSession)))
-	mux.Handle("/console/me/sessions/revoke-others", authLimiter(http.HandlerFunc(consoleHandler.HandleRevokeOtherSessions)))
-	mux.Handle("/console/me/audit-log", authLimiter(http.HandlerFunc(consoleHandler.HandleGetAuditLog)))
 }
 
 func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool) {

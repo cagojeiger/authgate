@@ -31,11 +31,8 @@
 | `audit-012` | OIDC RP-Initiated Logout (`/end_session`) 호출 | `auth.logout` | **세션 폐기**만 의미. 발급된 refresh 토큰은 자연 만료/명시적 revoke 전까지 유효. `metadata.client_id` + `client_name` 함께 기록 (#191, [Spec 005 Logout vs. Revoke](../spec/005-token-lifecycle.md#logout-vs-revoke-191)) |
 | `audit-013` | RFC 7009 `/oauth/revoke` 호출에서 **매칭되는 refresh token이 발견되어 revoke된 경우** | `auth.token_revoked` | `metadata.client_id` 기록. 알려지지 않은 토큰은 RFC 7009 §2.2에 따라 200 OK만 반환하고 이벤트는 발생하지 않음. `auth.logout`과 별개 이벤트 (#191) |
 | `audit-014` | audit metadata 저장 | (해당 이벤트) | 이벤트별 allowlist에 없는 key는 저장하지 않음. 예: `email`, token, secret류 임의 key는 drop |
-| `audit-015` | Console client/connection/session 조회 | `console.clients_listed`, `console.connections_listed`, `console.sessions_listed` | 성공 응답 후 `metadata.result_count` 기록. 응답의 IP/UA/세션 상세 자체는 metadata에 넣지 않음 |
-| `audit-016` | Console audit log 조회 | `console.audit_log_viewed` | 성공 응답 후 `metadata.page`, `metadata.limit`, `metadata.result_count` 기록 |
-| `audit-017` | Console 401/403 접근 거부 | `console.access_denied` | 401은 `user_id=NULL`, 403은 식별된 `user_id` + `metadata.user_status` 기록. `metadata.operation`, `status_code`, `reason` 포함 |
-| `audit-018` | Device code 발급 | `auth.device_code_issued` | 승인 전 단계라 `user_id=NULL`. `metadata.client_id` + `metadata.client_name`만 기록하고 `device_code`/`user_code`는 저장하지 않음 |
-| `audit-019` | refresh token rotation 성공 | `auth.token_refreshed` | `metadata.client_id`, `metadata.client_name`, `metadata.family_id` 기록 |
+| `audit-015` | Device code 발급 | `auth.device_code_issued` | 승인 전 단계라 `user_id=NULL`. `metadata.client_id` + `metadata.client_name`만 기록하고 `device_code`/`user_code`는 저장하지 않음 |
+| `audit-016` | refresh token rotation 성공 | `auth.token_refreshed` | `metadata.client_id`, `metadata.client_name`, `metadata.family_id` 기록 |
 
 ## 채널별 auth.login 검증
 
