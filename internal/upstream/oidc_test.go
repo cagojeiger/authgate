@@ -30,8 +30,9 @@ type fakeIdP struct {
 	key            *rsa.PrivateKey
 	keyID          string
 	userInfoResp   map[string]any
-	tokenStatus    int // non-zero overrides token endpoint HTTP status
-	userinfoStatus int // non-zero overrides userinfo endpoint HTTP status
+	tokenStatus    int    // non-zero overrides token endpoint HTTP status
+	userinfoStatus int    // non-zero overrides userinfo endpoint HTTP status
+	nonce          string // echoed into the id_token's nonce claim (set by the test from the authorize request)
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -102,11 +103,12 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 		sub, _ := idp.userInfoResp["sub"].(string)
 		now := time.Now()
 		idToken, err := jwt.Signed(sig).Claims(map[string]any{
-			"iss": srvURL,
-			"sub": sub,
-			"aud": testClientID,
-			"exp": now.Add(5 * time.Minute).Unix(),
-			"iat": now.Unix(),
+			"iss":   srvURL,
+			"sub":   sub,
+			"aud":   testClientID,
+			"exp":   now.Add(5 * time.Minute).Unix(),
+			"iat":   now.Unix(),
+			"nonce": idp.nonce,
 		}).Serialize()
 		if err != nil {
 			http.Error(w, "sign error", http.StatusInternalServerError)
@@ -166,10 +168,10 @@ func authURLForTest(t *testing.T, p *OIDCProvider, state string) string {
 // IdP, replaying the state/PKCE cookies the redirect set, and returns the
 // UserInfo delivered to the onSuccess callback (or an error if onSuccess was
 // never invoked, mirroring the old Exchange error contract).
-func exchangeForTest(t *testing.T, p *OIDCProvider, code string) (*UserInfo, error) {
+func exchangeForTest(t *testing.T, idp *fakeIdP, p *OIDCProvider, code string) (*UserInfo, error) {
 	t.Helper()
 
-	// First leg: Redirect to capture the state + PKCE cookies.
+	// First leg: Redirect to capture the state + PKCE + nonce cookies.
 	redirectRec := httptest.NewRecorder()
 	redirectReq := httptest.NewRequest(http.MethodGet, "/login", nil)
 	p.Redirect(redirectRec, redirectReq, "test-state")
@@ -180,6 +182,9 @@ func exchangeForTest(t *testing.T, p *OIDCProvider, code string) (*UserInfo, err
 		t.Fatalf("parse redirect location: %v", err)
 	}
 	state := u.Query().Get("state")
+	// The IdP echoes the authorize-request nonce into the id_token; mirror that
+	// so the RP's nonce verifier sees a matching value.
+	idp.nonce = u.Query().Get("nonce")
 
 	// Second leg: Callback with the captured cookies + the IdP-issued code/state.
 	cbReq := httptest.NewRequest(http.MethodGet, "/login/callback?code="+code+"&state="+state, nil)
@@ -282,7 +287,7 @@ func TestOIDCProvider_AuthURL_ContainsRequiredParams(t *testing.T) {
 func TestOIDCProvider_Exchange_Success(t *testing.T) {
 	idp := newFakeIdP(t)
 	p := idp.newProvider(t)
-	info, err := exchangeForTest(t, p, "fake-code")
+	info, err := exchangeForTest(t, idp, p, "fake-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -303,7 +308,7 @@ func TestOIDCProvider_Exchange_TokenEndpointError(t *testing.T) {
 	idp := newFakeIdP(t)
 	idp.tokenStatus = http.StatusUnauthorized
 	p := idp.newProvider(t)
-	_, err := exchangeForTest(t, p, "any-code")
+	_, err := exchangeForTest(t, idp, p, "any-code")
 	if err == nil {
 		t.Error("expected error for token endpoint 401, got nil")
 	}
@@ -315,7 +320,7 @@ func TestOIDCProvider_Exchange_UserInfoError(t *testing.T) {
 	idp := newFakeIdP(t)
 	idp.userinfoStatus = http.StatusUnauthorized
 	p := idp.newProvider(t)
-	_, err := exchangeForTest(t, p, "fake-code")
+	_, err := exchangeForTest(t, idp, p, "fake-code")
 	if err == nil {
 		t.Error("expected error for userinfo endpoint 401, got nil")
 	}
@@ -332,7 +337,7 @@ func TestOIDCProvider_UserInfoMapping_AllFields(t *testing.T) {
 		"name":           "Map User",
 	}
 	p := idp.newProvider(t)
-	info, err := exchangeForTest(t, p, "fake-code")
+	info, err := exchangeForTest(t, idp, p, "fake-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -358,7 +363,7 @@ func TestOIDCProvider_EmailVerified_True(t *testing.T) {
 	idp := newFakeIdP(t)
 	idp.userInfoResp["email_verified"] = true
 	p := idp.newProvider(t)
-	info, err := exchangeForTest(t, p, "fake-code")
+	info, err := exchangeForTest(t, idp, p, "fake-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -373,7 +378,7 @@ func TestOIDCProvider_EmailVerified_False(t *testing.T) {
 	idp := newFakeIdP(t)
 	idp.userInfoResp["email_verified"] = false
 	p := idp.newProvider(t)
-	info, err := exchangeForTest(t, p, "fake-code")
+	info, err := exchangeForTest(t, idp, p, "fake-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -388,7 +393,7 @@ func TestOIDCProvider_EmailVerified_Absent(t *testing.T) {
 	idp := newFakeIdP(t)
 	delete(idp.userInfoResp, "email_verified")
 	p := idp.newProvider(t)
-	info, err := exchangeForTest(t, p, "fake-code")
+	info, err := exchangeForTest(t, idp, p, "fake-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -413,12 +418,45 @@ func TestOIDCProvider_FullPath(t *testing.T) {
 		t.Errorf("AuthURL does not contain state: %s", authURL)
 	}
 
-	info, err := exchangeForTest(t, p, "full-path-code")
+	info, err := exchangeForTest(t, idp, p, "full-path-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
 	if info.Sub == "" || info.Email == "" {
 		t.Errorf("incomplete UserInfo after full path: sub=%q email=%q", info.Sub, info.Email)
+	}
+}
+
+// ── oidc-nonce-001: id_token nonce mismatch is rejected ──────────────────────
+// Proves the per-login nonce binding: an id_token whose nonce does not match
+// the value bound to this login (cookie) must fail verification.
+func TestOIDCProvider_NonceMismatch_Rejected(t *testing.T) {
+	idp := newFakeIdP(t)
+	p := idp.newProvider(t)
+
+	// Drive Redirect to set the state/PKCE/nonce cookies.
+	redirectRec := httptest.NewRecorder()
+	p.Redirect(redirectRec, httptest.NewRequest(http.MethodGet, "/login", nil), "test-state")
+	u, err := url.Parse(redirectRec.Result().Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse redirect location: %v", err)
+	}
+	state := u.Query().Get("state")
+
+	// Tamper: make the IdP issue an id_token with a DIFFERENT nonce than the
+	// one bound to this login.
+	idp.nonce = "attacker-supplied-nonce"
+
+	cbReq := httptest.NewRequest(http.MethodGet, "/login/callback?code=fake-code&state="+state, nil)
+	for _, c := range redirectRec.Result().Cookies() {
+		cbReq.AddCookie(c)
+	}
+	cbRec := httptest.NewRecorder()
+
+	called := false
+	p.Callback(cbRec, cbReq, func(http.ResponseWriter, *http.Request, string, *UserInfo) { called = true })
+	if called {
+		t.Error("onSuccess invoked despite id_token nonce mismatch — replay/injection not rejected")
 	}
 }
 

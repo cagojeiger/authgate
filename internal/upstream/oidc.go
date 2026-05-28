@@ -2,7 +2,9 @@ package upstream
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,10 +16,17 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
+// nonceCtxKey carries the expected id_token nonce from the callback request
+// into the RP's nonce verifier (registered via WithVerifierOpts/WithNonce).
+type nonceCtxKey struct{}
+
 // OIDCProvider uses zitadel/oidc RelyingParty for OIDC Discovery, token exchange, and userinfo.
 type OIDCProvider struct {
 	name string
 	rp   rp.RelyingParty
+	// ch is the cookie handler used for the state/PKCE cookies and the
+	// per-login nonce cookie. nil when no cookie secret was configured.
+	ch *httphelper.CookieHandler
 }
 
 // Option configures OIDCProvider construction.
@@ -90,6 +99,7 @@ func NewOIDCProvider(ctx context.Context, issuerURL, clientID, clientSecret, red
 		o.rpOpts = append(o.rpOpts, rp.WithHTTPClient(client))
 	}
 
+	var ch *httphelper.CookieHandler
 	if o.cookieSet {
 		hashKey := sha256.Sum256([]byte("authgate.upstream.cookie.hash:" + o.cookieSecret))
 		encryptKey := sha256.Sum256([]byte("authgate.upstream.cookie.enc:" + o.cookieSecret))
@@ -97,8 +107,15 @@ func NewOIDCProvider(ctx context.Context, issuerURL, clientID, clientSecret, red
 		if !o.cookieSecure {
 			chOpts = append(chOpts, httphelper.WithUnsecure())
 		}
-		ch := httphelper.NewCookieHandler(hashKey[:], encryptKey[:], chOpts...)
+		ch = httphelper.NewCookieHandler(hashKey[:], encryptKey[:], chOpts...)
 		o.rpOpts = append(o.rpOpts, rp.WithPKCE(ch))
+		// Verify the id_token nonce against the per-login value stashed in the
+		// request context by Callback (read from the nonce cookie). Binds the
+		// id_token to this specific login request (replay/injection defense).
+		o.rpOpts = append(o.rpOpts, rp.WithVerifierOpts(rp.WithNonce(func(ctx context.Context) string {
+			n, _ := ctx.Value(nonceCtxKey{}).(string)
+			return n
+		})))
 	}
 
 	// Sanitize the high-level handler's failure responses (invalid/missing
@@ -118,28 +135,54 @@ func NewOIDCProvider(ctx context.Context, issuerURL, clientID, clientSecret, red
 	return &OIDCProvider{
 		name: deriveProviderName(relyingParty.Issuer()),
 		rp:   relyingParty,
+		ch:   ch,
 	}, nil
 }
 
 func (p *OIDCProvider) Name() string { return p.name }
 
-// Redirect sends the user to the upstream IdP, binding state to a CSRF cookie
-// and (when PKCE is configured) a PKCE challenge cookie via the high-level
-// AuthURLHandler.
+// Redirect sends the user to the upstream IdP, binding state to a CSRF cookie,
+// a PKCE challenge cookie, and a per-login nonce cookie (its value is also sent
+// as the OIDC `nonce` parameter) via the high-level AuthURLHandler.
 func (p *OIDCProvider) Redirect(w http.ResponseWriter, r *http.Request, state string) {
-	rp.AuthURLHandler(func() string { return state }, p.rp).ServeHTTP(w, r)
+	var urlParams []rp.URLParamOpt
+	if p.ch != nil {
+		if nonce, err := generateNonce(); err == nil {
+			if err := p.ch.SetCookie(w, "nonce", nonce); err == nil {
+				urlParams = append(urlParams, rp.WithURLParam("nonce", nonce))
+			}
+		}
+	}
+	rp.AuthURLHandler(func() string { return state }, p.rp, urlParams...).ServeHTTP(w, r)
 }
 
-// Callback verifies the state cookie + PKCE, exchanges the code, fetches
-// userinfo, and invokes onSuccess. On failure CodeExchangeHandler writes its
-// own error response and onSuccess is not called.
+// Callback verifies the state cookie + PKCE + id_token nonce, exchanges the
+// code, fetches userinfo, and invokes onSuccess. On failure CodeExchangeHandler
+// writes its own error response and onSuccess is not called.
 func (p *OIDCProvider) Callback(w http.ResponseWriter, r *http.Request, onSuccess func(w http.ResponseWriter, r *http.Request, state string, info *UserInfo)) {
+	if p.ch != nil {
+		// Pass the per-login nonce from its cookie into the verifier (via ctx),
+		// then drop the cookie so it cannot be replayed.
+		if nonce, err := p.ch.CheckCookie(r, "nonce"); err == nil {
+			r = r.WithContext(context.WithValue(r.Context(), nonceCtxKey{}, nonce))
+			p.ch.DeleteCookie(w, "nonce")
+		}
+	}
 	cb := rp.UserinfoCallback[*oidc.IDTokenClaims, *oidc.UserInfo](
 		func(w http.ResponseWriter, r *http.Request, tokens *oidc.Tokens[*oidc.IDTokenClaims], state string, _ rp.RelyingParty, info *oidc.UserInfo) {
 			onSuccess(w, r, state, mapUserInfo(info))
 		},
 	)
 	rp.CodeExchangeHandler[*oidc.IDTokenClaims](cb, p.rp).ServeHTTP(w, r)
+}
+
+// generateNonce returns a 128-bit URL-safe random nonce.
+func generateNonce() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func mapUserInfo(info *oidc.UserInfo) *UserInfo {
