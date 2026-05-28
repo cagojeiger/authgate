@@ -17,7 +17,7 @@ import (
 // MCP uses dedicated login/callback paths and applies MCP channel policy.
 // These tests verify the MCP channel guard works correctly.
 
-func setupMCPTest(t *testing.T) (*MCPLoginService, *storage.Storage) {
+func setupMCPTest(t *testing.T) (*MCPLoginService, *storage.Storage, *upstream.UserInfo) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
@@ -29,18 +29,18 @@ func setupMCPTest(t *testing.T) (*MCPLoginService, *storage.Storage) {
 		User: &upstream.UserInfo{Sub: "mcp-sub-123", Email: "mcp@test.com", EmailVerified: true, Name: "MCP User"},
 	}
 
-	svc := NewMCPLoginService(store, fakeProvider, 24*time.Hour)
-	return svc, store
+	svc := NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	return svc, store, fakeProvider.User
 }
 
 func TestMCP_CompleteUser_AutoApprove(t *testing.T) {
-	svc, store := setupMCPTest(t)
+	svc, store, fakeUser := setupMCPTest(t)
 	ctx := context.Background()
 
 	store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-ok@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "mcp-sub-123", ProviderEmail: "mcp@test.com"})
 	arID, _ := store.CreateTestAuthRequestWithResource(ctx, "mcp-ok", "http://localhost/mcp")
 
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+	result := svc.CompleteMCPLogin(ctx, arID, fakeUser, "127.0.0.1", "mcp-client")
 
 	if result.Action != ActionAutoApprove {
 		t.Errorf("action = %v, want AutoApprove (MCP active user)", result.Action)
@@ -48,11 +48,11 @@ func TestMCP_CompleteUser_AutoApprove(t *testing.T) {
 }
 
 func TestMCP_NewUser_SignupRequired(t *testing.T) {
-	svc, store := setupMCPTest(t)
+	svc, store, fakeUser := setupMCPTest(t)
 	ctx := context.Background()
 
 	arID, _ := store.CreateTestAuthRequestWithResource(ctx, "mcp-new", "http://localhost/mcp")
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+	result := svc.CompleteMCPLogin(ctx, arID, fakeUser, "127.0.0.1", "mcp-client")
 
 	if result.Action != ActionError {
 		t.Errorf("action = %v, want Error (MCP new user)", result.Action)
@@ -63,14 +63,14 @@ func TestMCP_NewUser_SignupRequired(t *testing.T) {
 }
 
 func TestMCP_DisabledUser_Rejected(t *testing.T) {
-	svc, store := setupMCPTest(t)
+	svc, store, fakeUser := setupMCPTest(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-dis@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "mcp-sub-123", ProviderEmail: "mcp@test.com"})
 	store.DisableUser(ctx, user.ID)
 
 	arID, _ := store.CreateTestAuthRequestWithResource(ctx, "mcp-dis", "http://localhost/mcp")
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+	result := svc.CompleteMCPLogin(ctx, arID, fakeUser, "127.0.0.1", "mcp-client")
 
 	if result.Action != ActionError {
 		t.Errorf("action = %v, want Error (disabled user)", result.Action)
@@ -82,14 +82,14 @@ func TestMCP_DisabledUser_Rejected(t *testing.T) {
 
 // mcp-005: recoverable_browser_only → MCP callback → account_inactive
 func TestMCP005_Recoverable_Rejected(t *testing.T) {
-	svc, store := setupMCPExtTest(t, "mcp-005-sub")
+	svc, store, fakeUser := setupMCPExtTest(t, "mcp-005-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-recover@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "mcp-005-sub", ProviderEmail: "mrc@test.com"})
 	store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	arID, _ := store.CreateTestAuthRequestWithResource(ctx, "mcp-005", "http://localhost/mcp")
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+	result := svc.CompleteMCPLogin(ctx, arID, fakeUser, "127.0.0.1", "mcp-client")
 
 	if result.Action != ActionError {
 		t.Errorf("action = %v, want Error (recoverable via MCP)", result.Action)
@@ -101,7 +101,7 @@ func TestMCP005_Recoverable_Rejected(t *testing.T) {
 
 // channel-005: pending_deletion + mcp(login with session) -> account_inactive
 func TestMCPLogin_PendingDeletionSession_Rejected(t *testing.T) {
-	svc, store := setupMCPTest(t)
+	svc, store, _ := setupMCPTest(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-login-pending@test.com", EmailVerified: true, Name: "MCP Pending", Provider: "google", ProviderUserID: "mcp-login-pending-sub", ProviderEmail: "mcp-login-pending@test.com"})
@@ -126,7 +126,7 @@ func TestMCPLogin_PendingDeletionSession_Rejected(t *testing.T) {
 
 // channel-005: deleted + mcp(login with session) -> account_inactive
 func TestMCPLogin_DeletedSession_Rejected(t *testing.T) {
-	svc, store := setupMCPTest(t)
+	svc, store, _ := setupMCPTest(t)
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-login-deleted@test.com", EmailVerified: true, Name: "MCP Deleted", Provider: "google", ProviderUserID: "mcp-login-deleted-sub", ProviderEmail: "mcp-login-deleted@test.com"})
@@ -149,32 +149,16 @@ func TestMCPLogin_DeletedSession_Rejected(t *testing.T) {
 	}
 }
 
-func TestMCPCallback_UpstreamError_Sanitized(t *testing.T) {
-	svc, store := setupMCPTest(t)
-	ctx := context.Background()
-	svc.mcpProvider = &upstream.FakeProvider{ProviderName: "google"}
-
-	arID, _ := store.CreateTestAuthRequestWithResource(ctx, "upstream-err", "http://localhost/mcp")
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
-
-	if result.Action != ActionError {
-		t.Fatalf("action = %v, want ActionError", result.Action)
-	}
-	if result.Error != "upstream_error" {
-		t.Fatalf("error = %q, want upstream_error", result.Error)
-	}
-}
-
 // mcp-004: deleted user callback -> account_inactive
 func TestMCP_DeletedUser_Rejected(t *testing.T) {
-	svc, store := setupMCPExtTest(t, "mcp-deleted-sub")
+	svc, store, fakeUser := setupMCPExtTest(t, "mcp-deleted-sub")
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "mcp-deleted@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "mcp-deleted-sub", ProviderEmail: "mcp-deleted@test.com"})
 	_ = store.SetUserStatus(ctx, user.ID, "deleted")
 	arID, _ := store.CreateTestAuthRequestWithResource(ctx, "mcp-deleted", "http://localhost/mcp")
 
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+	result := svc.CompleteMCPLogin(ctx, arID, fakeUser, "127.0.0.1", "mcp-client")
 
 	if result.Action != ActionError {
 		t.Errorf("action = %v, want Error (deleted user)", result.Action)

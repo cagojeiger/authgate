@@ -83,6 +83,7 @@ audit_log
 | KR-COMM-001 | IP/UA 등 접속 메타데이터를 추적할 수 있는가 | `audit_log.ip_address`, `audit_log.user_agent` | `internal/storage/audit.go`, `internal/clientinfo/*` | `internal/clientinfo/clientinfo_test.go` | DONE |
 | SOC2-CC7-001 | 보안 이상징후를 탐지할 이벤트가 있는가 | inactive user access, refresh reuse detection, channel mismatch | `internal/service/*`, `internal/storage/storage_auth_tokens.go` | `internal/service/audit_test.go`, `internal/service/login_unit_test.go` | DONE |
 | SOC2-CC7-002 | abuse 방어가 있는가 | per-IP rate limit for auth/token/callback endpoints, CIMD failure rate limit | `internal/app/routes.go`, `internal/middleware/ratelimit.go`, `internal/adapter/mcp/cimd.go` | `internal/integration/integration_ratelimit_test.go`, `internal/adapter/mcp/*ratelimit*_test.go` | DONE |
+| SOC2-CC6-003 | 상위 IdP 로그인 CSRF/인가코드 인젝션을 방어하는가 | 상위 IdP 콜백에 암호화 state 쿠키 바인딩 + PKCE(S256) (browser/device/mcp 3채널) | `internal/upstream/oidc.go` (`rp.AuthURLHandler`/`CodeExchangeHandler`/`WithPKCE`) | `internal/upstream/oidc_test.go` | DONE |
 | SOC2-CC8-001 | 변경관리 evidence를 확보할 수 있는가 | GitHub PR, CI checks, vulnerability check | GitHub repository / Actions | PR checks | DONE |
 | SOC2-CC8-002 | dependency vulnerability evidence가 있는가 | `govulncheck` local/CI 실행 | GitHub Actions, PR body | CI `Vulnerability Check` | DONE |
 
@@ -128,6 +129,7 @@ audit_log
 | GAP | 설명 | 다음 작업 후보 |
 |-----|------|----------------|
 | GAP-OPS-001 | SOC 2 운영 evidence(PR 리뷰, access review, backup restore test)는 GitHub/운영 시스템에 존재해야 하며 authgate DB에는 저장하지 않는다. | 운영 evidence export/checklist 문서 |
+| GAP-SEC-001 | 상위 IdP id_token의 `nonce` 검증 미적용. state 쿠키 + PKCE로 로그인 CSRF는 차단했으나 id_token 재생 바인딩은 별도. | `rp.WithVerifierOpts(rp.WithNonce(...))` + 요청별 nonce 저장 후속 PR |
 
 ## 완료 기준
 

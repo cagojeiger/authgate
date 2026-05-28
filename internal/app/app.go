@@ -47,24 +47,24 @@ func Run() {
 	deviceProvider := mustBuildUpstreamProvider(ctx, cfg, "/device/auth/callback", upstreamOpts)
 
 	// Service layer
-	loginService := service.NewLoginService(store, browserProvider, cfg.SessionTTL)
+	loginService := service.NewLoginService(store, browserProvider.Name(), cfg.SessionTTL)
 
 	// Device service
-	deviceService := service.NewDeviceService(store, deviceProvider, cfg.PublicURL, cfg.SessionTTL, clk)
+	deviceService := service.NewDeviceService(store, deviceProvider.Name(), cfg.PublicURL, cfg.SessionTTL, clk)
 
 	// Account service
 	accountService := service.NewAccountService(store)
 
 	// Handler layer
-	loginHandler := handler.NewLoginHandler(loginService, cfg.DevMode, cfg.BrandName)
-	deviceHandler := handler.NewDeviceHandler(deviceService, cfg.DevMode, cfg.BrandName)
+	loginHandler := handler.NewLoginHandler(loginService, browserProvider, cfg.DevMode, cfg.BrandName)
+	deviceHandler := handler.NewDeviceHandler(deviceService, deviceProvider, cfg.DevMode, cfg.BrandName)
 	accountHandler := handler.NewAccountHandler(accountService, cfg.PublicURL)
 
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if cfg.EnableMCP {
 		mcpProvider := mustBuildUpstreamProvider(ctx, cfg, "/mcp/callback", upstreamOpts)
-		mcpLoginService := service.NewMCPLoginService(store, mcpProvider, cfg.SessionTTL)
-		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, cfg.DevMode, cfg.BrandName)
+		mcpLoginService := service.NewMCPLoginService(store, mcpProvider.Name(), cfg.SessionTTL)
+		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, mcpProvider, cfg.DevMode, cfg.BrandName)
 	}
 
 	// Load client config and derive CORS allowed origins.

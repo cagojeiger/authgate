@@ -62,11 +62,11 @@ func requireSingleAuditEvent(t *testing.T, db *sql.DB, userID, eventType string)
 }
 
 func TestAudit001_BrowserSignup(t *testing.T) {
-	svc, store := setupLoginService(t)
+	svc, store, fakeUser := setupLoginService(t)
 	ctx := context.Background()
 
 	arID, _ := store.CreateTestAuthRequest(ctx, "audit-signup")
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test-agent")
+	result := svc.CompleteBrowserLogin(ctx, arID, fakeUser, "127.0.0.1", "test-agent")
 	if result.Action != ActionAutoApprove {
 		t.Fatalf("action = %v, want AutoApprove", result.Action)
 	}
@@ -89,7 +89,7 @@ func TestAudit001_BrowserSignup(t *testing.T) {
 
 func TestAudit002_LoginChannels(t *testing.T) {
 	t.Run("browser", func(t *testing.T) {
-		svc, store := setupBrowserExtTest(t)
+		svc, store, fakeUser := setupBrowserExtTest(t)
 		ctx := context.Background()
 
 		user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-browser@test.com", EmailVerified: true, Name: "Browser", Provider: "google", ProviderUserID: "browser-ext-sub", ProviderEmail: "audit-browser@test.com"})
@@ -98,7 +98,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		}
 		arID, _ := store.CreateTestAuthRequest(ctx, "audit-browser")
 
-		result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "browser-agent")
+		result := svc.CompleteBrowserLogin(ctx, arID, fakeUser, "127.0.0.1", "browser-agent")
 		if result.Action != ActionAutoApprove {
 			t.Fatalf("action = %v, want AutoApprove", result.Action)
 		}
@@ -110,7 +110,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 	})
 
 	t.Run("device", func(t *testing.T) {
-		svc, store, clk := setupDeviceExtTest(t, "audit-device-sub")
+		svc, store, clk, fakeUser := setupDeviceExtTest(t, "audit-device-sub")
 		ctx := context.Background()
 
 		user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device@test.com", EmailVerified: true, Name: "Device", Provider: "google", ProviderUserID: "audit-device-sub", ProviderEmail: "audit-device@test.com"})
@@ -119,7 +119,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		}
 		insertDeviceCode(t, store, "AUDT-DEV", clk)
 
-		result := svc.HandleDeviceCallback(ctx, "fake-code", "AUDT-DEV", "127.0.0.1", "device-agent")
+		result := svc.CompleteDeviceLogin(ctx, "AUDT-DEV", fakeUser, "127.0.0.1", "device-agent")
 		if result.Action != DeviceRedirectBack {
 			t.Fatalf("action = %v, want DeviceRedirectBack", result.Action)
 		}
@@ -131,7 +131,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 	})
 
 	t.Run("mcp", func(t *testing.T) {
-		svc, store := setupMCPExtTest(t, "audit-mcp-sub")
+		svc, store, fakeUser := setupMCPExtTest(t, "audit-mcp-sub")
 		ctx := context.Background()
 
 		user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp@test.com", EmailVerified: true, Name: "MCP", Provider: "google", ProviderUserID: "audit-mcp-sub", ProviderEmail: "audit-mcp@test.com"})
@@ -140,7 +140,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 		}
 		arID, _ := store.CreateTestAuthRequestWithResource(ctx, "audit-mcp", "http://localhost/mcp")
 
-		result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-agent")
+		result := svc.CompleteMCPLogin(ctx, arID, fakeUser, "127.0.0.1", "mcp-agent")
 		if result.Action != ActionAutoApprove {
 			t.Fatalf("action = %v, want AutoApprove", result.Action)
 		}
@@ -157,7 +157,7 @@ func TestAudit002_LoginChannels(t *testing.T) {
 // skip-IdP path with reused_session=true to keep audit history symmetric with
 // the auth.token_revoked rows that follow.
 func TestAudit_ReusedSession_AuthLoginRecorded(t *testing.T) {
-	svc, store := setupBrowserExtTest(t)
+	svc, store, _ := setupBrowserExtTest(t)
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-reuse@test.com", EmailVerified: true, Name: "Reuse", Provider: "google", ProviderUserID: "browser-ext-sub", ProviderEmail: "audit-reuse@test.com"})
@@ -195,7 +195,7 @@ func TestAudit_ReusedSession_AuthLoginRecorded(t *testing.T) {
 // flow must also emit auth.login with reused_session=true so audit history is
 // symmetric across channels.
 func TestAudit_ReusedSession_MCP_AuthLoginRecorded(t *testing.T) {
-	svc, store := setupMCPExtTest(t, "audit-mcp-reuse-sub")
+	svc, store, _ := setupMCPExtTest(t, "audit-mcp-reuse-sub")
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp-reuse@test.com", EmailVerified: true, Name: "MCP Reuse", Provider: "google", ProviderUserID: "audit-mcp-reuse-sub", ProviderEmail: "audit-mcp-reuse@test.com"})
@@ -235,7 +235,7 @@ func TestAudit_ReusedSession_MCP_AuthLoginRecorded(t *testing.T) {
 }
 
 func TestAudit004_DeviceApproved(t *testing.T) {
-	svc, store, clk := setupDeviceService(t)
+	svc, store, clk, _ := setupDeviceService(t)
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-approve@test.com", EmailVerified: true, Name: "Approve", Provider: "google", ProviderUserID: "device-sub-123", ProviderEmail: "audit-approve@test.com"})
@@ -260,7 +260,7 @@ func TestAudit004_DeviceApproved(t *testing.T) {
 }
 
 func TestAudit005_DeviceDenied(t *testing.T) {
-	svc, store, clk := setupDeviceService(t)
+	svc, store, clk, _ := setupDeviceService(t)
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-deny@test.com", EmailVerified: true, Name: "Deny", Provider: "google", ProviderUserID: "device-sub-123", ProviderEmail: "audit-deny@test.com"})
@@ -285,7 +285,7 @@ func TestAudit005_DeviceDenied(t *testing.T) {
 }
 
 func TestAudit006_DeletionRequested(t *testing.T) {
-	loginSvc, store := setupLoginService(t)
+	loginSvc, store, fakeUser := setupLoginService(t)
 	svc := NewAccountService(store)
 	ctx := context.Background()
 
@@ -293,7 +293,7 @@ func TestAudit006_DeletionRequested(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create auth request: %v", err)
 	}
-	loginResult := loginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "login-agent")
+	loginResult := loginSvc.CompleteBrowserLogin(ctx, arID, fakeUser, "127.0.0.1", "login-agent")
 	if loginResult.Action != ActionAutoApprove {
 		t.Fatalf("login action = %v, want AutoApprove", loginResult.Action)
 	}
@@ -324,7 +324,7 @@ func TestAudit006_DeletionRequested(t *testing.T) {
 }
 
 func TestAudit007_DeletionCancelled(t *testing.T) {
-	svc, store := setupLoginService(t)
+	svc, store, fakeUser := setupLoginService(t)
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-recover@test.com", EmailVerified: true, Name: "Recover", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "audit-recover@test.com"})
@@ -336,7 +336,7 @@ func TestAudit007_DeletionCancelled(t *testing.T) {
 	}
 	arID, _ := store.CreateTestAuthRequest(ctx, "audit-recover")
 
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "recover-agent")
+	result := svc.CompleteBrowserLogin(ctx, arID, fakeUser, "127.0.0.1", "recover-agent")
 	if result.Action != ActionAutoApprove {
 		t.Fatalf("action = %v, want AutoApprove", result.Action)
 	}
@@ -367,7 +367,7 @@ func TestAudit009_InactiveUser(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc, store := setupLoginService(t)
+			svc, store, fakeUser := setupLoginService(t)
 			ctx := context.Background()
 
 			user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-inactive-" + tt.name + "@test.com", EmailVerified: true, Name: "Inactive", Provider: "google", ProviderUserID: "google-sub-123", ProviderEmail: "audit-inactive@test.com"})
@@ -382,7 +382,7 @@ func TestAudit009_InactiveUser(t *testing.T) {
 				t.Fatalf("create auth request: %v", err)
 			}
 
-			result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "inactive-agent")
+			result := svc.CompleteBrowserLogin(ctx, arID, fakeUser, "127.0.0.1", "inactive-agent")
 			if result.Action != ActionError {
 				t.Fatalf("action = %v, want Error", result.Action)
 			}
@@ -396,7 +396,7 @@ func TestAudit009_InactiveUser(t *testing.T) {
 }
 
 func TestAuditSecurity003_DeviceInactiveUser(t *testing.T) {
-	svc, store, clk := setupDeviceExtTest(t, "audit-device-inactive-sub")
+	svc, store, clk, fakeUser := setupDeviceExtTest(t, "audit-device-inactive-sub")
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device-inactive@test.com", EmailVerified: true, Name: "Inactive Device", Provider: "google", ProviderUserID: "audit-device-inactive-sub", ProviderEmail: "audit-device-inactive@test.com"})
@@ -408,7 +408,7 @@ func TestAuditSecurity003_DeviceInactiveUser(t *testing.T) {
 	}
 	insertDeviceCode(t, store, "AUDT-INAC", clk)
 
-	result := svc.HandleDeviceCallback(ctx, "fake-code", "AUDT-INAC", "127.0.0.1", "device-inactive-agent")
+	result := svc.CompleteDeviceLogin(ctx, "AUDT-INAC", fakeUser, "127.0.0.1", "device-inactive-agent")
 	if result.Action != DeviceError {
 		t.Fatalf("action = %v, want DeviceError", result.Action)
 	}
@@ -420,7 +420,7 @@ func TestAuditSecurity003_DeviceInactiveUser(t *testing.T) {
 }
 
 func TestAuditSecurity_DevicePendingDeletionInactiveUser(t *testing.T) {
-	svc, store, clk := setupDeviceExtTest(t, "audit-device-pending-sub")
+	svc, store, clk, fakeUser := setupDeviceExtTest(t, "audit-device-pending-sub")
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-device-pending@test.com", EmailVerified: true, Name: "Pending Device", Provider: "google", ProviderUserID: "audit-device-pending-sub", ProviderEmail: "audit-device-pending@test.com"})
@@ -432,7 +432,7 @@ func TestAuditSecurity_DevicePendingDeletionInactiveUser(t *testing.T) {
 	}
 	insertDeviceCode(t, store, "AUDT-PEND", clk)
 
-	result := svc.HandleDeviceCallback(ctx, "fake-code", "AUDT-PEND", "127.0.0.1", "device-pending-agent")
+	result := svc.CompleteDeviceLogin(ctx, "AUDT-PEND", fakeUser, "127.0.0.1", "device-pending-agent")
 	if result.Action != DeviceError {
 		t.Fatalf("action = %v, want DeviceError", result.Action)
 	}
@@ -458,7 +458,7 @@ func TestAuditSecurity_MCPInactiveUser_Metadata(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc, store := setupMCPExtTest(t, "audit-mcp-"+tt.name+"-sub")
+			svc, store, fakeUser := setupMCPExtTest(t, "audit-mcp-"+tt.name+"-sub")
 			ctx := context.Background()
 
 			user, err := store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "audit-mcp-" + tt.name + "@test.com", EmailVerified: true, Name: "MCP Inactive", Provider: "google", ProviderUserID: "audit-mcp-" + tt.name + "-sub", ProviderEmail: "audit-mcp-" + tt.name + "@test.com"})
@@ -470,7 +470,7 @@ func TestAuditSecurity_MCPInactiveUser_Metadata(t *testing.T) {
 			}
 			arID, _ := store.CreateTestAuthRequestWithResource(ctx, "audit-mcp-"+tt.name, "http://localhost/mcp")
 
-			result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-agent")
+			result := svc.CompleteMCPLogin(ctx, arID, fakeUser, "127.0.0.1", "mcp-agent")
 			if result.Action != ActionError {
 				t.Fatalf("action = %v, want ActionError", result.Action)
 			}

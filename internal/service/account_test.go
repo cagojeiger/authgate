@@ -21,6 +21,7 @@ type accountFixture struct {
 	Store      *storage.Storage
 	DB         *sql.DB
 	Clock      *clock.FixedClock
+	FakeUser   *upstream.UserInfo
 }
 
 func setupAccountTest(t *testing.T) *accountFixture {
@@ -36,13 +37,14 @@ func setupAccountTest(t *testing.T) *accountFixture {
 	}
 
 	accountSvc := NewAccountService(store)
-	loginSvc := NewLoginService(store, fakeProvider, 24*time.Hour)
+	loginSvc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
 	return &accountFixture{
 		AccountSvc: accountSvc,
 		LoginSvc:   loginSvc,
 		Store:      store,
 		DB:         db,
 		Clock:      clk,
+		FakeUser:   fakeProvider.User,
 	}
 }
 
@@ -160,7 +162,7 @@ func TestE2E_DeleteThenRecover(t *testing.T) {
 	}
 
 	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e4-recovery")
-	result := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test")
+	result := fx.LoginSvc.CompleteBrowserLogin(ctx, arID, fx.FakeUser, "127.0.0.1", "test")
 
 	if result.Action != ActionAutoApprove {
 		t.Errorf("action = %v, want AutoApprove (recovered)", result.Action)
@@ -197,7 +199,7 @@ func TestE2E_DeleteThenReregister(t *testing.T) {
 	}
 
 	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e5-reregister")
-	result := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test")
+	result := fx.LoginSvc.CompleteBrowserLogin(ctx, arID, fx.FakeUser, "127.0.0.1", "test")
 
 	if result.Action != ActionAutoApprove {
 		t.Errorf("action = %v, want AutoApprove (new signup after deletion)", result.Action)
@@ -216,7 +218,7 @@ func TestAccount004_PendingDeletion_DeviceRejected(t *testing.T) {
 	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 	insertDeviceCode(t, fx.Store, "PD-CODE", fx.Clock)
 
-	result := fx.DeviceSvc.HandleDeviceCallback(ctx, "fake-code", "PD-CODE", "127.0.0.1", "test")
+	result := fx.DeviceSvc.CompleteDeviceLogin(ctx, "PD-CODE", fx.FakeUser, "127.0.0.1", "test")
 	if result.Action != DeviceError {
 		t.Errorf("action = %v, want DeviceError (pending_deletion on device)", result.Action)
 	}
@@ -234,7 +236,7 @@ func TestAccount004b_PendingDeletion_MCPRejected(t *testing.T) {
 	fx.Store.SetUserStatus(ctx, user.ID, "pending_deletion")
 
 	arID, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "pd-mcp", "http://localhost/mcp")
-	result := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "mcp-client")
+	result := fx.MCPLoginSvc.CompleteMCPLogin(ctx, arID, fx.FakeUser, "127.0.0.1", "mcp-client")
 
 	if result.Action != ActionError {
 		t.Errorf("action = %v, want Error (pending_deletion via MCP)", result.Action)

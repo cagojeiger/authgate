@@ -9,17 +9,20 @@ import (
 	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/pages"
 	"github.com/kangheeyong/authgate/internal/service"
+	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
 type DeviceHandler struct {
 	deviceService *service.DeviceService
+	provider      upstream.Provider
 	devMode       bool
 	brandName     string
 }
 
-func NewDeviceHandler(deviceService *service.DeviceService, devMode bool, brandName string) *DeviceHandler {
+func NewDeviceHandler(deviceService *service.DeviceService, provider upstream.Provider, devMode bool, brandName string) *DeviceHandler {
 	return &DeviceHandler{
 		deviceService: deviceService,
+		provider:      provider,
 		devMode:       devMode,
 		brandName:     brandName,
 	}
@@ -66,8 +69,7 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 		})
 
 	case service.DeviceRedirectIdP:
-		//nolint:gosec // Redirect target is the upstream IdP authorization URL built by DeviceService.
-		http.Redirect(w, r, result.UserCode, http.StatusFound) // UserCode holds the auth URL
+		h.provider.Redirect(w, r, result.UserCode) // UserCode holds the state (user_code)
 
 	case service.DeviceError:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -78,25 +80,25 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 
 // HandleDeviceCallback handles GET /device/auth/callback?code=xxx&state=user_code
 func (h *DeviceHandler) HandleDeviceCallback(w http.ResponseWriter, r *http.Request) {
-	code := r.URL.Query().Get("code")
-	userCode := r.URL.Query().Get("state")
 	info := clientinfo.FromContext(r.Context())
 
-	result := h.deviceService.HandleDeviceCallback(r.Context(), code, userCode, info.IP, info.UserAgent)
+	h.provider.Callback(w, r, func(w http.ResponseWriter, r *http.Request, state string, userInfo *upstream.UserInfo) {
+		result := h.deviceService.CompleteDeviceLogin(r.Context(), state, userInfo, info.IP, info.UserAgent)
 
-	switch result.Action {
-	case service.DeviceRedirectBack:
-		if result.SessionID != "" {
-			setSessionCookie(w, result.SessionID, h.devMode)
+		switch result.Action {
+		case service.DeviceRedirectBack:
+			if result.SessionID != "" {
+				setSessionCookie(w, result.SessionID, h.devMode)
+			}
+			//nolint:gosec // Internal redirect to the fixed device endpoint with a service-issued user code.
+			http.Redirect(w, r, "/device?user_code="+result.UserCode, http.StatusFound)
+
+		case service.DeviceError:
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(result.ErrorCode)
+			_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: result.ErrorCode, Message: result.Error})
 		}
-		//nolint:gosec // Internal redirect to the fixed device endpoint with a service-issued user code.
-		http.Redirect(w, r, "/device?user_code="+result.UserCode, http.StatusFound)
-
-	case service.DeviceError:
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(result.ErrorCode)
-		_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: result.ErrorCode, Message: result.Error})
-	}
+	})
 }
 
 // HandleDeviceApprove handles POST /device/approve

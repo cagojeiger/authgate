@@ -67,6 +67,7 @@ func buildUpstreamOptions(cfg *config.Config) []upstream.Option {
 		opts = append(opts, upstream.WithInternalURL(cfg.OIDCInternalURL))
 	}
 	opts = append(opts, upstream.WithHTTPTimeout(cfg.OIDCHTTPTimeout))
+	opts = append(opts, upstream.WithCookieSecret(cfg.SessionSecret, !cfg.DevMode))
 	return opts
 }
 
