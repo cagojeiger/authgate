@@ -14,7 +14,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
-func setupLoginService(t *testing.T) (*LoginService, *storage.Storage) {
+func setupLoginService(t *testing.T) (*LoginService, *storage.Storage, *upstream.UserInfo) {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
@@ -31,25 +31,27 @@ func setupLoginService(t *testing.T) (*LoginService, *storage.Storage) {
 		},
 	}
 
-	svc := NewLoginService(store, fakeProvider, 24*time.Hour)
-	return svc, store
+	svc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	return svc, store, fakeProvider.User
 }
 
 func TestHandleLogin_NoSession_RedirectsToIdP(t *testing.T) {
-	svc, _ := setupLoginService(t)
+	svc, _, _ := setupLoginService(t)
 
 	result := svc.HandleLogin(context.Background(), "req-123", "", "127.0.0.1", "test")
 
 	if result.Action != ActionRedirectToIdP {
 		t.Errorf("action = %v, want RedirectToIdP", result.Action)
 	}
-	if result.RedirectURL == "" {
-		t.Error("redirect URL should not be empty")
+	// The redirect now carries the authRequestID as the state value; the handler
+	// builds the actual IdP URL via provider.Redirect (high-level AuthURLHandler).
+	if result.AuthRequestID != "req-123" {
+		t.Errorf("authRequestID = %q, want req-123", result.AuthRequestID)
 	}
 }
 
 func TestHandleLogin_MissingAuthRequestID_Error(t *testing.T) {
-	svc, _ := setupLoginService(t)
+	svc, _, _ := setupLoginService(t)
 
 	result := svc.HandleLogin(context.Background(), "", "", "", "")
 
@@ -59,7 +61,7 @@ func TestHandleLogin_MissingAuthRequestID_Error(t *testing.T) {
 }
 
 func TestHandleCallback_NewUser_Signup_AutoApprove(t *testing.T) {
-	svc, store := setupLoginService(t)
+	svc, store, fakeUser := setupLoginService(t)
 	ctx := context.Background()
 
 	arID, err := store.CreateTestAuthRequest(ctx, "new-user")
@@ -67,7 +69,7 @@ func TestHandleCallback_NewUser_Signup_AutoApprove(t *testing.T) {
 		t.Fatalf("create auth request: %v", err)
 	}
 
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test-agent")
+	result := svc.CompleteBrowserLogin(ctx, arID, fakeUser, "127.0.0.1", "test-agent")
 
 	if result.Action != ActionAutoApprove {
 		t.Errorf("action = %v, want AutoApprove (new user is immediately active)", result.Action)
@@ -81,7 +83,7 @@ func TestHandleCallback_NewUser_Signup_AutoApprove(t *testing.T) {
 }
 
 func TestHandleCallback_ExistingUser_AutoApprove(t *testing.T) {
-	svc, store := setupLoginService(t)
+	svc, store, fakeUser := setupLoginService(t)
 	ctx := context.Background()
 
 	// Pre-create user
@@ -96,7 +98,7 @@ func TestHandleCallback_ExistingUser_AutoApprove(t *testing.T) {
 		t.Fatalf("create auth request: %v", err)
 	}
 
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test-agent")
+	result := svc.CompleteBrowserLogin(ctx, arID, fakeUser, "127.0.0.1", "test-agent")
 
 	if result.Action != ActionAutoApprove {
 		t.Errorf("action = %v, want AutoApprove", result.Action)
@@ -107,7 +109,7 @@ func TestHandleCallback_ExistingUser_AutoApprove(t *testing.T) {
 }
 
 func TestHandleCallback_PendingDeletion_RecoveryAutoApprove(t *testing.T) {
-	svc, store := setupLoginService(t)
+	svc, store, fakeUser := setupLoginService(t)
 	ctx := context.Background()
 
 	// Create user, then set to pending_deletion
@@ -122,7 +124,7 @@ func TestHandleCallback_PendingDeletion_RecoveryAutoApprove(t *testing.T) {
 		t.Fatalf("create auth request: %v", err)
 	}
 
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test-agent")
+	result := svc.CompleteBrowserLogin(ctx, arID, fakeUser, "127.0.0.1", "test-agent")
 
 	// Should recover and auto-approve
 	if result.Action != ActionAutoApprove {
@@ -134,7 +136,7 @@ func TestHandleCallback_PendingDeletion_RecoveryAutoApprove(t *testing.T) {
 }
 
 func TestHandleCallback_InactiveUser_Error(t *testing.T) {
-	svc, store := setupLoginService(t)
+	svc, store, fakeUser := setupLoginService(t)
 	ctx := context.Background()
 
 	// Create disabled user
@@ -145,32 +147,13 @@ func TestHandleCallback_InactiveUser_Error(t *testing.T) {
 		t.Fatalf("create auth request: %v", err)
 	}
 
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test-agent")
+	result := svc.CompleteBrowserLogin(ctx, arID, fakeUser, "127.0.0.1", "test-agent")
 
 	if result.Action != ActionError {
 		t.Errorf("action = %v, want Error", result.Action)
 	}
 	if result.ErrorCode != 403 {
 		t.Errorf("errorCode = %d, want 403", result.ErrorCode)
-	}
-}
-
-func TestHandleCallback_UpstreamError_Sanitized(t *testing.T) {
-	svc, store := setupLoginService(t)
-	ctx := context.Background()
-	svc.browserProvider = &upstream.FakeProvider{ProviderName: "google"}
-
-	// #162: callback now validates the local auth_request before contacting
-	// the upstream IdP. Use a real auth_request so we exercise the
-	// upstream-error sanitization path rather than the local-state guard.
-	arID, _ := store.CreateTestAuthRequest(ctx, "upstream-err")
-	result := svc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "test-agent")
-
-	if result.Action != ActionError {
-		t.Fatalf("action = %v, want ActionError", result.Action)
-	}
-	if result.Error != "upstream_error" {
-		t.Fatalf("error = %q, want upstream_error", result.Error)
 	}
 }
 
@@ -191,7 +174,7 @@ func TestBrowser007_RecoveryRetryIdempotent(t *testing.T) {
 
 	// First attempt: callback with bogus authRequestID is rejected before
 	// Exchange. Recovery does NOT happen.
-	result1 := fx.LoginSvc.HandleCallback(ctx, "fake-code", "invalid-ar-id", "127.0.0.1", "browser")
+	result1 := fx.LoginSvc.CompleteBrowserLogin(ctx, "invalid-ar-id", fx.FakeUser, "127.0.0.1", "browser")
 	if result1.Action != ActionError {
 		t.Fatalf("invalid authRequestID should be rejected, got %v", result1.Action)
 	}
@@ -203,7 +186,7 @@ func TestBrowser007_RecoveryRetryIdempotent(t *testing.T) {
 
 	// Second attempt: valid authRequestID — recovery + completion in one shot.
 	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "retry")
-	result2 := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "browser")
+	result2 := fx.LoginSvc.CompleteBrowserLogin(ctx, arID, fx.FakeUser, "127.0.0.1", "browser")
 	if result2.Action != ActionAutoApprove {
 		t.Errorf("retry action = %v, want AutoApprove", result2.Action)
 	}
@@ -214,7 +197,7 @@ func TestBrowser007_RecoveryRetryIdempotent(t *testing.T) {
 
 	// Third attempt: idempotent retry on a fresh authRequestID also succeeds.
 	arID2, _ := fx.Store.CreateTestAuthRequest(ctx, "retry-2")
-	result3 := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID2, "127.0.0.1", "browser")
+	result3 := fx.LoginSvc.CompleteBrowserLogin(ctx, arID2, fx.FakeUser, "127.0.0.1", "browser")
 	if result3.Action != ActionAutoApprove {
 		t.Errorf("idempotent retry action = %v, want AutoApprove", result3.Action)
 	}

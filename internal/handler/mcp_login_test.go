@@ -6,11 +6,15 @@ import (
 	"testing"
 
 	"github.com/kangheeyong/authgate/internal/service"
+	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
 func newTestMCPLoginHandler(devMode bool) *MCPLoginHandler {
-	svc := service.NewMCPLoginService(nil, nil, 0)
-	return NewMCPLoginHandler(svc, devMode, "authgate")
+	svc := service.NewMCPLoginService(nil, "", 0)
+	// FakeProvider.Callback delivers the (empty) state to CompleteMCPLogin,
+	// which returns the 400 "missing code or state" the callback test asserts.
+	provider := &upstream.FakeProvider{User: &upstream.UserInfo{Sub: "sub"}}
+	return NewMCPLoginHandler(svc, provider, devMode, "authgate")
 }
 
 func TestMCPLogin_MissingAuthRequestID_ReturnsBadRequest(t *testing.T) {

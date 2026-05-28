@@ -12,9 +12,9 @@ import (
 )
 
 type LoginService struct {
-	store           LoginStore
-	browserProvider upstream.Provider
-	sessionTTL      time.Duration
+	store        LoginStore
+	providerName string
+	sessionTTL   time.Duration
 }
 
 type LoginStore interface {
@@ -53,11 +53,11 @@ func verifyAuthRequestChannel(ctx context.Context, store LoginStore, authReq *st
 	return "", 0
 }
 
-func NewLoginService(store LoginStore, browserProvider upstream.Provider, sessionTTL time.Duration) *LoginService {
+func NewLoginService(store LoginStore, providerName string, sessionTTL time.Duration) *LoginService {
 	return &LoginService{
-		store:           store,
-		browserProvider: browserProvider,
-		sessionTTL:      sessionTTL,
+		store:        store,
+		providerName: providerName,
+		sessionTTL:   sessionTTL,
 	}
 }
 
@@ -164,32 +164,29 @@ type CallbackResult struct {
 	ErrorCode     int
 }
 
-// HandleCallback processes GET /login/callback?code=xxx&state=authRequestID
-func (s *LoginService) HandleCallback(ctx context.Context, code, authRequestID, ipAddress, userAgent string) *CallbackResult {
-	return s.handleCallback(ctx, code, authRequestID, ipAddress, userAgent)
+// CompleteBrowserLogin finishes the browser callback after the upstream code
+// exchange has already happened inside the high-level CodeExchangeHandler
+// (which verified the state cookie / PKCE before exchange). state carries the
+// authRequestID; info is the resolved upstream identity.
+func (s *LoginService) CompleteBrowserLogin(ctx context.Context, state string, info *upstream.UserInfo, ipAddress, userAgent string) *CallbackResult {
+	return s.completeBrowserLogin(ctx, state, info, ipAddress, userAgent)
 }
 
-func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, ipAddress, userAgent string) *CallbackResult {
-	if code == "" || authRequestID == "" {
+func (s *LoginService) completeBrowserLogin(ctx context.Context, authRequestID string, userInfo *upstream.UserInfo, ipAddress, userAgent string) *CallbackResult {
+	if authRequestID == "" || userInfo == nil {
 		return &CallbackResult{Action: ActionError, Error: "missing code or state", ErrorCode: http.StatusBadRequest}
 	}
 
-	// Validate the local auth_request — and its channel binding — BEFORE
-	// contacting the upstream IdP. This blocks attacker-controlled callback
-	// spam (random `state` values) from amplifying outbound traffic to the
-	// IdP, and gives a clean fail-fast for callbacks that arrive after the
-	// auth_request has expired.
+	// The state-cookie check inside CodeExchangeHandler already gated this
+	// request before the upstream exchange, so the anti-amplification ordering
+	// is satisfied. We still resolve the local auth_request and verify its
+	// channel binding before completing it.
 	authReq, result := s.getCallbackAuthRequest(ctx, authRequestID)
 	if result != nil {
 		return result
 	}
 	if errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, nil); errMsg != "" {
 		return &CallbackResult{Action: ActionError, Error: errMsg, ErrorCode: statusCode}
-	}
-
-	userInfo, err := s.browserProvider.Exchange(ctx, code)
-	if err != nil {
-		return &CallbackResult{Action: ActionError, Error: "upstream_error", ErrorCode: http.StatusInternalServerError}
 	}
 
 	user, signedUp, recovered, result := s.prepareBrowserCallbackUser(ctx, userInfo, authReq, ipAddress, userAgent)
@@ -226,7 +223,7 @@ func (s *LoginService) handleCallback(ctx context.Context, code, authRequestID, 
 // race against expiration/cleanup between fetch and audit (Codex review NIT
 // on PR #218).
 func (s *LoginService) prepareBrowserCallbackUser(ctx context.Context, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, ipAddress, userAgent string) (*storage.User, bool, bool, *CallbackResult) {
-	providerName := s.browserProvider.Name()
+	providerName := s.providerName
 	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
 		user, result := s.signupBrowserUser(ctx, providerName, userInfo, authReq, ipAddress, userAgent)
@@ -255,7 +252,7 @@ func (s *LoginService) getCallbackAuthRequest(ctx context.Context, authRequestID
 }
 
 func (s *LoginService) redirectToProvider(authRequestID string) *LoginResult {
-	return &LoginResult{Action: ActionRedirectToIdP, RedirectURL: s.browserProvider.AuthURL(authRequestID)}
+	return &LoginResult{Action: ActionRedirectToIdP, AuthRequestID: authRequestID}
 }
 
 func (s *LoginService) recoverUser(ctx context.Context, userID string) error {

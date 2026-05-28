@@ -159,8 +159,8 @@ sequenceDiagram
 | redirect_uri 불일치 | `invalid_request` | 400 | zitadel이 처리 |
 | PKCE 없음 / plain | `invalid_request` | 400 | S256만 허용 |
 | state 누락/불일치 | `invalid_request` | 400 | CSRF 보호 |
-| IdP 인증 사용자 취소/콜백 오류 | `invalid_request` 또는 `upstream_error` | 400/500 | authgate 콜백에서 오류 페이지 렌더 |
-| IdP 서버 오류 | `upstream_error` | 500 | IdP 연동 실패 |
+| state 쿠키 누락/불일치 (로그인 CSRF) | `authentication failed` | 401 | 상위 핸들러(`rp.CodeExchangeHandler`)가 state 쿠키 검증 실패 시 일반 메시지로 거부 |
+| IdP 코드 교환 실패 / IdP 서버 오류 | `authentication failed` | 401 | 상위 핸들러가 교환 실패를 일반 메시지로 거부 (내부 오류 문자열 미노출) |
 | DB 오류 (유저 조회) | `internal_error` | 500 | 가입 시도 안 함 |
 | 이메일 충돌 | `email_conflict` | 409 | 같은 email, 다른 IdP sub |
 | disabled | `account_inactive` | 403 | 로그인 차단 |
@@ -192,7 +192,8 @@ RecoverUser 자체는 원자적이다 (단일 UPDATE).
 ## 보안 요구사항
 
 - 모든 `/authorize` 요청에서 PKCE S256 필수 (plain 불허, code_challenge 누락 불허)
-- `state` 파라미터: authRequestID를 state로 사용. CSRF 보호 역할
+- 상위 IdP 로그인 CSRF 방어: `state`(authRequestID)를 암호화된 state 쿠키에 바인딩하고 콜백에서 대조 (`rp.AuthURLHandler` / `rp.CodeExchangeHandler`). 콜백을 시작한 브라우저만 완료 가능 → 인가코드 인젝션/세션 스왑 차단
+- 상위 IdP 교환에 PKCE(S256) 적용 (`rp.WithPKCE`). nonce 검증은 후속 작업 (아래 GAP 참조)
 - confidential 클라이언트: client_secret bcrypt 검증
 - public 클라이언트: client_secret 없음, PKCE가 유일한 보호
 - 세션 쿠키: `HttpOnly`, `SameSite=Strict`, `Secure=!DevMode`

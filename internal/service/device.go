@@ -14,11 +14,11 @@ import (
 )
 
 type DeviceService struct {
-	store      DeviceStore
-	provider   upstream.Provider
-	sessionTTL time.Duration
-	publicURL  string
-	clock      clock.Clock
+	store        DeviceStore
+	providerName string
+	sessionTTL   time.Duration
+	publicURL    string
+	clock        clock.Clock
 }
 
 type DeviceStore interface {
@@ -32,13 +32,13 @@ type DeviceStore interface {
 	ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error)
 }
 
-func NewDeviceService(store DeviceStore, provider upstream.Provider, publicURL string, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
+func NewDeviceService(store DeviceStore, providerName string, publicURL string, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
 	return &DeviceService{
-		store:      store,
-		provider:   provider,
-		publicURL:  publicURL,
-		sessionTTL: sessionTTL,
-		clock:      clk,
+		store:        store,
+		providerName: providerName,
+		publicURL:    publicURL,
+		sessionTTL:   sessionTTL,
+		clock:        clk,
 	}
 }
 
@@ -96,17 +96,19 @@ func (s *DeviceService) HandleDevicePage(ctx context.Context, userCode, sessionI
 	return &DevicePageResult{Action: DeviceShowApprove, UserCode: userCode}
 }
 
-// HandleDeviceCallback handles GET /device/auth/callback?code=xxx&state=user_code
-func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode, ipAddress, userAgent string) *DevicePageResult {
-	if code == "" || userCode == "" {
+// CompleteDeviceLogin finishes the device callback after the upstream code
+// exchange has already happened inside the high-level CodeExchangeHandler
+// (which verified the state cookie / PKCE before exchange). state carries the
+// user_code; info is the resolved upstream identity.
+func (s *DeviceService) CompleteDeviceLogin(ctx context.Context, state string, info *upstream.UserInfo, ipAddress, userAgent string) *DevicePageResult {
+	userCode := state
+	if userCode == "" || info == nil {
 		return &DevicePageResult{Action: DeviceError, Error: "invalid_request", ErrorCode: http.StatusBadRequest}
 	}
 
-	// #186: validate the local user_code state BEFORE calling provider.Exchange.
-	// Without this gate an attacker can drive arbitrary callbacks at the
-	// upstream IdP token endpoint (amplification + quota burn) without ever
-	// holding a valid user_code. The browser callback got the same fix in
-	// #171; this matches that ordering invariant for RFC 8628 §3.3/§3.5.
+	// The state-cookie check inside CodeExchangeHandler already gated this
+	// request before the upstream exchange (anti-amplification per #186). We
+	// still validate the local user_code lifecycle before binding the subject.
 	deviceCode, err := s.store.GetDeviceCodeByUserCode(ctx, userCode)
 	if errors.Is(err, storage.ErrNotFound) {
 		return &DevicePageResult{Action: DeviceError, Error: "invalid_request", ErrorCode: http.StatusBadRequest}
@@ -125,11 +127,7 @@ func (s *DeviceService) HandleDeviceCallback(ctx context.Context, code, userCode
 		return &DevicePageResult{Action: DeviceError, Error: "invalid_request", ErrorCode: http.StatusBadRequest}
 	}
 
-	// Exchange code for user info
-	userInfo, err := s.provider.Exchange(ctx, code)
-	if err != nil {
-		return &DevicePageResult{Action: DeviceError, Error: "upstream_error", ErrorCode: http.StatusInternalServerError}
-	}
+	userInfo := info
 
 	user, result := s.findDeviceCallbackUser(ctx, userInfo.Sub)
 	if result != nil {
@@ -215,7 +213,7 @@ func (s *DeviceService) validateDevicePage(ctx context.Context, userCode string)
 }
 
 func (s *DeviceService) redirectDeviceToProvider(userCode string) *DevicePageResult {
-	return &DevicePageResult{Action: DeviceRedirectIdP, UserCode: s.provider.AuthURL(userCode)}
+	return &DevicePageResult{Action: DeviceRedirectIdP, UserCode: userCode}
 }
 
 func (s *DeviceService) ensureDeviceSessionAccess(ctx context.Context, user *storage.User) *DevicePageResult {
@@ -229,7 +227,7 @@ func (s *DeviceService) ensureDeviceSessionAccess(ctx context.Context, user *sto
 }
 
 func (s *DeviceService) findDeviceCallbackUser(ctx context.Context, providerUserID string) (*storage.User, *DevicePageResult) {
-	user, err := s.store.GetUserByProviderIdentity(ctx, s.provider.Name(), providerUserID)
+	user, err := s.store.GetUserByProviderIdentity(ctx, s.providerName, providerUserID)
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil, &DevicePageResult{Action: DeviceError, Error: "account_not_found: please sign up via browser first", ErrorCode: http.StatusForbidden}
 	}

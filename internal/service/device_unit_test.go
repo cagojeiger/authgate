@@ -75,7 +75,7 @@ func TestDevice_HandleDevicePage_NoSession_Redirects(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clk)
+	svc := NewDeviceService(store, provider.Name(), "http://localhost", 24*time.Hour, clk)
 
 	result := svc.HandleDevicePage(context.Background(), "UCODE", "")
 
@@ -99,7 +99,7 @@ func TestDevice_HandleDeviceApprove_Deny(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clock.RealClock{})
+	svc := NewDeviceService(store, provider.Name(), "http://localhost", 24*time.Hour, clock.RealClock{})
 
 	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "deny", "sess", "127.0.0.1", "ua")
 
@@ -134,7 +134,7 @@ func TestDevice_HandleDeviceApprove_Deny_NotPending_SkipsMutation(t *testing.T) 
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clock.RealClock{})
+	svc := NewDeviceService(store, provider.Name(), "http://localhost", 24*time.Hour, clock.RealClock{})
 
 	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "deny", "sess", "127.0.0.1", "ua")
 
@@ -173,7 +173,7 @@ func TestDevice_HandleDeviceApprove_InvalidAction(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clock.RealClock{})
+	svc := NewDeviceService(store, provider.Name(), "http://localhost", 24*time.Hour, clock.RealClock{})
 
 	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "bogus", "sess", "127.0.0.1", "ua")
 
@@ -204,7 +204,7 @@ func TestDevice_HandleDeviceApprove_ApproveError(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clock.RealClock{})
+	svc := NewDeviceService(store, provider.Name(), "http://localhost", 24*time.Hour, clock.RealClock{})
 
 	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "approve", "sess", "127.0.0.1", "ua")
 
@@ -216,33 +216,14 @@ func TestDevice_HandleDeviceApprove_ApproveError(t *testing.T) {
 	}
 }
 
-// countingProvider is an upstream.Provider that records Exchange call
-// count so tests can assert "Exchange must not be called when local
-// state is invalid" — the load-bearing invariant for #186 (and the
-// matching browser fix #171).
-type countingProvider struct {
-	exchangeCalls int
-	user          *upstream.UserInfo
-}
-
-func (c *countingProvider) Name() string                { return "counting" }
-func (c *countingProvider) AuthURL(state string) string { return "/auth?state=" + state }
-func (c *countingProvider) Exchange(_ context.Context, _ string) (*upstream.UserInfo, error) {
-	c.exchangeCalls++
-	if c.user == nil {
-		return nil, errors.New("counting provider: no user")
-	}
-	return c.user, nil
-}
-
-// #186: device callback must NOT call provider.Exchange before
-// validating the local user_code state. An attacker hammering
-// /device/auth/callback?code=X&state=BOGUS otherwise amplifies traffic
-// to the upstream IdP and can drive token-endpoint quota burn for free.
-//
-// Three local-state failure modes — not_found, expired, non-pending —
-// must each fail fast without an outbound IdP call.
-func TestDevice_HandleDeviceCallback_RejectsBeforeExchange(t *testing.T) {
+// #186: the device callback must reject invalid local user_code state.
+// Pre-exchange amplification protection now lives in the high-level
+// CodeExchangeHandler (state cookie + PKCE verified before the upstream
+// token call), so the service-level guard runs on the post-exchange
+// CompleteDeviceLogin path. Each local-state failure mode — not_found,
+// expired, non-pending — must still surface DeviceError, and must reject
+// before any user lookup binds the freshly-authenticated subject.
+func TestDevice_CompleteDeviceLogin_RejectsInvalidLocalState(t *testing.T) {
 	clk := &clock.FixedClock{T: time.Date(2026, 4, 3, 0, 0, 0, 0, time.UTC)}
 	cases := []struct {
 		name string
@@ -256,21 +237,25 @@ func TestDevice_HandleDeviceCallback_RejectsBeforeExchange(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			getUserCalled := false
 			store := &fakeDeviceStore{
 				getDeviceCodeByUserCodeFn: func(context.Context, string) (*storage.DeviceCodeModel, error) {
 					return tc.dc, tc.err
 				},
+				getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
+					getUserCalled = true
+					return &storage.User{ID: "u1", Status: "active"}, nil
+				},
 			}
-			provider := &countingProvider{user: &upstream.UserInfo{Sub: "sub"}}
-			svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clk)
+			svc := NewDeviceService(store, "google", "http://localhost", 24*time.Hour, clk)
 
-			result := svc.HandleDeviceCallback(context.Background(), "code", "UCODE", "127.0.0.1", "ua")
+			result := svc.CompleteDeviceLogin(context.Background(), "UCODE", &upstream.UserInfo{Sub: "sub"}, "127.0.0.1", "ua")
 
 			if result.Action != DeviceError {
 				t.Errorf("action = %v, want DeviceError", result.Action)
 			}
-			if provider.exchangeCalls != 0 {
-				t.Errorf("provider.Exchange called %d times, want 0 (must validate local state first)", provider.exchangeCalls)
+			if getUserCalled {
+				t.Errorf("user lookup ran despite invalid local state (must reject first)")
 			}
 		})
 	}
@@ -301,9 +286,9 @@ func TestDevice_HandleDeviceCallback_AuditLogIncludesSessionAndClient(t *testing
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub"}}
-	svc := NewDeviceService(store, provider, "http://localhost", 24*time.Hour, clk)
+	svc := NewDeviceService(store, provider.Name(), "http://localhost", 24*time.Hour, clk)
 
-	result := svc.HandleDeviceCallback(context.Background(), "code", "UCODE", "127.0.0.1", "ua")
+	result := svc.CompleteDeviceLogin(context.Background(), "UCODE", provider.User, "127.0.0.1", "ua")
 
 	if result.Action != DeviceRedirectBack {
 		t.Fatalf("action = %v, want %v", result.Action, DeviceRedirectBack)

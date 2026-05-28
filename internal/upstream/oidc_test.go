@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -139,11 +140,62 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 
 func (idp *fakeIdP) newProvider(t *testing.T) *OIDCProvider {
 	t.Helper()
-	p, err := NewOIDCProvider(context.Background(), idp.srv.URL, testClientID, testClientSecret, testRedirectURI)
+	p, err := NewOIDCProvider(context.Background(), idp.srv.URL, testClientID, testClientSecret, testRedirectURI,
+		WithCookieSecret("test-cookie-secret", false))
 	if err != nil {
 		t.Fatalf("NewOIDCProvider: %v", err)
 	}
 	return p
+}
+
+// authURLForTest drives p.Redirect and returns the upstream authorization URL
+// the high-level handler redirected to (the value of the Location header).
+func authURLForTest(t *testing.T, p *OIDCProvider, state string) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	p.Redirect(rec, req, state)
+	loc := rec.Result().Header.Get("Location")
+	if loc == "" {
+		t.Fatalf("Redirect did not set Location header (status %d)", rec.Code)
+	}
+	return loc
+}
+
+// exchangeForTest drives the full Redirect→Callback round-trip against the fake
+// IdP, replaying the state/PKCE cookies the redirect set, and returns the
+// UserInfo delivered to the onSuccess callback (or an error if onSuccess was
+// never invoked, mirroring the old Exchange error contract).
+func exchangeForTest(t *testing.T, p *OIDCProvider, code string) (*UserInfo, error) {
+	t.Helper()
+
+	// First leg: Redirect to capture the state + PKCE cookies.
+	redirectRec := httptest.NewRecorder()
+	redirectReq := httptest.NewRequest(http.MethodGet, "/login", nil)
+	p.Redirect(redirectRec, redirectReq, "test-state")
+
+	loc := redirectRec.Result().Header.Get("Location")
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatalf("parse redirect location: %v", err)
+	}
+	state := u.Query().Get("state")
+
+	// Second leg: Callback with the captured cookies + the IdP-issued code/state.
+	cbReq := httptest.NewRequest(http.MethodGet, "/login/callback?code="+code+"&state="+state, nil)
+	for _, c := range redirectRec.Result().Cookies() {
+		cbReq.AddCookie(c)
+	}
+	cbRec := httptest.NewRecorder()
+
+	var got *UserInfo
+	p.Callback(cbRec, cbReq, func(_ http.ResponseWriter, _ *http.Request, _ string, info *UserInfo) {
+		got = info
+	})
+	if got == nil {
+		return nil, fmt.Errorf("callback did not succeed (status %d)", cbRec.Code)
+	}
+	return got, nil
 }
 
 // ── oidc-name-001~003: deriveProviderName ────────────────────────────────────
@@ -176,15 +228,16 @@ func TestDeriveProviderName_InvalidURL(t *testing.T) {
 
 func TestOIDCProvider_Discovery_Success(t *testing.T) {
 	idp := newFakeIdP(t)
-	p, err := NewOIDCProvider(context.Background(), idp.srv.URL, testClientID, testClientSecret, testRedirectURI)
+	p, err := NewOIDCProvider(context.Background(), idp.srv.URL, testClientID, testClientSecret, testRedirectURI,
+		WithCookieSecret("test-cookie-secret", false))
 	if err != nil {
 		t.Fatalf("NewOIDCProvider: %v", err)
 	}
 	if p.Name() == "" {
 		t.Error("Name() is empty after successful Discovery")
 	}
-	if p.AuthURL("state-001") == "" {
-		t.Error("AuthURL() is empty after successful Discovery")
+	if authURLForTest(t, p, "state-001") == "" {
+		t.Error("Redirect produced empty auth URL after successful Discovery")
 	}
 }
 
@@ -216,7 +269,7 @@ func TestOIDCProvider_Discovery_Non200(t *testing.T) {
 func TestOIDCProvider_AuthURL_ContainsRequiredParams(t *testing.T) {
 	idp := newFakeIdP(t)
 	p := idp.newProvider(t)
-	u := p.AuthURL("req-state-123")
+	u := authURLForTest(t, p, "req-state-123")
 	for _, param := range []string{"client_id", "redirect_uri", "response_type", "state"} {
 		if !strings.Contains(u, param) {
 			t.Errorf("AuthURL missing param %q: %s", param, u)
@@ -229,7 +282,7 @@ func TestOIDCProvider_AuthURL_ContainsRequiredParams(t *testing.T) {
 func TestOIDCProvider_Exchange_Success(t *testing.T) {
 	idp := newFakeIdP(t)
 	p := idp.newProvider(t)
-	info, err := p.Exchange(context.Background(), "fake-code")
+	info, err := exchangeForTest(t, p, "fake-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -250,7 +303,7 @@ func TestOIDCProvider_Exchange_TokenEndpointError(t *testing.T) {
 	idp := newFakeIdP(t)
 	idp.tokenStatus = http.StatusUnauthorized
 	p := idp.newProvider(t)
-	_, err := p.Exchange(context.Background(), "any-code")
+	_, err := exchangeForTest(t, p, "any-code")
 	if err == nil {
 		t.Error("expected error for token endpoint 401, got nil")
 	}
@@ -262,7 +315,7 @@ func TestOIDCProvider_Exchange_UserInfoError(t *testing.T) {
 	idp := newFakeIdP(t)
 	idp.userinfoStatus = http.StatusUnauthorized
 	p := idp.newProvider(t)
-	_, err := p.Exchange(context.Background(), "fake-code")
+	_, err := exchangeForTest(t, p, "fake-code")
 	if err == nil {
 		t.Error("expected error for userinfo endpoint 401, got nil")
 	}
@@ -279,7 +332,7 @@ func TestOIDCProvider_UserInfoMapping_AllFields(t *testing.T) {
 		"name":           "Map User",
 	}
 	p := idp.newProvider(t)
-	info, err := p.Exchange(context.Background(), "fake-code")
+	info, err := exchangeForTest(t, p, "fake-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -305,7 +358,7 @@ func TestOIDCProvider_EmailVerified_True(t *testing.T) {
 	idp := newFakeIdP(t)
 	idp.userInfoResp["email_verified"] = true
 	p := idp.newProvider(t)
-	info, err := p.Exchange(context.Background(), "fake-code")
+	info, err := exchangeForTest(t, p, "fake-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -320,7 +373,7 @@ func TestOIDCProvider_EmailVerified_False(t *testing.T) {
 	idp := newFakeIdP(t)
 	idp.userInfoResp["email_verified"] = false
 	p := idp.newProvider(t)
-	info, err := p.Exchange(context.Background(), "fake-code")
+	info, err := exchangeForTest(t, p, "fake-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -335,7 +388,7 @@ func TestOIDCProvider_EmailVerified_Absent(t *testing.T) {
 	idp := newFakeIdP(t)
 	delete(idp.userInfoResp, "email_verified")
 	p := idp.newProvider(t)
-	info, err := p.Exchange(context.Background(), "fake-code")
+	info, err := exchangeForTest(t, p, "fake-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -349,17 +402,18 @@ func TestOIDCProvider_EmailVerified_Absent(t *testing.T) {
 func TestOIDCProvider_FullPath(t *testing.T) {
 	idp := newFakeIdP(t)
 
-	p, err := NewOIDCProvider(context.Background(), idp.srv.URL, testClientID, testClientSecret, testRedirectURI)
+	p, err := NewOIDCProvider(context.Background(), idp.srv.URL, testClientID, testClientSecret, testRedirectURI,
+		WithCookieSecret("test-cookie-secret", false))
 	if err != nil {
 		t.Fatalf("Discovery: %v", err)
 	}
 
-	authURL := p.AuthURL("full-path-state")
+	authURL := authURLForTest(t, p, "full-path-state")
 	if !strings.Contains(authURL, "full-path-state") {
 		t.Errorf("AuthURL does not contain state: %s", authURL)
 	}
 
-	info, err := p.Exchange(context.Background(), "full-path-code")
+	info, err := exchangeForTest(t, p, "full-path-code")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
@@ -382,12 +436,13 @@ func TestOIDCProvider_MultiRedirectURIs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := NewOIDCProvider(context.Background(), idp.srv.URL, testClientID, testClientSecret, tt.redirectURI)
+			p, err := NewOIDCProvider(context.Background(), idp.srv.URL, testClientID, testClientSecret, tt.redirectURI,
+				WithCookieSecret("test-cookie-secret", false))
 			if err != nil {
 				t.Fatalf("NewOIDCProvider: %v", err)
 			}
 
-			authURL := p.AuthURL("state-" + tt.name)
+			authURL := authURLForTest(t, p, "state-"+tt.name)
 			u, err := url.Parse(authURL)
 			if err != nil {
 				t.Fatalf("parse authURL: %v", err)

@@ -115,10 +115,10 @@ func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.
 			registerAuthgateRoutes(
 				mux,
 				rateLimitTestConfig(),
-				handler.NewLoginHandler(nil, true, "authgate"),
-				handler.NewDeviceHandler(nil, true, "authgate"),
+				handler.NewLoginHandler(nil, nil, true, "authgate"),
+				handler.NewDeviceHandler(nil, nil, true, "authgate"),
 				handler.NewAccountHandler(nil, "http://authgate.example.com"),
-				handler.NewMCPLoginHandler(nil, true, "authgate"),
+				handler.NewMCPLoginHandler(nil, nil, true, "authgate"),
 			)
 
 			assertRateLimited(t, mux, tt.method, tt.path)

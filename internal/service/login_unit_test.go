@@ -89,7 +89,7 @@ func TestLogin_HandleLogin_RecoversPendingDeletionSession(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "s1"}}
-	svc := NewLoginService(store, provider, 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
 
 	result := svc.HandleLogin(context.Background(), "ar-1", "sess-1", "127.0.0.1", "ua")
 
@@ -125,9 +125,9 @@ func TestLogin_HandleCallback_EmailConflict(t *testing.T) {
 			Name:          "Dup",
 		},
 	}
-	svc := NewLoginService(store, provider, 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
 
-	result := svc.HandleCallback(context.Background(), "code", "ar-1", "127.0.0.1", "ua")
+	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
 
 	if result.Action != ActionError {
 		t.Fatalf("action = %v, want %v", result.Action, ActionError)
@@ -159,9 +159,9 @@ func TestLogin_HandleCallback_ExistingUser_AuditLogIncludesSessionAndClient(t *t
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
-	svc := NewLoginService(store, provider, 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
 
-	result := svc.HandleCallback(context.Background(), "code", "ar-1", "127.0.0.1", "ua")
+	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
 
 	if result.Action != ActionAutoApprove {
 		t.Fatalf("action = %v, want %v", result.Action, ActionAutoApprove)
@@ -204,9 +204,9 @@ func TestLogin_HandleCallback_SignupAuditLogIncludesChannel(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
-	svc := NewLoginService(store, provider, 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
 
-	result := svc.HandleCallback(context.Background(), "code", "ar-1", "127.0.0.1", "ua")
+	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
 
 	if result.Action != ActionAutoApprove {
 		t.Fatalf("action = %v, want %v", result.Action, ActionAutoApprove)
@@ -259,7 +259,7 @@ func TestLogin_HandleLogin_RejectsCrossChannelAuthRequest(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "s1"}}
-	svc := NewLoginService(store, provider, 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
 
 	result := svc.HandleLogin(context.Background(), "ar-1", "sess-1", "127.0.0.1", "ua")
 
@@ -306,9 +306,9 @@ func TestMCPLogin_HandleCallback_AuditLogIncludesSessionAndClient(t *testing.T) 
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
-	svc := NewMCPLoginService(store, provider, 24*time.Hour)
+	svc := NewMCPLoginService(store, provider.Name(), 24*time.Hour)
 
-	result := svc.HandleCallback(context.Background(), "code", "ar-1", "127.0.0.1", "ua")
+	result := svc.CompleteMCPLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
 
 	if result.Action != ActionAutoApprove {
 		t.Fatalf("action = %v, want %v", result.Action, ActionAutoApprove)
@@ -328,7 +328,7 @@ func TestLogin_HandleLogin_NoSession_Redirect(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "s1"}}
-	svc := NewLoginService(store, provider, 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
 
 	result := svc.HandleLogin(context.Background(), "ar-1", "sess-1", "127.0.0.1", "ua")
 

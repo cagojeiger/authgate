@@ -8,13 +8,17 @@ import (
 	"testing"
 
 	"github.com/kangheeyong/authgate/internal/service"
+	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
 // newTestDeviceHandler creates a DeviceHandler with a minimal DeviceService.
 // nil storage is safe as long as the code path under test exits before touching it.
 func newTestDeviceHandler() *DeviceHandler {
-	svc := service.NewDeviceService(nil, nil, "", 0, nil)
-	return NewDeviceHandler(svc, true, "authgate") // devMode=true
+	svc := service.NewDeviceService(nil, "", "", 0, nil)
+	// FakeProvider.Callback delivers the (empty) state to CompleteDeviceLogin,
+	// which returns the 400 "invalid_request" the callback test asserts.
+	provider := &upstream.FakeProvider{User: &upstream.UserInfo{Sub: "sub"}}
+	return NewDeviceHandler(svc, provider, true, "authgate") // devMode=true
 }
 
 // ── Method guard ──────────────────────────────────────────────────────────────

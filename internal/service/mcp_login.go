@@ -13,16 +13,16 @@ import (
 
 // MCPLoginService owns MCP channel login/callback orchestration.
 type MCPLoginService struct {
-	store       LoginStore
-	mcpProvider upstream.Provider
-	sessionTTL  time.Duration
+	store        LoginStore
+	providerName string
+	sessionTTL   time.Duration
 }
 
-func NewMCPLoginService(store LoginStore, mcpProvider upstream.Provider, sessionTTL time.Duration) *MCPLoginService {
+func NewMCPLoginService(store LoginStore, providerName string, sessionTTL time.Duration) *MCPLoginService {
 	return &MCPLoginService{
-		store:       store,
-		mcpProvider: mcpProvider,
-		sessionTTL:  sessionTTL,
+		store:        store,
+		providerName: providerName,
+		sessionTTL:   sessionTTL,
 	}
 }
 
@@ -66,11 +66,16 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 		}
 	}
 
-	return &LoginResult{Action: ActionRedirectToIdP, RedirectURL: s.mcpProvider.AuthURL(authRequestID)}
+	return &LoginResult{Action: ActionRedirectToIdP, AuthRequestID: authRequestID}
 }
 
-func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestID, ipAddress, userAgent string) *CallbackResult {
-	if code == "" || authRequestID == "" {
+// CompleteMCPLogin finishes the MCP callback after the upstream code exchange
+// has already happened inside the high-level CodeExchangeHandler (which
+// verified the state cookie / PKCE before exchange). state carries the
+// authRequestID; info is the resolved upstream identity.
+func (s *MCPLoginService) CompleteMCPLogin(ctx context.Context, state string, info *upstream.UserInfo, ipAddress, userAgent string) *CallbackResult {
+	authRequestID := state
+	if authRequestID == "" || info == nil {
 		return &CallbackResult{Action: ActionError, Error: "missing code or state", ErrorCode: http.StatusBadRequest}
 	}
 
@@ -97,12 +102,9 @@ func (s *MCPLoginService) HandleCallback(ctx context.Context, code, authRequestI
 		return &CallbackResult{Action: ActionError, Error: errMsg, ErrorCode: statusCode}
 	}
 
-	userInfo, err := s.mcpProvider.Exchange(ctx, code)
-	if err != nil {
-		return &CallbackResult{Action: ActionError, Error: "upstream_error", ErrorCode: http.StatusInternalServerError}
-	}
+	userInfo := info
 
-	providerName := s.mcpProvider.Name()
+	providerName := s.providerName
 	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
 		return &CallbackResult{Action: ActionError, Error: "account_not_found", ErrorCode: http.StatusForbidden}

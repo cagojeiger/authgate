@@ -25,6 +25,7 @@ type e2eFixture struct {
 	Store       *storage.Storage
 	DB          *sql.DB
 	Clock       *clock.FixedClock
+	FakeUser    *upstream.UserInfo
 }
 
 func setupE2ETest(t *testing.T) *e2eFixture {
@@ -44,9 +45,9 @@ func setupE2ETest(t *testing.T) *e2eFixture {
 		User: &upstream.UserInfo{Sub: "e2e-sub", Email: "e2e@test.com", EmailVerified: true, Name: "E2E User"},
 	}
 
-	loginSvc := NewLoginService(store, fakeProvider, 24*time.Hour)
-	mcpLoginSvc := NewMCPLoginService(store, fakeProvider, 24*time.Hour)
-	deviceSvc := NewDeviceService(store, fakeProvider, "http://localhost:8080", 24*time.Hour, clk)
+	loginSvc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	mcpLoginSvc := NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	deviceSvc := NewDeviceService(store, fakeProvider.Name(), "http://localhost:8080", 24*time.Hour, clk)
 	accountSvc := NewAccountService(store)
 	return &e2eFixture{
 		LoginSvc:    loginSvc,
@@ -56,6 +57,7 @@ func setupE2ETest(t *testing.T) *e2eFixture {
 		Store:       store,
 		DB:          db,
 		Clock:       clk,
+		FakeUser:    fakeProvider.User,
 	}
 }
 
@@ -80,28 +82,28 @@ func TestE2E1_SignupToAllChannels(t *testing.T) {
 
 	// 1. Browser signup → auto-approve (no terms step)
 	arID1, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e1-signup")
-	result := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID1, "127.0.0.1", "browser")
+	result := fx.LoginSvc.CompleteBrowserLogin(ctx, arID1, fx.FakeUser, "127.0.0.1", "browser")
 	if result.Action != ActionAutoApprove {
 		t.Fatalf("step 1: action = %v, want AutoApprove", result.Action)
 	}
 
 	// 2. Browser re-login → auto-approve
 	arID2, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e1-relogin")
-	relogin := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID2, "127.0.0.1", "browser")
+	relogin := fx.LoginSvc.CompleteBrowserLogin(ctx, arID2, fx.FakeUser, "127.0.0.1", "browser")
 	if relogin.Action != ActionAutoApprove {
 		t.Fatalf("step 2: action = %v, want AutoApprove", relogin.Action)
 	}
 
 	// 3. Device callback → should succeed (redirect back)
 	fx.Store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e1", "E2E1-CODE", fx.Clock.Now().Add(5*time.Minute), []string{"openid"})
-	devResult := fx.DeviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E1-CODE", "127.0.0.1", "cli")
+	devResult := fx.DeviceSvc.CompleteDeviceLogin(ctx, "E2E1-CODE", fx.FakeUser, "127.0.0.1", "cli")
 	if devResult.Action != DeviceRedirectBack {
 		t.Fatalf("step 3: device action = %v, want RedirectBack", devResult.Action)
 	}
 
 	// 4. MCP → auto-approve
 	arID3, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "e2e1-mcp", "http://localhost/mcp")
-	mcpResult := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arID3, "127.0.0.1", "mcp-client")
+	mcpResult := fx.MCPLoginSvc.CompleteMCPLogin(ctx, arID3, fx.FakeUser, "127.0.0.1", "mcp-client")
 	if mcpResult.Action != ActionAutoApprove {
 		t.Fatalf("step 4: mcp action = %v, want AutoApprove", mcpResult.Action)
 	}
@@ -117,34 +119,34 @@ func TestE2E2_SignupAbandonAndReturn(t *testing.T) {
 
 	// Step 2/3: 유저 DB 없음 → Device/MCP 차단 (account_not_found)
 	fx.Store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e2", "E2E2-DCODE", fx.Clock.Now().Add(5*time.Minute), []string{"openid"})
-	devResult := fx.DeviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E2-DCODE", "127.0.0.1", "cli")
+	devResult := fx.DeviceSvc.CompleteDeviceLogin(ctx, "E2E2-DCODE", fx.FakeUser, "127.0.0.1", "cli")
 	if devResult.Action != DeviceError {
 		t.Fatalf("device before signup: action=%v, want DeviceError", devResult.Action)
 	}
 
 	arIDMCP, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "e2e2-mcp-pre", "http://localhost/mcp")
-	mcpResult := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP, "127.0.0.1", "mcp")
+	mcpResult := fx.MCPLoginSvc.CompleteMCPLogin(ctx, arIDMCP, fx.FakeUser, "127.0.0.1", "mcp")
 	if mcpResult.Action != ActionError {
 		t.Fatalf("mcp before signup: action=%v, want ActionError", mcpResult.Action)
 	}
 
 	// Step 3: Browser 완료 → 가입 (새 유저 생성)
 	arIDBrowser, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e2-browser")
-	browserResult := fx.LoginSvc.HandleCallback(ctx, "fake-code", arIDBrowser, "127.0.0.1", "browser")
+	browserResult := fx.LoginSvc.CompleteBrowserLogin(ctx, arIDBrowser, fx.FakeUser, "127.0.0.1", "browser")
 	if browserResult.Action != ActionAutoApprove {
 		t.Fatalf("browser signup: action=%v, want ActionAutoApprove", browserResult.Action)
 	}
 
 	// 가입 후 Device 정상 동작
 	fx.Store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e2-ok", "E2E2-DCODE2", fx.Clock.Now().Add(5*time.Minute), []string{"openid"})
-	devResult2 := fx.DeviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E2-DCODE2", "127.0.0.1", "cli")
+	devResult2 := fx.DeviceSvc.CompleteDeviceLogin(ctx, "E2E2-DCODE2", fx.FakeUser, "127.0.0.1", "cli")
 	if devResult2.Action != DeviceRedirectBack {
 		t.Fatalf("device after signup: action=%v, want DeviceRedirectBack", devResult2.Action)
 	}
 
 	// 가입 후 MCP 정상 동작
 	arIDMCP2, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "e2e2-mcp-post", "http://localhost/mcp")
-	mcpResult2 := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP2, "127.0.0.1", "mcp")
+	mcpResult2 := fx.MCPLoginSvc.CompleteMCPLogin(ctx, arIDMCP2, fx.FakeUser, "127.0.0.1", "mcp")
 	if mcpResult2.Action != ActionAutoApprove {
 		t.Fatalf("mcp after signup: action=%v, want ActionAutoApprove", mcpResult2.Action)
 	}
@@ -178,19 +180,19 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 
 	// 3. Device/MCP should be rejected
 	fx.Store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e4", "E2E4-CODE", fx.Clock.Now().Add(5*time.Minute), []string{"openid"})
-	devResult := fx.DeviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E4-CODE", "127.0.0.1", "cli")
+	devResult := fx.DeviceSvc.CompleteDeviceLogin(ctx, "E2E4-CODE", fx.FakeUser, "127.0.0.1", "cli")
 	if devResult.Action != DeviceError || devResult.ErrorCode != 403 {
 		t.Fatalf("step 3: device should reject pending_deletion user, got action=%v code=%d", devResult.Action, devResult.ErrorCode)
 	}
 	arIDMCP, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "e2e4-mcp", "http://localhost/mcp")
-	mcpResult := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP, "127.0.0.1", "mcp-client")
+	mcpResult := fx.MCPLoginSvc.CompleteMCPLogin(ctx, arIDMCP, fx.FakeUser, "127.0.0.1", "mcp-client")
 	if mcpResult.Action != ActionError || mcpResult.ErrorCode != 403 {
 		t.Fatalf("step 3: mcp should reject pending_deletion user, got action=%v code=%d", mcpResult.Action, mcpResult.ErrorCode)
 	}
 
 	// 4. Browser login recovers
 	arIDBrowser, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e4-browser")
-	recoverResult := fx.LoginSvc.HandleCallback(ctx, "fake-code", arIDBrowser, "127.0.0.1", "browser")
+	recoverResult := fx.LoginSvc.CompleteBrowserLogin(ctx, arIDBrowser, fx.FakeUser, "127.0.0.1", "browser")
 	if recoverResult.Action != ActionAutoApprove {
 		t.Fatalf("step 4: browser recovery action = %v, want AutoApprove", recoverResult.Action)
 	}
@@ -201,12 +203,12 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 		t.Fatalf("step 5: refresh should succeed after recovery, got err=%v", err)
 	}
 	fx.Store.StoreDeviceAuthorization(ctx, "test-client", "dc-e2e4-ok", "E2E4-OK", fx.Clock.Now().Add(5*time.Minute), []string{"openid"})
-	devResult2 := fx.DeviceSvc.HandleDeviceCallback(ctx, "fake-code", "E2E4-OK", "127.0.0.1", "cli")
+	devResult2 := fx.DeviceSvc.CompleteDeviceLogin(ctx, "E2E4-OK", fx.FakeUser, "127.0.0.1", "cli")
 	if devResult2.Action != DeviceRedirectBack {
 		t.Fatalf("step 5: device should succeed after recovery, got action=%v", devResult2.Action)
 	}
 	arIDMCP2, _ := fx.Store.CreateTestAuthRequestWithResource(ctx, "e2e4-mcp-ok", "http://localhost/mcp")
-	mcpResult2 := fx.MCPLoginSvc.HandleCallback(ctx, "fake-code", arIDMCP2, "127.0.0.1", "mcp-client")
+	mcpResult2 := fx.MCPLoginSvc.CompleteMCPLogin(ctx, arIDMCP2, fx.FakeUser, "127.0.0.1", "mcp-client")
 	if mcpResult2.Action != ActionAutoApprove {
 		t.Fatalf("step 5: mcp should succeed after recovery, got action=%v", mcpResult2.Action)
 	}
@@ -233,7 +235,7 @@ func TestE2E5_RecoveryThenAuthRequestRetry(t *testing.T) {
 	}
 
 	// 2) 잘못된 authRequestID 콜백은 Exchange 이전에 거부되고 복구도 일어나지 않는다.
-	first := fx.LoginSvc.HandleCallback(ctx, "fake-code", "missing-auth-request", "127.0.0.1", "browser")
+	first := fx.LoginSvc.CompleteBrowserLogin(ctx, "missing-auth-request", fx.FakeUser, "127.0.0.1", "browser")
 	if first.Action != ActionError {
 		t.Fatalf("first action = %v, want ActionError", first.Action)
 	}
@@ -245,7 +247,7 @@ func TestE2E5_RecoveryThenAuthRequestRetry(t *testing.T) {
 
 	// 3) 유효한 authRequest로 한 번에 복구 + 완료.
 	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e5-retry")
-	second := fx.LoginSvc.HandleCallback(ctx, "fake-code", arID, "127.0.0.1", "browser")
+	second := fx.LoginSvc.CompleteBrowserLogin(ctx, arID, fx.FakeUser, "127.0.0.1", "browser")
 	if second.Action != ActionAutoApprove {
 		t.Fatalf("second action = %v, want ActionAutoApprove", second.Action)
 	}
