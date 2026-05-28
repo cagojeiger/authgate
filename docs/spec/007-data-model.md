@@ -87,6 +87,7 @@ erDiagram
         text subject "nullable, approve 시 설정"
         timestamptz expires_at "NOT NULL, 5분"
         timestamptz auth_time "nullable, approve 시 설정"
+        timestamptz last_polled_at "nullable, token polling cadence 추적"
         timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 
@@ -166,9 +167,15 @@ erDiagram
 
 ## 인덱스
 
-현재 `migrations/001_init.sql`은 테이블 제약(UNIQUE/PK/FK) 외에 별도 보조 인덱스를 생성하지 않는다.
+PK/UNIQUE/FK 제약 인덱스 외에 현재 명시적으로 생성하는 보조 인덱스는 다음과 같다.
 
-운영에서 조회 패턴이 커지면 다음 원칙으로 인덱스를 추가한다:
+| 인덱스 | 대상 | 목적 |
+|--------|------|------|
+| `audit_log_user_created_idx` | `audit_log (user_id, created_at DESC)` | Console 사용자별 audit timeline 조회 |
+| `audit_log_event_created_idx` | `audit_log (event_type, created_at DESC)` | 운영 이벤트 timeline 조회 |
+| `audit_log_created_brin_idx` | `audit_log USING BRIN (created_at)` | 보존기간 cutoff 기반 PII 익명화 스캔 보조 |
+
+현재 `sessions.expires_at`, `auth_requests.expires_at`, `device_codes.expires_at`, `refresh_tokens.expires_at/revoked_at/family_id`에는 별도 보조 인덱스를 만들지 않는다. 운영에서 조회 패턴이 커지면 다음 원칙으로 인덱스를 추가한다:
 1. 실제 병목 쿼리를 기준으로 추가한다.
 2. cleanup 경로(`expires_at`)와 토큰 경로(`token_hash`, `family_id`)를 우선 고려한다.
 3. 추가 시 이 문서와 마이그레이션을 함께 갱신한다.
@@ -193,6 +200,7 @@ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 -- audit_log
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+BEFORE UPDATE OR DELETE trigger: core event facts append-only, user_id/ip_address/user_agent는 NULL redaction만 허용
 ```
 
 **CASCADE는 `DELETE FROM users` 시에만 동작한다.** authgate는 계정 삭제 시 `UPDATE users SET status='deleted'`를 사용하므로 CASCADE가 트리거되지 않는다. 연관 데이터는 Spec 006 3단계에서 명시적으로 DELETE한다.

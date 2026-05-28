@@ -81,8 +81,8 @@ examples/
 migrations/           schema SQL (apply in order)
 docs/
   adr/                architecture decisions
-  architecture/       component boundaries
-  spec/               product and system specs
+  spec/               product and protocol contracts
+  security/           audit and compliance evidence mapping
   tests/              test design documents
 ```
 
@@ -181,7 +181,7 @@ go test -tags integration ./internal/storage ./internal/service ./internal/integ
 ## Specs
 
 - Service specs: [docs/spec/](docs/spec/README.md)
-- Architecture docs: [docs/architecture/](docs/architecture/README.md)
+- Security evidence docs: [docs/security/](docs/security/README.md)
 - Test design docs: [docs/tests/](docs/tests/README.md)
 
 ## License

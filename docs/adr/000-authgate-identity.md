@@ -52,8 +52,8 @@ authgate의 가입-사용-탈퇴-재가입 전체 사이클은 닫힌 구조다.
 2. **deleted는 종단 상태.** 어떤 로그인에서도 deleted → active 전이는 불가능하다.
 3. **재가입은 신규 가입과 동일.** 이전 계정의 user_id, 데이터와 연결되지 않는다.
 
-## authgate가 저장하는 데이터
-authgate는 신원, IdP 매핑, 로그인 진행 상태, 토큰 갱신 권한, 클라이언트 설정, Device 로그인 진행 상태, 운영 이벤트를 저장한다. access_token, 비밀번호, 앱별 권한/역할, 유저 프로필, 구독/결제 상태, 기능 플래그는 저장하지 않는다.
+## authgate가 저장/로드하는 데이터
+authgate는 신원, IdP 매핑, 로그인 진행 상태, 토큰 갱신 권한, Device 로그인 진행 상태, 운영 이벤트를 DB에 저장한다. 클라이언트 설정은 DB에 저장하지 않고 `clients.yaml`에서 메모리로 로드하거나, MCP CIMD URL에서 on-demand fetch 후 HTTP 캐시로 보관한다. access_token, 비밀번호, 앱별 권한/역할, 유저 프로필, 구독/결제 상태, 기능 플래그는 저장하지 않는다.
 
 ## Non-Goals
 authgate는 다음을 제공하지 않는다:
