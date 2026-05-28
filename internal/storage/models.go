@@ -16,7 +16,6 @@ type User struct {
 	Email         string
 	EmailVerified bool
 	Name          string
-	AvatarURL     *string
 	Status        string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time

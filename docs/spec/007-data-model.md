@@ -18,7 +18,6 @@ erDiagram
         text email UK "NOT NULL"
         boolean email_verified "NOT NULL, DEFAULT false"
         text name "nullable"
-        text avatar_url "nullable"
         text status "NOT NULL, DEFAULT 'active', CHECK (active/disabled/pending_deletion/deleted)"
         timestamptz deletion_requested_at "nullable"
         timestamptz deletion_scheduled_at "nullable"
@@ -233,7 +232,7 @@ MCP
 | refresh_token은 SHA-256 해시로 저장 | `token_hash` 컬럼 |
 | client_secret은 bcrypt 해시로 저장 | `clients.yaml`의 `client_secret_hash` 필드 |
 | access_token(JWT)은 DB에 저장하지 않음 | stateless |
-| PII 스크러빙 시 email, name, avatar_url 제거 | `deleted` 상태 전이 시 |
+| PII 스크러빙 시 email, name 제거 | `deleted` 상태 전이 시 |
 | audit_log는 보존기간 후 user_id/IP/User-Agent 익명화 | cleanup job + `AUDIT_LOG_PII_RETENTION_DAYS` |
 
 ## 감사 이벤트 (audit_log.event_type)

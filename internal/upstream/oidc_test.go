@@ -48,7 +48,6 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 			"email":          "test@example.com",
 			"email_verified": true,
 			"name":           "Test User",
-			"picture":        "https://example.com/photo.jpg",
 		},
 	}
 
@@ -278,7 +277,6 @@ func TestOIDCProvider_UserInfoMapping_AllFields(t *testing.T) {
 		"email":          "map@example.com",
 		"email_verified": true,
 		"name":           "Map User",
-		"picture":        "https://example.com/pic.jpg",
 	}
 	p := idp.newProvider(t)
 	info, err := p.Exchange(context.Background(), "fake-code")
@@ -296,9 +294,6 @@ func TestOIDCProvider_UserInfoMapping_AllFields(t *testing.T) {
 	}
 	if info.Name != "Map User" {
 		t.Errorf("Name = %q", info.Name)
-	}
-	if info.Picture != "https://example.com/pic.jpg" {
-		t.Errorf("Picture = %q", info.Picture)
 	}
 }
 
@@ -346,21 +341,6 @@ func TestOIDCProvider_EmailVerified_Absent(t *testing.T) {
 	}
 	if info.EmailVerified {
 		t.Error("email_verified absent in IdP response but UserInfo.EmailVerified=true")
-	}
-}
-
-// ── oidc-map-005: picture field mapped ───────────────────────────────────────
-
-func TestOIDCProvider_Picture_Mapped(t *testing.T) {
-	idp := newFakeIdP(t)
-	idp.userInfoResp["picture"] = "https://example.com/avatar.jpg"
-	p := idp.newProvider(t)
-	info, err := p.Exchange(context.Background(), "fake-code")
-	if err != nil {
-		t.Fatalf("Exchange: %v", err)
-	}
-	if info.Picture != "https://example.com/avatar.jpg" {
-		t.Errorf("Picture = %q, want https://example.com/avatar.jpg", info.Picture)
 	}
 }
 

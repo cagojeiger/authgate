@@ -12,7 +12,7 @@ import (
 )
 
 const getValidSessionUser = `-- name: GetValidSessionUser :one
-SELECT u.id, u.email, u.email_verified, u.name, u.avatar_url, u.status,
+SELECT u.id, u.email, u.email_verified, u.name, u.status,
        u.created_at, u.updated_at
 FROM sessions s
 JOIN users u ON s.user_id = u.id
@@ -29,7 +29,6 @@ type GetValidSessionUserRow struct {
 	Email         string
 	EmailVerified bool
 	Name          sql.NullString
-	AvatarUrl     sql.NullString
 	Status        string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -43,7 +42,6 @@ func (q *Queries) GetValidSessionUser(ctx context.Context, arg GetValidSessionUs
 		&i.Email,
 		&i.EmailVerified,
 		&i.Name,
-		&i.AvatarUrl,
 		&i.Status,
 		&i.CreatedAt,
 		&i.UpdatedAt,

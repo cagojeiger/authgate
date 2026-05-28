@@ -25,7 +25,7 @@ func TestAccessToken_TypIsAtJWTAndIDTokenStaysJWT(t *testing.T) {
 
 	if _, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 		Email: "atjwt@test.com", EmailVerified: true, Name: "AT JWT",
-		AvatarURL: "", Provider: "google", ProviderUserID: "test-google-sub",
+		Provider: "google", ProviderUserID: "test-google-sub",
 		ProviderEmail: "atjwt@test.com",
 	}); err != nil {
 		t.Fatalf("create user: %v", err)

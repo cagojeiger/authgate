@@ -267,7 +267,6 @@ func (s *LoginService) signupBrowserUser(ctx context.Context, providerName strin
 		Email:          userInfo.Email,
 		EmailVerified:  userInfo.EmailVerified,
 		Name:           userInfo.Name,
-		AvatarURL:      userInfo.Picture,
 		Provider:       providerName,
 		ProviderUserID: userInfo.Sub,
 		ProviderEmail:  userInfo.Email,

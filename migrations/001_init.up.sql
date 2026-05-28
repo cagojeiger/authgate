@@ -8,7 +8,6 @@ CREATE TABLE users (
     email                 TEXT NOT NULL UNIQUE,
     email_verified        BOOLEAN NOT NULL DEFAULT false,
     name                  TEXT,
-    avatar_url            TEXT,
     status                TEXT NOT NULL DEFAULT 'active'
                           CHECK (status IN ('active', 'disabled', 'pending_deletion', 'deleted')),
     deletion_requested_at TIMESTAMPTZ,

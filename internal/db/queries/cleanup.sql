@@ -45,7 +45,6 @@ WHERE user_id = $1;
 UPDATE users SET
   email = 'deleted-' || id::text || '@deleted.invalid',
   name = NULL,
-  avatar_url = NULL,
   status = 'deleted',
   deleted_at = sqlc.arg(deleted_at),
   deletion_requested_at = NULL,

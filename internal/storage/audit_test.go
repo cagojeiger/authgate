@@ -23,7 +23,7 @@ func TestAudit010And011_RefreshReuseAndFamilyRevoke(t *testing.T) {
 	store := New(db, clk, gen, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour)
 	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "audit-refresh@test.com", EmailVerified: true, Name: "Refresh Audit", AvatarURL: "", Provider: "google", ProviderUserID: "audit-refresh-sub", ProviderEmail: "audit-refresh@test.com"})
+	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "audit-refresh@test.com", EmailVerified: true, Name: "Refresh Audit", Provider: "google", ProviderUserID: "audit-refresh-sub", ProviderEmail: "audit-refresh@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestAuditLog_AppendOnlyGuardAllowsPIIRedactionOnly(t *testing.T) {
 	store := New(db, clk, idgen.CryptoGenerator{}, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour)
 	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "audit-guard@test.com", EmailVerified: true, Name: "Audit Guard", AvatarURL: "", Provider: "google", ProviderUserID: "audit-guard-sub", ProviderEmail: "audit-guard@test.com"})
+	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "audit-guard@test.com", EmailVerified: true, Name: "Audit Guard", Provider: "google", ProviderUserID: "audit-guard-sub", ProviderEmail: "audit-guard@test.com"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}

@@ -8,7 +8,6 @@ type UserInfo struct {
 	Email         string
 	EmailVerified bool
 	Name          string
-	Picture       string
 }
 
 // Provider abstracts the upstream OIDC IdP.

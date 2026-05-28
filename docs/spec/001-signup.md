@@ -58,7 +58,7 @@ sequenceDiagram
     AG->>IdP: token exchange (authorization code)
     IdP-->>AG: access_token + id_token
     AG->>IdP: GET /userinfo (또는 id_token 디코딩)
-    IdP-->>AG: {sub, email, email_verified, name, picture}
+    IdP-->>AG: {sub, email, email_verified, name}
 
     Note over U,DB: 2. 신규/기존 판별
     AG->>DB: SELECT FROM user_identities WHERE provider='google' AND provider_user_id=$sub
@@ -103,7 +103,6 @@ users:
   email:           IdP 이메일 (표시용)
   email_verified:  IdP 검증 결과
   name:            IdP 프로필 이름
-  avatar_url:      IdP picture (프로필 이미지 URL)
   status:          'active'
 
 user_identities:
