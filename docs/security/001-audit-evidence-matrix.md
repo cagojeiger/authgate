@@ -122,7 +122,7 @@ audit_log
 | `GET /device` | Device 코드 입력/승인 화면 | 없음 | auth limiter | DONE |
 | `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
 | `POST /device/approve` | Device 승인/거부 | `auth.device_approved`, `auth.device_denied`, `auth.inactive_user` | token limiter | DONE |
-| `DELETE /account` | 계정 삭제 요청 | `auth.deletion_requested`, inactive user block | auth limiter | DONE |
+| `DELETE /account` | 계정 삭제 요청 (`ENABLE_ACCOUNT_DELETION=true`에서만 활성) | `auth.deletion_requested`, inactive user block | auth limiter + default-disabled gate | DONE |
 
 ## 남은 GAP
 

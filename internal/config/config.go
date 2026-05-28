@@ -39,6 +39,7 @@ type Config struct {
 	AuditLogPIIRetention    time.Duration
 	DevMode                 bool
 	EnableMCP               bool
+	EnableAccountDeletion   bool
 	ClientConfigPath        string
 	MigrationsPath          string
 	SigningKeyPath          string
@@ -85,6 +86,7 @@ func Load() (*Config, error) {
 		AuditLogPIIRetention:    time.Duration(envInt("AUDIT_LOG_PII_RETENTION_DAYS", 1095)) * 24 * time.Hour,
 		DevMode:                 envBool("DEV_MODE", false),
 		EnableMCP:               envBool("ENABLE_MCP", true),
+		EnableAccountDeletion:   envBool("ENABLE_ACCOUNT_DELETION", false),
 		ClientConfigPath:        envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
 		MigrationsPath:          envDefault("MIGRATIONS_PATH", "/migrations"),
 		SigningKeyPath:          envDefault("SIGNING_KEY_PATH", "signing_key.pem"),
@@ -208,7 +210,7 @@ func validateParseableEnv() error {
 			}
 		}
 	}
-	for _, key := range []string{"DEV_MODE", "ENABLE_MCP"} {
+	for _, key := range []string{"DEV_MODE", "ENABLE_MCP", "ENABLE_ACCOUNT_DELETION"} {
 		if v := os.Getenv(key); v != "" {
 			if _, err := strconv.ParseBool(v); err != nil {
 				return fmt.Errorf("%s must be a boolean", key)

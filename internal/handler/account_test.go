@@ -30,6 +30,26 @@ func TestDeleteAccount_NonDelete_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestDeleteAccount_Disabled_ReturnsNotFoundBeforeOriginCheck(t *testing.T) {
+	h := NewAccountHandler(nil, "http://authgate.example.com", false)
+	req := httptest.NewRequest(http.MethodDelete, "/account", nil)
+	req.Header.Set("Origin", "http://evil.example.com")
+	w := httptest.NewRecorder()
+
+	h.HandleDeleteAccount(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("response body is not valid JSON: %v", err)
+	}
+	if body["error"] != "account deletion disabled" {
+		t.Fatalf("error = %q, want account deletion disabled", body["error"])
+	}
+}
+
 // ── Origin guard ──────────────────────────────────────────────────────────────
 
 // Origin이 publicURL과 다르면 403 + JSON error body를 반환해야 한다.

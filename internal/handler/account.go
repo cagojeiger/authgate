@@ -9,18 +9,30 @@ import (
 )
 
 type AccountHandler struct {
-	accountService *service.AccountService
-	publicURL      string
+	accountService         *service.AccountService
+	publicURL              string
+	accountDeletionEnabled bool
 }
 
-func NewAccountHandler(accountService *service.AccountService, publicURL string) *AccountHandler {
-	return &AccountHandler{accountService: accountService, publicURL: publicURL}
+func NewAccountHandler(accountService *service.AccountService, publicURL string, accountDeletionEnabled ...bool) *AccountHandler {
+	enabled := true
+	if len(accountDeletionEnabled) > 0 {
+		enabled = accountDeletionEnabled[0]
+	}
+	return &AccountHandler{accountService: accountService, publicURL: publicURL, accountDeletionEnabled: enabled}
 }
 
 // HandleDeleteAccount handles DELETE /account
 func (h *AccountHandler) HandleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !h.accountDeletionEnabled {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "account deletion disabled"})
 		return
 	}
 
