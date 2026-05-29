@@ -29,6 +29,19 @@ authgate가 발급한 토큰의 갱신, 검증, 폐기 흐름.
 | id_token | JWT (RS256) | 1시간 | 사용자 식별 확인 | 안 함 |
 | refresh_token | opaque (UUID) | 30일 (REFRESH_TOKEN_TTL) | access_token 갱신 | SHA-256 해시로 저장 |
 
+### JWT 프로파일 (at+jwt) 와 at_hash 바인딩
+
+zitadel 라이브러리는 access_token·id_token을 모두 `typ=JWT`로 서명한다.
+RFC 9068 §2.1은 JWT access_token이 `typ=at+jwt`를 갖도록 요구하므로,
+`/oauth/token` 응답은 미들웨어(`storage.WrapAccessTokenJWTType`)에서
+access_token을 `typ=at+jwt`로 **재서명**한다 (id_token은 `typ=JWT` 유지).
+
+access_token 문자열이 재서명으로 바뀌면 id_token의 `at_hash`
+(OIDC Core 1.0 §3.1.3.6, access_token 문자열에 종속)가 옛 값으로 남는다.
+따라서 미들웨어는 재서명된 access_token으로 `at_hash`를 다시 계산해
+**id_token도 재서명**한다. 이로써 엄격한 OIDC 클라이언트의 at_hash 검증을
+통과한다. id_token에 `at_hash`가 없으면 재서명하지 않는다.
+
 ## 토큰 갱신 (Refresh)
 
 ```mermaid
