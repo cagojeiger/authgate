@@ -41,9 +41,10 @@
 문서 = 테스트 설계
 코드 = internal/*_test.go
 
-- config/clock/idgen 일부는 일반 unit test로 바로 실행 가능
-- service/storage/integration 테스트 다수는 `//go:build integration`
-- integration 테스트는 testcontainers-go를 사용하므로 Docker 접근 권한이 필요
+	- config/clock/idgen 일부는 일반 unit test로 바로 실행 가능
+	- notification unit test는 Slack webhook client의 429 handling과 report period 계산/메시지 포맷을 검증
+	- service/storage/integration 테스트 다수는 `//go:build integration`
+	- integration 테스트는 testcontainers-go를 사용하므로 Docker 접근 권한이 필요
 ```
 
 ## 테스트 원칙
@@ -53,3 +54,4 @@
 3. Browser / Device / MCP / Refresh는 서로 다른 구현이 아니라 **동일 상태기계의 다른 진입점**으로 검증한다.
 4. `pending_deletion`은 Browser에서만 복구 가능함을 반드시 검증한다.
 5. `deleted`는 종단 상태이며, 재가입은 반드시 신규 가입으로 다시 시작해야 한다.
+6. 운영 알림 테스트는 Slack 외부 서비스에 의존하지 않고 `httptest.Server`와 고정 시간 계산으로 검증한다.

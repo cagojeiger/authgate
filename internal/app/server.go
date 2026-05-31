@@ -16,6 +16,7 @@ import (
 
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/config"
+	"github.com/kangheeyong/authgate/internal/notification"
 	"github.com/kangheeyong/authgate/internal/service"
 	"github.com/kangheeyong/authgate/internal/storage"
 	"github.com/kangheeyong/authgate/internal/telemetry"
@@ -78,6 +79,33 @@ func startMetricsServer(cfg *config.Config) context.CancelFunc {
 			slog.Error("metrics server shutdown failed", "error", err)
 		}
 	}
+}
+
+func startNotificationService(cfg *config.Config, store *notification.Store) context.CancelFunc {
+	if !cfg.SlackNotificationsEnabled && !cfg.SlackWeeklyReportEnabled {
+		return func() {}
+	}
+	loc, err := time.LoadLocation(cfg.SlackReportTimezone)
+	if err != nil {
+		log.Fatalf("notification config: report timezone: %v", err)
+	}
+	worker := notification.NewWorker(
+		store,
+		notification.NewSlackClient(cfg.SlackWebhookURL, nil),
+		notification.WorkerConfig{
+			OutboxEnabled:        cfg.SlackNotificationsEnabled,
+			WeeklyReportEnabled:  cfg.SlackWeeklyReportEnabled,
+			Interval:             cfg.SlackWorkerInterval,
+			ReportWeekday:        cfg.SlackWeeklyReportWeekday,
+			ReportHour:           cfg.SlackWeeklyReportHour,
+			ReportLocation:       loc,
+			ReportLookback:       cfg.SlackReportLookback,
+			InterMessageInterval: time.Second,
+		},
+	)
+	notificationCtx, notificationCancel := context.WithCancel(context.Background())
+	go worker.Start(notificationCtx)
+	return notificationCancel
 }
 
 func installGracefulShutdown(srv *http.Server, cfg *config.Config, inflightRequests *int64, cleanupCancel context.CancelFunc, isShuttingDown *atomic.Bool) {

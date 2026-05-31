@@ -37,6 +37,19 @@ var (
 // Injected from main.go — storage never imports service or guard packages.
 type StateChecker func(user *User) error
 
+type AuditEvent struct {
+	UserID    *string
+	EventType string
+	IPAddress string
+	UserAgent string
+	Metadata  map[string]any
+	CreatedAt time.Time
+}
+
+type AuditHook interface {
+	OnAuditLog(ctx context.Context, event AuditEvent)
+}
+
 // ClientResolutionPolicy resolves a client profile for client_id.
 // It is invoked by storage methods that zitadel calls directly.
 type ClientResolutionPolicy interface {
@@ -69,6 +82,7 @@ type Storage struct {
 	clients            sync.Map // map[string]*ClientModel (client_id → client)
 	clientPolicy       ClientResolutionPolicy
 	resourcePolicy     ResourceBindingPolicy
+	auditHook          AuditHook
 }
 
 func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
@@ -92,6 +106,10 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 // both the response shape and the server-side throttle.
 func (s *Storage) SetDevicePollInterval(d time.Duration) {
 	s.devicePollInterval = d
+}
+
+func (s *Storage) SetAuditHook(h AuditHook) {
+	s.auditHook = h
 }
 
 // SetSigningKey sets the current RSA signing key used for JWT issuance.

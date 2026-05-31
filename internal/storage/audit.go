@@ -197,13 +197,14 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 		metaJSON = marshaled
 	}
 
+	createdAt := s.clock.Now()
 	if err := storeq.New(s.db).InsertAuditLog(ctx, storeq.InsertAuditLogParams{
 		UserID:    userIDLogValue(userID),
 		EventType: eventType,
 		IpAddress: nilIfEmpty(ipAddress),
 		UserAgent: nilIfEmpty(userAgent),
 		Metadata:  nilIfEmptyBytes(metaJSON),
-		CreatedAt: s.clock.Now(),
+		CreatedAt: createdAt,
 	}); err != nil {
 		slog.ErrorContext(ctx, "audit log: insert",
 			"event_type", eventType,
@@ -211,6 +212,16 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 			"error", err,
 		)
 		return
+	}
+	if s.auditHook != nil {
+		s.auditHook.OnAuditLog(ctx, AuditEvent{
+			UserID:    userID,
+			EventType: eventType,
+			IPAddress: ipAddress,
+			UserAgent: userAgent,
+			Metadata:  metadata,
+			CreatedAt: createdAt,
+		})
 	}
 }
 

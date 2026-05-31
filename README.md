@@ -159,8 +159,19 @@ go run ./cmd/authgate
 | `ENABLE_MCP` | `true` | enable MCP optional adapter routes/policies (`/mcp/*`, CIMD/resource binding) |
 | `ENABLE_ACCOUNT_DELETION` | `false` | enable self-service account deletion via `DELETE /account`; keep disabled unless Authgate-owned confirmation UX/policy is ready |
 | `CLIENT_CONFIG` | `/etc/authgate/clients.yaml` | YAML path for client metadata preload |
+| `SLACK_NOTIFICATIONS_ENABLED` | `false` | Enables Slack webhook delivery for selected audit events via the notification outbox. |
+| `SLACK_WEBHOOK_URL` | empty | Slack incoming webhook URL. Required when Slack notifications or weekly reports are enabled. |
+| `SLACK_IMMEDIATE_EVENTS` | `auth.signup,auth.deletion_requested,auth.refresh_reuse_detected` | Comma-separated audit event types that should enqueue immediate Slack notifications. |
+| `SLACK_WEEKLY_REPORT_ENABLED` | `false` | Enables the weekly Slack report worker. |
+| `SLACK_WORKER_INTERVAL_SEC` | `60` | Notification worker polling interval. Every pod starts the worker; Postgres advisory locks ensure one active sender per tick. |
+| `SLACK_WEEKLY_REPORT_WEEKDAY` | `MONDAY` | Weekday for the weekly report schedule. |
+| `SLACK_WEEKLY_REPORT_HOUR` | `9` | Local hour (`0`-`23`) for the weekly report schedule. |
+| `SLACK_REPORT_TIMEZONE` | `Asia/Seoul` | IANA timezone used to calculate the weekly report period boundary. |
+| `SLACK_REPORT_LOOKBACK_HOURS` | `168` | Time window included in the weekly report. |
 
 `ENABLE_MCP=false`일 때는 `clients.yaml`의 `login_channel: mcp` 클라이언트가 허용되지 않으며 서버 시작 시 실패합니다.
+
+Slack notifications are isolated behind `notification_outbox` and `notification_report_runs`. The outbox worker uses PostgreSQL advisory locks for multi-pod single-sender behavior, while report run rows prevent duplicate weekly reports after pod restarts.
 
 Production guards when `DEV_MODE=false`:
 

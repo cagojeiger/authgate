@@ -15,6 +15,7 @@ authgate를 처음 배포할 때 필요한 것:
    → 마이그레이션은 authgate가 시작 시 자동 실행
      (golang-migrate, migrations/*.up.sql 순차 적용, schema_migrations 테이블로 상태 추적)
      여러 replica가 동시에 시작해도 Postgres advisory lock으로 안전
+   → notification outbox/report run 테이블도 같은 마이그레이션 경로로 생성됨
 
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성
@@ -79,9 +80,44 @@ authgate를 처음 배포할 때 필요한 것:
 | `RATE_LIMIT_TOKEN_BURST` | X | `60` | 토큰 엔드포인트 버스트 허용 요청 수 (최솟값: 1) |
 | `RATE_LIMIT_AUTH_RPS` | X | `10` | 인증/계정 엔드포인트 (`/authorize`, `/login`, `/login/callback`, `/mcp/*`, `/account`, `/device`, `/device/auth/callback`) 초당 허용 요청 수 |
 | `RATE_LIMIT_AUTH_BURST` | X | `20` | 인증 엔드포인트 버스트 허용 요청 수 (최솟값: 1) |
+| `SLACK_NOTIFICATIONS_ENABLED` | X | `false` | Slack webhook 즉시 알림 활성화. 활성화 시 선택된 audit event가 `notification_outbox`에 적재되고 notification worker가 전송 |
+| `SLACK_WEBHOOK_URL` | X | — | Slack incoming webhook URL. `SLACK_NOTIFICATIONS_ENABLED=true` 또는 `SLACK_WEEKLY_REPORT_ENABLED=true`일 때 필수 |
+| `SLACK_IMMEDIATE_EVENTS` | X | `auth.signup,auth.deletion_requested,auth.refresh_reuse_detected` | 즉시 Slack 알림 대상으로 삼을 audit event 목록 |
+| `SLACK_WEEKLY_REPORT_ENABLED` | X | `false` | 주간 Slack 운영 리포트 활성화 |
+| `SLACK_WORKER_INTERVAL_SEC` | X | `60` | notification worker polling 간격. 모든 replica가 worker를 시작하지만 Postgres advisory lock을 잡은 replica만 전송 |
+| `SLACK_WEEKLY_REPORT_WEEKDAY` | X | `MONDAY` | 주간 리포트 기준 요일 (`MONDAY` 또는 `MON` 형식 허용) |
+| `SLACK_WEEKLY_REPORT_HOUR` | X | `9` | `SLACK_REPORT_TIMEZONE` 기준 리포트 기준 시각 (`0`-`23`) |
+| `SLACK_REPORT_TIMEZONE` | X | `Asia/Seoul` | 주간 리포트 period boundary 계산에 사용할 IANA timezone |
+| `SLACK_REPORT_LOOKBACK_HOURS` | X | `168` | 주간 리포트 집계 기간 |
 | `TRUSTED_PROXIES` | X | — | 프록시 hop으로 신뢰할 CIDR 목록 (콤마 구분). 직전 hop이 이 범위에 속할 때만 클라이언트 IP 추정에 (1) `X-Envoy-External-Address` 헤더 (envoy/istio 가 직접 계산하므로 spoof 불가), (2) `X-Forwarded-For` rightmost-untrusted walk 폴백을 사용한다. 비워두면 모든 프록시 헤더 무시. 예: `10.244.0.0/16,127.0.0.1/32`. istio ingressgateway 등 reverse proxy 뒤에서 운영할 때만 설정. |
 
 `ENABLE_MCP=false`인 경우 `clients.yaml`에 `login_channel: mcp` 항목이 있으면 서버 시작을 거부한다.
+
+### Slack 알림 운영
+
+Slack 알림은 인증 요청 path에서 직접 webhook을 호출하지 않는다.
+
+```text
+AuditLog(selected event)
+  → notification_outbox insert
+  → notification worker가 Slack webhook 전송
+  → sent_at / attempt_count / last_error 기록
+```
+
+즉시 알림 기본 대상:
+- `auth.signup`
+- `auth.deletion_requested`
+- `auth.refresh_reuse_detected`
+
+주간 리포트는 `users`와 `audit_log`에서 집계한다:
+- 전체/active 사용자 수
+- 기간 내 가입/삭제 요청/삭제 완료 수
+- channel별 로그인 수
+- refresh token reuse / channel mismatch 수
+
+멀티 replica에서는 모든 replica가 notification worker를 시작해도 된다. worker는 실행 tick마다 PostgreSQL advisory lock을 획득한 replica만 outbox/reports를 처리한다. 주간 리포트는 `notification_report_runs`의 `(report_type, period_start, period_end)` unique key로 파드 재시작 후 중복 발송을 방지한다.
+
+Slack webhook은 idempotency key를 지원하지 않으므로, 전송 성공 후 DB 업데이트가 실패하는 극단적 경우에는 중복 메시지가 발생할 수 있다. 운영 보장 수준은 at-least-once + DB 상태 기반 중복 최소화다.
 
 ### 프로덕션 필수 조건
 

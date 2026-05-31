@@ -15,6 +15,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/middleware"
+	"github.com/kangheeyong/authgate/internal/notification"
 	"github.com/kangheeyong/authgate/internal/service"
 )
 
@@ -38,6 +39,8 @@ func Run() {
 	clk := clock.RealClock{}
 	gen := idgen.CryptoGenerator{}
 	store := mustBuildStore(cfg, db, clk, gen)
+	notificationStore := notification.NewStore(db, clk)
+	configureSlackAuditHook(cfg, store, notificationStore)
 	provider := mustBuildOIDCProvider(cfg, store)
 
 	// Upstream IdP (OIDC Discovery)
@@ -92,11 +95,13 @@ func Run() {
 
 	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention)
 	metricsCancel := startMetricsServer(cfg)
+	notificationCancel := startNotificationService(cfg, notificationStore)
 	var stopOnce sync.Once
 	stopBackground := func() {
 		stopOnce.Do(func() {
 			cleanupCancel()
 			metricsCancel()
+			notificationCancel()
 		})
 	}
 	defer stopBackground()

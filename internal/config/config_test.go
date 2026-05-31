@@ -20,6 +20,11 @@ func clearEnv() {
 		"HTTP_READ_HEADER_TIMEOUT_SEC", "HTTP_READ_TIMEOUT_SEC",
 		"HTTP_WRITE_TIMEOUT_SEC", "HTTP_IDLE_TIMEOUT_SEC",
 		"SHUTDOWN_TIMEOUT_SEC", "METRICS_ADDR",
+		"SLACK_NOTIFICATIONS_ENABLED", "SLACK_WEBHOOK_URL",
+		"SLACK_IMMEDIATE_EVENTS", "SLACK_WEEKLY_REPORT_ENABLED",
+		"SLACK_WORKER_INTERVAL_SEC", "SLACK_WEEKLY_REPORT_WEEKDAY",
+		"SLACK_WEEKLY_REPORT_HOUR", "SLACK_REPORT_TIMEZONE",
+		"SLACK_REPORT_LOOKBACK_HOURS",
 	} {
 		os.Unsetenv(key)
 	}
@@ -187,6 +192,30 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.DBConnMaxIdleTime.Seconds() != 120 {
 		t.Errorf("DBConnMaxIdleTime = %v, want 120s", cfg.DBConnMaxIdleTime)
 	}
+	if cfg.SlackNotificationsEnabled {
+		t.Error("SlackNotificationsEnabled = true, want false default")
+	}
+	if cfg.SlackWeeklyReportEnabled {
+		t.Error("SlackWeeklyReportEnabled = true, want false default")
+	}
+	if cfg.SlackWebhookURL != "" {
+		t.Errorf("SlackWebhookURL = %q, want empty default", cfg.SlackWebhookURL)
+	}
+	if cfg.SlackWorkerInterval.Seconds() != 60 {
+		t.Errorf("SlackWorkerInterval = %v, want 60s", cfg.SlackWorkerInterval)
+	}
+	if cfg.SlackWeeklyReportWeekday.String() != "Monday" {
+		t.Errorf("SlackWeeklyReportWeekday = %v, want Monday", cfg.SlackWeeklyReportWeekday)
+	}
+	if cfg.SlackWeeklyReportHour != 9 {
+		t.Errorf("SlackWeeklyReportHour = %d, want 9", cfg.SlackWeeklyReportHour)
+	}
+	if cfg.SlackReportTimezone != "Asia/Seoul" {
+		t.Errorf("SlackReportTimezone = %q, want Asia/Seoul", cfg.SlackReportTimezone)
+	}
+	if cfg.SlackReportLookback.Hours() != 168 {
+		t.Errorf("SlackReportLookback = %v, want 168h", cfg.SlackReportLookback)
+	}
 }
 
 func TestLoad_MetricsAddrOptIn(t *testing.T) {
@@ -232,7 +261,7 @@ func TestLoad_InvalidNumericEnvFails(t *testing.T) {
 }
 
 func TestLoad_InvalidBoolEnvFails(t *testing.T) {
-	for _, key := range []string{"ENABLE_MCP", "ENABLE_ACCOUNT_DELETION"} {
+	for _, key := range []string{"ENABLE_MCP", "ENABLE_ACCOUNT_DELETION", "SLACK_NOTIFICATIONS_ENABLED", "SLACK_WEEKLY_REPORT_ENABLED"} {
 		t.Run(key, func(t *testing.T) {
 			clearEnv()
 			setMinimal()
@@ -246,6 +275,60 @@ func TestLoad_InvalidBoolEnvFails(t *testing.T) {
 				t.Errorf("error = %v, want one mentioning %s", err, key)
 			}
 		})
+	}
+}
+
+func TestLoad_SlackEnabledRequiresWebhook(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("SLACK_NOTIFICATIONS_ENABLED", "true")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for Slack notifications without webhook URL")
+	}
+	if !strings.Contains(err.Error(), "SLACK_WEBHOOK_URL") {
+		t.Errorf("error = %v, want one mentioning SLACK_WEBHOOK_URL", err)
+	}
+}
+
+func TestLoad_SlackOptions(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("SLACK_NOTIFICATIONS_ENABLED", "true")
+	os.Setenv("SLACK_WEEKLY_REPORT_ENABLED", "true")
+	os.Setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/test")
+	os.Setenv("SLACK_IMMEDIATE_EVENTS", "auth.signup,auth.deletion_requested")
+	os.Setenv("SLACK_WORKER_INTERVAL_SEC", "30")
+	os.Setenv("SLACK_WEEKLY_REPORT_WEEKDAY", "FRI")
+	os.Setenv("SLACK_WEEKLY_REPORT_HOUR", "17")
+	os.Setenv("SLACK_REPORT_TIMEZONE", "UTC")
+	os.Setenv("SLACK_REPORT_LOOKBACK_HOURS", "24")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.SlackNotificationsEnabled || !cfg.SlackWeeklyReportEnabled {
+		t.Fatal("Slack flags not enabled")
+	}
+	if got := strings.Join(cfg.SlackImmediateEvents, ","); got != "auth.signup,auth.deletion_requested" {
+		t.Fatalf("SlackImmediateEvents = %q", got)
+	}
+	if cfg.SlackWorkerInterval.Seconds() != 30 {
+		t.Fatalf("SlackWorkerInterval = %v, want 30s", cfg.SlackWorkerInterval)
+	}
+	if cfg.SlackWeeklyReportWeekday.String() != "Friday" {
+		t.Fatalf("SlackWeeklyReportWeekday = %v, want Friday", cfg.SlackWeeklyReportWeekday)
+	}
+	if cfg.SlackWeeklyReportHour != 17 {
+		t.Fatalf("SlackWeeklyReportHour = %d, want 17", cfg.SlackWeeklyReportHour)
+	}
+	if cfg.SlackReportTimezone != "UTC" {
+		t.Fatalf("SlackReportTimezone = %q, want UTC", cfg.SlackReportTimezone)
+	}
+	if cfg.SlackReportLookback.Hours() != 24 {
+		t.Fatalf("SlackReportLookback = %v, want 24h", cfg.SlackReportLookback)
 	}
 }
 

@@ -28,32 +28,41 @@ type Config struct {
 	// compatibility, but operators are encouraged to set this in production to
 	// fail-fast on misconfigured/compromised env vars that would otherwise
 	// redirect every login through an attacker-controlled IdP.
-	OIDCIssuerHostAllowlist []string
-	OIDCInternalURL         string // optional: internal base URL for server-to-server OIDC calls (Docker/K8s)
-	OIDCHTTPTimeout         time.Duration
-	OIDCClientID            string
-	OIDCClientSecret        string
-	SessionTTL              time.Duration
-	AccessTokenTTL          time.Duration
-	RefreshTokenTTL         time.Duration
-	AuditLogPIIRetention    time.Duration
-	DevMode                 bool
-	EnableMCP               bool
-	EnableAccountDeletion   bool
-	ClientConfigPath        string
-	MigrationsPath          string
-	SigningKeyPath          string
-	BrandName               string
-	HTTPReadHeaderTimeout   time.Duration
-	HTTPReadTimeout         time.Duration
-	HTTPWriteTimeout        time.Duration
-	HTTPIdleTimeout         time.Duration
-	ShutdownTimeout         time.Duration
-	MetricsAddr             string
-	RateLimitTokenRPS       float64
-	RateLimitTokenBurst     int
-	RateLimitAuthRPS        float64
-	RateLimitAuthBurst      int
+	OIDCIssuerHostAllowlist   []string
+	OIDCInternalURL           string // optional: internal base URL for server-to-server OIDC calls (Docker/K8s)
+	OIDCHTTPTimeout           time.Duration
+	OIDCClientID              string
+	OIDCClientSecret          string
+	SessionTTL                time.Duration
+	AccessTokenTTL            time.Duration
+	RefreshTokenTTL           time.Duration
+	AuditLogPIIRetention      time.Duration
+	DevMode                   bool
+	EnableMCP                 bool
+	EnableAccountDeletion     bool
+	ClientConfigPath          string
+	MigrationsPath            string
+	SigningKeyPath            string
+	BrandName                 string
+	HTTPReadHeaderTimeout     time.Duration
+	HTTPReadTimeout           time.Duration
+	HTTPWriteTimeout          time.Duration
+	HTTPIdleTimeout           time.Duration
+	ShutdownTimeout           time.Duration
+	MetricsAddr               string
+	RateLimitTokenRPS         float64
+	RateLimitTokenBurst       int
+	RateLimitAuthRPS          float64
+	RateLimitAuthBurst        int
+	SlackNotificationsEnabled bool
+	SlackWebhookURL           string
+	SlackImmediateEvents      []string
+	SlackWeeklyReportEnabled  bool
+	SlackWorkerInterval       time.Duration
+	SlackWeeklyReportWeekday  time.Weekday
+	SlackWeeklyReportHour     int
+	SlackReportTimezone       string
+	SlackReportLookback       time.Duration
 	// TrustedProxies is a comma-separated list of CIDRs whose source addresses
 	// are allowed to set X-Forwarded-For. Empty means no proxy is trusted —
 	// the safe default for a deployment without an explicitly configured edge.
@@ -66,42 +75,55 @@ func Load() (*Config, error) {
 	}
 
 	c := &Config{
-		Port:                    envInt("PORT", 8080),
-		DatabaseURL:             os.Getenv("DATABASE_URL"),
-		DBMaxOpenConns:          envInt("DB_MAX_OPEN_CONNS", 25),
-		DBMaxIdleConns:          envInt("DB_MAX_IDLE_CONNS", 25),
-		DBConnMaxLifetime:       time.Duration(envInt("DB_CONN_MAX_LIFETIME_SEC", 300)) * time.Second,
-		DBConnMaxIdleTime:       time.Duration(envInt("DB_CONN_MAX_IDLE_TIME_SEC", 120)) * time.Second,
-		SessionSecret:           os.Getenv("SESSION_SECRET"),
-		PublicURL:               os.Getenv("PUBLIC_URL"),
-		OIDCIssuerURL:           envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
-		OIDCIssuerHostAllowlist: envCommaList("OIDC_ISSUER_HOST_ALLOWLIST"),
-		OIDCInternalURL:         os.Getenv("OIDC_INTERNAL_URL"),
-		OIDCHTTPTimeout:         time.Duration(envInt("OIDC_HTTP_TIMEOUT_SEC", 10)) * time.Second,
-		OIDCClientID:            envDefault("OIDC_CLIENT_ID", "authgate"),
-		OIDCClientSecret:        os.Getenv("OIDC_CLIENT_SECRET"),
-		SessionTTL:              time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
-		AccessTokenTTL:          time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
-		RefreshTokenTTL:         time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
-		AuditLogPIIRetention:    time.Duration(envInt("AUDIT_LOG_PII_RETENTION_DAYS", 1095)) * 24 * time.Hour,
-		DevMode:                 envBool("DEV_MODE", false),
-		EnableMCP:               envBool("ENABLE_MCP", true),
-		EnableAccountDeletion:   envBool("ENABLE_ACCOUNT_DELETION", false),
-		ClientConfigPath:        envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
-		MigrationsPath:          envDefault("MIGRATIONS_PATH", "/migrations"),
-		SigningKeyPath:          envDefault("SIGNING_KEY_PATH", "signing_key.pem"),
-		BrandName:               envDefault("BRAND_NAME", "authgate"),
-		HTTPReadHeaderTimeout:   time.Duration(envInt("HTTP_READ_HEADER_TIMEOUT_SEC", 5)) * time.Second,
-		HTTPReadTimeout:         time.Duration(envInt("HTTP_READ_TIMEOUT_SEC", 15)) * time.Second,
-		HTTPWriteTimeout:        time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,
-		HTTPIdleTimeout:         time.Duration(envInt("HTTP_IDLE_TIMEOUT_SEC", 60)) * time.Second,
-		ShutdownTimeout:         time.Duration(envInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second,
-		MetricsAddr:             os.Getenv("METRICS_ADDR"),
-		RateLimitTokenRPS:       envFloat("RATE_LIMIT_TOKEN_RPS", 30),
-		RateLimitTokenBurst:     envInt("RATE_LIMIT_TOKEN_BURST", 60),
-		RateLimitAuthRPS:        envFloat("RATE_LIMIT_AUTH_RPS", 10),
-		RateLimitAuthBurst:      envInt("RATE_LIMIT_AUTH_BURST", 20),
-		TrustedProxies:          os.Getenv("TRUSTED_PROXIES"),
+		Port:                      envInt("PORT", 8080),
+		DatabaseURL:               os.Getenv("DATABASE_URL"),
+		DBMaxOpenConns:            envInt("DB_MAX_OPEN_CONNS", 25),
+		DBMaxIdleConns:            envInt("DB_MAX_IDLE_CONNS", 25),
+		DBConnMaxLifetime:         time.Duration(envInt("DB_CONN_MAX_LIFETIME_SEC", 300)) * time.Second,
+		DBConnMaxIdleTime:         time.Duration(envInt("DB_CONN_MAX_IDLE_TIME_SEC", 120)) * time.Second,
+		SessionSecret:             os.Getenv("SESSION_SECRET"),
+		PublicURL:                 os.Getenv("PUBLIC_URL"),
+		OIDCIssuerURL:             envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
+		OIDCIssuerHostAllowlist:   envCommaList("OIDC_ISSUER_HOST_ALLOWLIST"),
+		OIDCInternalURL:           os.Getenv("OIDC_INTERNAL_URL"),
+		OIDCHTTPTimeout:           time.Duration(envInt("OIDC_HTTP_TIMEOUT_SEC", 10)) * time.Second,
+		OIDCClientID:              envDefault("OIDC_CLIENT_ID", "authgate"),
+		OIDCClientSecret:          os.Getenv("OIDC_CLIENT_SECRET"),
+		SessionTTL:                time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
+		AccessTokenTTL:            time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
+		RefreshTokenTTL:           time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
+		AuditLogPIIRetention:      time.Duration(envInt("AUDIT_LOG_PII_RETENTION_DAYS", 1095)) * 24 * time.Hour,
+		DevMode:                   envBool("DEV_MODE", false),
+		EnableMCP:                 envBool("ENABLE_MCP", true),
+		EnableAccountDeletion:     envBool("ENABLE_ACCOUNT_DELETION", false),
+		ClientConfigPath:          envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
+		MigrationsPath:            envDefault("MIGRATIONS_PATH", "/migrations"),
+		SigningKeyPath:            envDefault("SIGNING_KEY_PATH", "signing_key.pem"),
+		BrandName:                 envDefault("BRAND_NAME", "authgate"),
+		HTTPReadHeaderTimeout:     time.Duration(envInt("HTTP_READ_HEADER_TIMEOUT_SEC", 5)) * time.Second,
+		HTTPReadTimeout:           time.Duration(envInt("HTTP_READ_TIMEOUT_SEC", 15)) * time.Second,
+		HTTPWriteTimeout:          time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,
+		HTTPIdleTimeout:           time.Duration(envInt("HTTP_IDLE_TIMEOUT_SEC", 60)) * time.Second,
+		ShutdownTimeout:           time.Duration(envInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second,
+		MetricsAddr:               os.Getenv("METRICS_ADDR"),
+		RateLimitTokenRPS:         envFloat("RATE_LIMIT_TOKEN_RPS", 30),
+		RateLimitTokenBurst:       envInt("RATE_LIMIT_TOKEN_BURST", 60),
+		RateLimitAuthRPS:          envFloat("RATE_LIMIT_AUTH_RPS", 10),
+		RateLimitAuthBurst:        envInt("RATE_LIMIT_AUTH_BURST", 20),
+		SlackNotificationsEnabled: envBool("SLACK_NOTIFICATIONS_ENABLED", false),
+		SlackWebhookURL:           os.Getenv("SLACK_WEBHOOK_URL"),
+		SlackImmediateEvents: envCommaListDefault("SLACK_IMMEDIATE_EVENTS", []string{
+			"auth.signup",
+			"auth.deletion_requested",
+			"auth.refresh_reuse_detected",
+		}),
+		SlackWeeklyReportEnabled: envBool("SLACK_WEEKLY_REPORT_ENABLED", false),
+		SlackWorkerInterval:      time.Duration(envInt("SLACK_WORKER_INTERVAL_SEC", 60)) * time.Second,
+		SlackWeeklyReportWeekday: envWeekday("SLACK_WEEKLY_REPORT_WEEKDAY", time.Monday),
+		SlackWeeklyReportHour:    envInt("SLACK_WEEKLY_REPORT_HOUR", 9),
+		SlackReportTimezone:      envDefault("SLACK_REPORT_TIMEZONE", "Asia/Seoul"),
+		SlackReportLookback:      time.Duration(envInt("SLACK_REPORT_LOOKBACK_HOURS", 168)) * time.Hour,
+		TrustedProxies:           os.Getenv("TRUSTED_PROXIES"),
 	}
 
 	if c.DatabaseURL == "" {
@@ -148,6 +170,21 @@ func Load() (*Config, error) {
 	}
 	if c.DBMaxOpenConns > 0 && c.DBMaxIdleConns > c.DBMaxOpenConns {
 		c.DBMaxIdleConns = c.DBMaxOpenConns
+	}
+	if (c.SlackNotificationsEnabled || c.SlackWeeklyReportEnabled) && c.SlackWebhookURL == "" {
+		return nil, fmt.Errorf("SLACK_WEBHOOK_URL is required when Slack notifications or reports are enabled")
+	}
+	if c.SlackWorkerInterval <= 0 {
+		return nil, fmt.Errorf("SLACK_WORKER_INTERVAL_SEC must be > 0")
+	}
+	if c.SlackWeeklyReportHour < 0 || c.SlackWeeklyReportHour > 23 {
+		return nil, fmt.Errorf("SLACK_WEEKLY_REPORT_HOUR must be between 0 and 23")
+	}
+	if c.SlackReportLookback <= 0 {
+		return nil, fmt.Errorf("SLACK_REPORT_LOOKBACK_HOURS must be > 0")
+	}
+	if _, err := time.LoadLocation(c.SlackReportTimezone); err != nil {
+		return nil, fmt.Errorf("SLACK_REPORT_TIMEZONE is invalid: %w", err)
 	}
 	if c.MetricsAddr != "" {
 		if _, _, err := net.SplitHostPort(c.MetricsAddr); err != nil {
@@ -203,6 +240,9 @@ func validateParseableEnv() error {
 		"SHUTDOWN_TIMEOUT_SEC",
 		"RATE_LIMIT_TOKEN_BURST",
 		"RATE_LIMIT_AUTH_BURST",
+		"SLACK_WORKER_INTERVAL_SEC",
+		"SLACK_WEEKLY_REPORT_HOUR",
+		"SLACK_REPORT_LOOKBACK_HOURS",
 	} {
 		if v := os.Getenv(key); v != "" {
 			if _, err := strconv.Atoi(v); err != nil {
@@ -210,7 +250,7 @@ func validateParseableEnv() error {
 			}
 		}
 	}
-	for _, key := range []string{"DEV_MODE", "ENABLE_MCP", "ENABLE_ACCOUNT_DELETION"} {
+	for _, key := range []string{"DEV_MODE", "ENABLE_MCP", "ENABLE_ACCOUNT_DELETION", "SLACK_NOTIFICATIONS_ENABLED", "SLACK_WEEKLY_REPORT_ENABLED"} {
 		if v := os.Getenv(key); v != "" {
 			if _, err := strconv.ParseBool(v); err != nil {
 				return fmt.Errorf("%s must be a boolean", key)
@@ -224,7 +264,20 @@ func validateParseableEnv() error {
 			}
 		}
 	}
+	if v := os.Getenv("SLACK_WEEKLY_REPORT_WEEKDAY"); v != "" {
+		if _, ok := parseWeekday(v); !ok {
+			return fmt.Errorf("SLACK_WEEKLY_REPORT_WEEKDAY must be a weekday name")
+		}
+	}
 	return nil
+}
+
+func envCommaListDefault(key string, fallback []string) []string {
+	values := envCommaList(key)
+	if values == nil {
+		return fallback
+	}
+	return values
 }
 
 func envDefault(key, fallback string) string {
@@ -286,4 +339,32 @@ func envFloat(key string, fallback float64) float64 {
 		return fallback
 	}
 	return f
+}
+
+func envWeekday(key string, fallback time.Weekday) time.Weekday {
+	if parsed, ok := parseWeekday(os.Getenv(key)); ok {
+		return parsed
+	}
+	return fallback
+}
+
+func parseWeekday(v string) (time.Weekday, bool) {
+	switch strings.TrimSpace(strings.ToUpper(v)) {
+	case "SUNDAY", "SUN":
+		return time.Sunday, true
+	case "MONDAY", "MON":
+		return time.Monday, true
+	case "TUESDAY", "TUE":
+		return time.Tuesday, true
+	case "WEDNESDAY", "WED":
+		return time.Wednesday, true
+	case "THURSDAY", "THU":
+		return time.Thursday, true
+	case "FRIDAY", "FRI":
+		return time.Friday, true
+	case "SATURDAY", "SAT":
+		return time.Saturday, true
+	default:
+		return 0, false
+	}
 }

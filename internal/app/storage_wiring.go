@@ -12,6 +12,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/config"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/middleware"
+	"github.com/kangheeyong/authgate/internal/notification"
 	"github.com/kangheeyong/authgate/internal/storage"
 )
 
@@ -75,4 +76,11 @@ func configureMCPPoliciesIfEnabled(cfg *config.Config, store *storage.Storage) {
 	clientPolicy := mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher)
 	store.SetClientResolutionPolicy(clientPolicy)
 	store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy(), clientPolicy))
+}
+
+func configureSlackAuditHook(cfg *config.Config, store *storage.Storage, notificationStore *notification.Store) {
+	if !cfg.SlackNotificationsEnabled {
+		return
+	}
+	store.SetAuditHook(notification.NewAuditEnqueuer(notificationStore, cfg.SlackImmediateEvents, true))
 }
