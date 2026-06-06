@@ -154,8 +154,13 @@ func TestIsCIMDClientID(t *testing.T) {
 		{"https://app.example.com", false},
 		{"https:///oauth/client.json", false},
 		{"https://user:pass@app.example.com/client.json", false},
-		{"https://app.example.com/client.json?x=1", false},
+		// A query string is allowed: ChatGPT's CIMD client_id carries
+		// `?token_endpoint_auth_method=none` and the document echoes it back, so
+		// the exact-match check in fetchAndValidate still holds.
+		{"https://app.example.com/client.json?x=1", true},
+		{"https://chatgpt.com/oauth/VD94o4JXlMhn/client.json?token_endpoint_auth_method=none", true},
 		{"https://app.example.com/client.json#frag", false},
+		{"https://app.example.com/client.json?x=1#frag", false},
 		{"http://app.example.com/client", false},
 		{"my-app", false},
 		{"", false},

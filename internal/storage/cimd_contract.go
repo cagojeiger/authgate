@@ -32,9 +32,12 @@ func isCIMDClientID(clientID string) bool {
 	if u.Path == "" || u.Path == "/" {
 		return false
 	}
-	if u.RawQuery != "" {
-		return false
-	}
+	// A query string is permitted: some CIMD providers (e.g. ChatGPT) serve a
+	// self-referential document whose `client_id` includes the query (such as
+	// `?token_endpoint_auth_method=none`). The fetcher still enforces an exact
+	// `meta.ClientID == clientID` match (query included) and the canonical-key
+	// gate preserves the query verbatim, so allowing it adds no alias surface.
+	// Fragments stay rejected above because they are never sent to the server.
 	return true
 }
 
