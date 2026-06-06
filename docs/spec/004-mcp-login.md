@@ -325,7 +325,8 @@ CIMD fetch의 네트워크 제약. IETF draft에서 MUST/SHOULD인 것과 authga
 | 응답 크기 | authgate 정책 | 10KB 초과 시 거부 |
 | Content-Type 검증 | IETF draft MUST | `application/json`만 허용 |
 | userinfo in URL 거부 | authgate 정책 | `https://user:pass@host/path` 형식 차단 |
-| query/fragment 거부 | authgate 정책 | `?`/`#` 포함 시 차단 |
+| fragment 거부 | authgate 정책 | `#` 포함 시 차단 (fragment는 서버로 전송되지 않음) |
+| query 허용 | authgate 정책 | `?` 허용. ChatGPT 등 일부 CIMD 제공자는 `?token_endpoint_auth_method=none` 같은 쿼리를 포함한 자기참조 `client_id`를 서빙한다. 문서의 `client_id`가 쿼리까지 정확히 일치해야 하고(아래 검증 규칙), canonical key가 쿼리를 그대로 보존하므로 별칭 표면이 늘지 않는다 |
 
 ### CIMD 메타데이터 검증 규칙
 
