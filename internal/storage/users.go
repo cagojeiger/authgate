@@ -300,21 +300,30 @@ func (s *Storage) CreateTestAuthRequestWithResource(ctx context.Context, label, 
 // Session management
 
 func (s *Storage) CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error) {
-	sessionID := s.idgen.NewUUID()
+	// The session cookie carries a high-entropy opaque token; the DB stores
+	// only its hash (ADR-002). sessions.id stays an internal PK (no external
+	// FK), so lookups go through token_hash, not the bearer.
+	token, err := s.idgen.NewOpaqueToken()
+	if err != nil {
+		return "", err
+	}
 	now := s.clock.Now()
-	err := storeq.New(s.db).InsertSession(ctx, storeq.InsertSessionParams{
-		ID:        sessionID,
+	if err := storeq.New(s.db).InsertSession(ctx, storeq.InsertSessionParams{
+		ID:        s.idgen.NewUUID(),
 		UserID:    userID,
+		TokenHash: sql.NullString{String: hashToken(token), Valid: true},
 		ExpiresAt: now.Add(ttl),
 		CreatedAt: now,
-	})
-	return sessionID, err
+	}); err != nil {
+		return "", err
+	}
+	return token, nil
 }
 
 func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User, error) {
 	now := s.clock.Now()
 	row, err := storeq.New(s.db).GetValidSessionUser(ctx, storeq.GetValidSessionUserParams{
-		ID:        sessionID,
+		TokenHash: hashToken(sessionID),
 		ExpiresAt: now,
 	})
 	if errors.Is(err, sql.ErrNoRows) {

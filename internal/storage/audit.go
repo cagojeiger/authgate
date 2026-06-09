@@ -164,7 +164,7 @@ type AuditClientContext struct {
 func (s *Storage) GetAuditClientContextBySessionID(ctx context.Context, userID, sessionID string) (AuditClientContext, error) {
 	row, err := storeq.New(s.db).GetAuditClientContextBySessionID(ctx, storeq.GetAuditClientContextBySessionIDParams{
 		UserID:    userID,
-		SessionID: sessionID,
+		SessionID: hashToken(sessionID),
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return AuditClientContext{}, ErrNotFound
@@ -242,6 +242,12 @@ func sanitizeAuditMetadata(ctx context.Context, eventType string, metadata map[s
 			"event_type", eventType,
 			"dropped_count", dropped,
 		)
+	}
+	// session_id arrives as the raw session cookie value. Store only its hash so
+	// an audit-log read cannot recover a live bearer (ADR-002). The hash matches
+	// sessions.token_hash, so GetAuditClientContextBySessionID still correlates.
+	if raw, ok := sanitized["session_id"].(string); ok && raw != "" {
+		sanitized["session_id"] = hashToken(raw)
 	}
 	if len(sanitized) == 0 {
 		return nil

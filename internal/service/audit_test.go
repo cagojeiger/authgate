@@ -4,13 +4,22 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/storage"
 )
+
+// hashedSessionID mirrors storage's at-rest session hashing (ADR-002): audit
+// metadata stores the hash of the session cookie value, never the raw bearer.
+func hashedSessionID(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
 
 type auditEventRow struct {
 	EventType string
@@ -185,8 +194,8 @@ func TestAudit_ReusedSession_AuthLoginRecorded(t *testing.T) {
 	if event.Metadata["reused_session"] != true {
 		t.Fatalf("reused_session = %v, want true", event.Metadata["reused_session"])
 	}
-	if event.Metadata["session_id"] != sessionID {
-		t.Fatalf("session_id = %v, want %s", event.Metadata["session_id"], sessionID)
+	if event.Metadata["session_id"] != hashedSessionID(sessionID) {
+		t.Fatalf("session_id = %v, want hashed %s", event.Metadata["session_id"], sessionID)
 	}
 }
 
@@ -223,8 +232,8 @@ func TestAudit_ReusedSession_MCP_AuthLoginRecorded(t *testing.T) {
 	if event.Metadata["reused_session"] != true {
 		t.Fatalf("reused_session = %v, want true", event.Metadata["reused_session"])
 	}
-	if event.Metadata["session_id"] != sessionID {
-		t.Fatalf("session_id = %v, want %s", event.Metadata["session_id"], sessionID)
+	if event.Metadata["session_id"] != hashedSessionID(sessionID) {
+		t.Fatalf("session_id = %v, want hashed %s", event.Metadata["session_id"], sessionID)
 	}
 	if event.Metadata["client_id"] != "test-mcp-app" {
 		t.Fatalf("client_id = %v, want test-mcp-app", event.Metadata["client_id"])
@@ -312,8 +321,8 @@ func TestAudit006_DeletionRequested(t *testing.T) {
 	if event.Metadata["channel"] != "browser" {
 		t.Fatalf("channel = %v, want browser", event.Metadata["channel"])
 	}
-	if event.Metadata["session_id"] != loginResult.SessionID {
-		t.Fatalf("session_id = %v, want %s", event.Metadata["session_id"], loginResult.SessionID)
+	if event.Metadata["session_id"] != hashedSessionID(loginResult.SessionID) {
+		t.Fatalf("session_id = %v, want hashed %s", event.Metadata["session_id"], loginResult.SessionID)
 	}
 	if event.Metadata["client_id"] != "test-app" {
 		t.Fatalf("client_id = %v, want test-app", event.Metadata["client_id"])
@@ -345,8 +354,8 @@ func TestAudit007_DeletionCancelled(t *testing.T) {
 	if event.Metadata["channel"] != "browser" {
 		t.Fatalf("channel = %v, want browser", event.Metadata["channel"])
 	}
-	if event.Metadata["session_id"] != result.SessionID {
-		t.Fatalf("session_id = %v, want %s", event.Metadata["session_id"], result.SessionID)
+	if event.Metadata["session_id"] != hashedSessionID(result.SessionID) {
+		t.Fatalf("session_id = %v, want hashed %s", event.Metadata["session_id"], result.SessionID)
 	}
 	if event.Metadata["client_id"] != "test-app" {
 		t.Fatalf("client_id = %v, want test-app", event.Metadata["client_id"])

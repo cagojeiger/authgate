@@ -52,10 +52,11 @@ func TestAccountDeletion_IdempotentAndSessionAlive(t *testing.T) {
 	// First call
 	doDelete("first DELETE")
 
-	// Session must still be alive (not revoked)
+	// Session must still be alive (not revoked). The cookie is now an opaque
+	// bearer (sessions.id is an internal UUID), so assert by user_id.
 	var revokedAt *time.Time
 	if err := ts.DB.QueryRowContext(ctx,
-		`SELECT revoked_at FROM sessions WHERE id = $1`, sessionID,
+		`SELECT revoked_at FROM sessions WHERE user_id = $1`, user.ID,
 	).Scan(&revokedAt); err != nil {
 		t.Fatalf("query session: %v", err)
 	}
