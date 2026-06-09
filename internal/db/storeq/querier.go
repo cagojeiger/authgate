@@ -24,6 +24,8 @@ type Querier interface {
 	DeleteSessionsByUserID(ctx context.Context, userID string) error
 	DeleteUserIdentitiesByUserID(ctx context.Context, userID string) error
 	DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error
+	DestroyAccountEncryptionKey(ctx context.Context, arg DestroyAccountEncryptionKeyParams) (int64, error)
+	GetAccountEncryptionKey(ctx context.Context, accountID string) (GetAccountEncryptionKeyRow, error)
 	GetAuditClientContextBySessionID(ctx context.Context, arg GetAuditClientContextBySessionIDParams) (GetAuditClientContextBySessionIDRow, error)
 	GetAuthRequestByCode(ctx context.Context, code sql.NullString) (GetAuthRequestByCodeRow, error)
 	GetAuthRequestByID(ctx context.Context, id string) (GetAuthRequestByIDRow, error)
@@ -37,6 +39,7 @@ type Querier interface {
 	GetUserForTxByID(ctx context.Context, id string) (GetUserForTxByIDRow, error)
 	GetUserInfoFieldsByID(ctx context.Context, id string) (GetUserInfoFieldsByIDRow, error)
 	GetValidSessionUser(ctx context.Context, arg GetValidSessionUserParams) (GetValidSessionUserRow, error)
+	InsertAccountEncryptionKey(ctx context.Context, arg InsertAccountEncryptionKeyParams) error
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
 	InsertAuthRequest(ctx context.Context, arg InsertAuthRequestParams) error
 	InsertDeletionCompletedAudit(ctx context.Context, arg InsertDeletionCompletedAuditParams) error
