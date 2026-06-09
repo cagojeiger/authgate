@@ -49,14 +49,18 @@ func TestSanitizeAuditMetadata_AllowsKnownKeysOnly(t *testing.T) {
 
 	got := sanitizeAuditMetadata(context.Background(), "auth.login", metadata)
 	want := map[string]any{
-		"channel":        "browser",
-		"client_id":      "client-1",
-		"client_name":    "Client One",
-		"session_id":     "sess-1",
+		"channel":     "browser",
+		"client_id":   "client-1",
+		"client_name": "Client One",
+		// session_id is stored hashed, never as the raw bearer (ADR-002).
+		"session_id":     hashToken("sess-1"),
 		"reused_session": true,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sanitized metadata = %#v, want %#v", got, want)
+	}
+	if got["session_id"] == "sess-1" {
+		t.Fatal("session_id stored as raw bearer; want hashed")
 	}
 }
 

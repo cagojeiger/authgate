@@ -74,6 +74,7 @@ type Session struct {
 	ExpiresAt time.Time
 	RevokedAt sql.NullTime
 	CreatedAt time.Time
+	TokenHash sql.NullString
 }
 
 type User struct {

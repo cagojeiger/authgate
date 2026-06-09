@@ -148,7 +148,7 @@ func TestE2E8_CleanupRollback(t *testing.T) {
 		fx.Clock.Now().Add(-1*time.Hour), user.ID)
 
 	// Create child records that would be removed during cleanup.
-	sessionID, err := fx.Store.CreateSession(ctx, user.ID, 24*time.Hour)
+	_, err := fx.Store.CreateSession(ctx, user.ID, 24*time.Hour)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestE2E8_CleanupRollback(t *testing.T) {
 
 	var identityCount, sessionCount, refreshCount, auditCount int
 	fx.DB.QueryRowContext(ctx, `SELECT count(*) FROM user_identities WHERE user_id = $1`, user.ID).Scan(&identityCount)
-	fx.DB.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE id = $1 AND user_id = $2`, sessionID, user.ID).Scan(&sessionCount)
+	fx.DB.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE user_id = $1`, user.ID).Scan(&sessionCount)
 	fx.DB.QueryRowContext(ctx, `SELECT count(*) FROM refresh_tokens WHERE user_id = $1`, user.ID).Scan(&refreshCount)
 	fx.DB.QueryRowContext(ctx, `SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = 'auth.deletion_completed'`, user.ID).Scan(&auditCount)
 

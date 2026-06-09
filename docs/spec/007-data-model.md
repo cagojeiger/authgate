@@ -35,8 +35,9 @@ erDiagram
     }
 
     sessions {
-        uuid id PK "DEFAULT uuid_generate_v4()"
+        uuid id PK "DEFAULT uuid_generate_v4(), 내부 PK (쿠키 아님)"
         uuid user_id FK "NOT NULL, CASCADE"
+        text token_hash UK "nullable, 세션 쿠키 bearer의 SHA-256 해시"
         timestamptz expires_at "NOT NULL, 기본 24시간(SESSION_TTL)"
         timestamptz revoked_at "nullable, 로그아웃 시 설정"
         timestamptz created_at "NOT NULL, DEFAULT NOW()"
@@ -228,6 +229,8 @@ MCP
 | 규칙 | 적용 |
 |------|------|
 | refresh_token은 SHA-256 해시로 저장 | `token_hash` 컬럼 |
+| 세션 쿠키(bearer)는 SHA-256 해시로 저장 | `sessions.token_hash` 컬럼 (`id`는 내부 PK, 쿠키 아님) |
+| audit_log.metadata의 `session_id`는 해시로 저장 | audit sanitize 시 SHA-256 (평문 bearer 미기록) |
 | client_secret은 bcrypt 해시로 저장 | `clients.yaml`의 `client_secret_hash` 필드 |
 | access_token(JWT)은 DB에 저장하지 않음 | stateless |
 | PII 스크러빙 시 email, name 제거 | `deleted` 상태 전이 시 |

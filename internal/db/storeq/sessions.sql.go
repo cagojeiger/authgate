@@ -16,11 +16,13 @@ SELECT u.id, u.email, u.email_verified, u.name, u.status,
        u.created_at, u.updated_at
 FROM sessions s
 JOIN users u ON s.user_id = u.id
-WHERE s.id = $1 AND s.expires_at > $2 AND s.revoked_at IS NULL
+WHERE s.token_hash = $1::text
+  AND s.expires_at > $2
+  AND s.revoked_at IS NULL
 `
 
 type GetValidSessionUserParams struct {
-	ID        string
+	TokenHash string
 	ExpiresAt time.Time
 }
 
@@ -35,7 +37,7 @@ type GetValidSessionUserRow struct {
 }
 
 func (q *Queries) GetValidSessionUser(ctx context.Context, arg GetValidSessionUserParams) (GetValidSessionUserRow, error) {
-	row := q.db.QueryRowContext(ctx, getValidSessionUser, arg.ID, arg.ExpiresAt)
+	row := q.db.QueryRowContext(ctx, getValidSessionUser, arg.TokenHash, arg.ExpiresAt)
 	var i GetValidSessionUserRow
 	err := row.Scan(
 		&i.ID,
@@ -50,13 +52,14 @@ func (q *Queries) GetValidSessionUser(ctx context.Context, arg GetValidSessionUs
 }
 
 const insertSession = `-- name: InsertSession :exec
-INSERT INTO sessions (id, user_id, expires_at, created_at)
-VALUES ($1, $2, $3, $4)
+INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type InsertSessionParams struct {
 	ID        string
 	UserID    string
+	TokenHash sql.NullString
 	ExpiresAt time.Time
 	CreatedAt time.Time
 }
@@ -65,6 +68,7 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 	_, err := q.db.ExecContext(ctx, insertSession,
 		arg.ID,
 		arg.UserID,
+		arg.TokenHash,
 		arg.ExpiresAt,
 		arg.CreatedAt,
 	)

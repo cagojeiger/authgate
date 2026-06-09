@@ -171,6 +171,46 @@ func TestSession_CreateAndValidate(t *testing.T) {
 	}
 }
 
+// TestSession_TokenStoredHashed covers ADR-002: the session cookie is a bearer,
+// so the DB must store only its hash. A DB read must not yield a usable cookie.
+func TestSession_TokenStoredHashed(t *testing.T) {
+	s := testStorage(t)
+	ctx := context.Background()
+
+	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "session-hash@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "session-hash-sub"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	token, err := s.CreateSession(ctx, user.ID, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	var id, tokenHash string
+	if err := s.DB().QueryRowContext(ctx,
+		`SELECT id, token_hash FROM sessions WHERE user_id = $1`, user.ID,
+	).Scan(&id, &tokenHash); err != nil {
+		t.Fatalf("read session row: %v", err)
+	}
+
+	// The raw bearer is never persisted — neither as id nor token_hash.
+	if id == token {
+		t.Error("sessions.id equals the cookie bearer; want internal UUID")
+	}
+	if tokenHash == token {
+		t.Error("token_hash equals the raw bearer; want hash")
+	}
+	if tokenHash != hashToken(token) {
+		t.Errorf("token_hash = %q, want hashToken(token) %q", tokenHash, hashToken(token))
+	}
+
+	// A leaked stored hash must NOT be usable as a cookie; only the raw token validates.
+	if _, err := s.GetValidSession(ctx, tokenHash); err != ErrNotFound {
+		t.Errorf("validate by stored hash err = %v, want ErrNotFound", err)
+	}
+}
+
 func ptrStr(s string) *string { return &s }
 
 // TestSession_StatusFilter covers #157: GetValidSession must reject sessions
