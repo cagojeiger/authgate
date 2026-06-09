@@ -13,6 +13,7 @@ erDiagram
     users ||--o{ sessions : "1:N (로그인 상태)"
     users ||--o{ refresh_tokens : "1:N (토큰 갱신)"
     users ||--o{ audit_log : "1:N (이벤트 기록)"
+    users ||--o| account_encryption_keys : "1:1 (PII 암호화 키)"
     users {
         uuid id PK "DEFAULT uuid_generate_v4()"
         text email UK "NOT NULL"
@@ -24,6 +25,16 @@ erDiagram
         timestamptz deleted_at "nullable"
         timestamptz created_at "NOT NULL, DEFAULT NOW()"
         timestamptz updated_at "NOT NULL, DEFAULT NOW()"
+    }
+
+    account_encryption_keys {
+        uuid account_id PK "FK users(id), CASCADE"
+        bytea wrapped_dek "nullable, KEK로 wrap된 account DEK (shred 시 NULL)"
+        text kek_id "NOT NULL"
+        text kek_version "NOT NULL"
+        timestamptz created_at "NOT NULL, DEFAULT NOW()"
+        timestamptz rewrapped_at "nullable, KEK 회전 시 rewrap"
+        timestamptz destroyed_at "nullable, crypto-shred 시각"
     }
 
     user_identities {

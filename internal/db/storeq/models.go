@@ -12,6 +12,16 @@ import (
 	"github.com/sqlc-dev/pqtype"
 )
 
+type AccountEncryptionKey struct {
+	AccountID   string
+	WrappedDek  []byte
+	KekID       string
+	KekVersion  string
+	CreatedAt   time.Time
+	RewrappedAt sql.NullTime
+	DestroyedAt sql.NullTime
+}
+
 type AuditLog struct {
 	ID        int64
 	UserID    uuid.NullUUID
