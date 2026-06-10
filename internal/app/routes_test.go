@@ -88,7 +88,8 @@ func TestRegisterProviderRoutes_RateLimitsSensitiveOAuthEndpoints(t *testing.T) 
 			provider := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			})
-			registerProviderRoutes(mux, rateLimitTestConfig(), nil, provider)
+			cfg := rateLimitTestConfig()
+			registerProviderRoutes(mux, cfg, nil, provider, newRouteLimiters(cfg))
 
 			assertRateLimited(t, mux, tt.method, tt.path)
 		})
@@ -112,13 +113,15 @@ func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			mux := http.NewServeMux()
+			cfg := rateLimitTestConfig()
 			registerAuthgateRoutes(
 				mux,
-				rateLimitTestConfig(),
+				cfg,
 				handler.NewLoginHandler(nil, nil, true, "authgate"),
 				handler.NewDeviceHandler(nil, nil, true, "authgate"),
 				handler.NewAccountHandler(nil, "http://authgate.example.com"),
 				handler.NewMCPLoginHandler(nil, nil, true, "authgate"),
+				newRouteLimiters(cfg),
 			)
 
 			assertRateLimited(t, mux, tt.method, tt.path)
