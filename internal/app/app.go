@@ -87,9 +87,13 @@ func Run() {
 	corsHandler := middleware.NewCORSMiddleware(allowedOrigins)(clientInfoHandler)
 	// RequestIDMiddleware runs first so every handler has a request ID in context.
 	requestIDHandler := middleware.RequestIDMiddleware(corsHandler)
+	// SecurityHeaders is the outermost wrapper so baseline headers (CSP,
+	// X-Frame-Options, nosniff, Referrer-Policy, and HSTS in prod) are present
+	// on every response, including error and CORS-preflight replies.
+	securityHeadersHandler := middleware.SecurityHeaders(cfg.DevMode)(requestIDHandler)
 
 	var inflightRequests int64
-	srv, addr := buildHTTPServer(cfg, requestIDHandler, &inflightRequests)
+	srv, addr := buildHTTPServer(cfg, securityHeadersHandler, &inflightRequests)
 
 	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention)
 	metricsCancel := startMetricsServer(cfg)
