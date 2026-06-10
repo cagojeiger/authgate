@@ -15,6 +15,9 @@ authgate를 처음 배포할 때 필요한 것:
    → 마이그레이션은 authgate가 시작 시 자동 실행
      (golang-migrate, migrations/*.up.sql 순차 적용, schema_migrations 테이블로 상태 추적)
      여러 replica가 동시에 시작해도 Postgres advisory lock으로 안전
+   → 012_fk_indexes: FK 컬럼(user_identities/sessions/refresh_tokens의 user_id,
+     refresh_tokens.family_id)에 인덱스 추가. 시작 시 해당 테이블을 잠깐 잠그며
+     (CONCURRENTLY 아님), 배포 점검창 안에서 적용된다
 
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성

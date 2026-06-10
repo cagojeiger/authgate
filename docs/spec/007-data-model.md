@@ -194,8 +194,12 @@ PK/UNIQUE/FK 제약 인덱스 외에 현재 명시적으로 생성하는 보조 
 | `audit_log_user_created_idx` | `audit_log (user_id, created_at DESC)` | 사용자별 audit timeline 조회 (migration 004) |
 | `audit_log_event_created_idx` | `audit_log (event_type, created_at DESC)` | 운영 이벤트 timeline 조회 |
 | `audit_log_created_brin_idx` | `audit_log USING BRIN (created_at)` | 보존기간 cutoff 기반 PII 익명화 스캔 보조 |
+| `user_identities_user_id_idx` | `user_identities (user_id)` | user 삭제 cascade 시 full scan 방지 (migration 012) |
+| `sessions_user_id_idx` | `sessions (user_id)` | user 삭제 cascade 시 full scan 방지 (migration 012) |
+| `refresh_tokens_user_id_idx` | `refresh_tokens (user_id)` | user 삭제 cascade 시 full scan 방지 (migration 012) |
+| `refresh_tokens_family_id_idx` | `refresh_tokens (family_id)` | reuse 감지 family revoke (`WHERE family_id=$`) full scan 방지 (migration 012) |
 
-현재 `sessions.expires_at`, `auth_requests.expires_at`, `device_codes.expires_at`, `refresh_tokens.expires_at/revoked_at/family_id`에는 별도 보조 인덱스를 만들지 않는다. 운영에서 조회 패턴이 커지면 다음 원칙으로 인덱스를 추가한다:
+현재 `sessions.expires_at`, `auth_requests.expires_at`, `device_codes.expires_at`, `refresh_tokens.expires_at/revoked_at`에는 별도 보조 인덱스를 만들지 않는다. 운영에서 조회 패턴이 커지면 다음 원칙으로 인덱스를 추가한다:
 1. 실제 병목 쿼리를 기준으로 추가한다.
 2. cleanup 경로(`expires_at`)와 토큰 경로(`token_hash`, `family_id`)를 우선 고려한다.
 3. 추가 시 이 문서와 마이그레이션을 함께 갱신한다.
