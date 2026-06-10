@@ -38,6 +38,7 @@ func Run() {
 	clk := clock.RealClock{}
 	gen := idgen.CryptoGenerator{}
 	store := mustBuildStore(cfg, db, clk, gen)
+	mustSetupCrypto(cfg, store)
 	provider := mustBuildOIDCProvider(cfg, store)
 
 	// Upstream IdP (OIDC Discovery)

@@ -33,27 +33,34 @@ type Config struct {
 	OIDCHTTPTimeout         time.Duration
 	OIDCClientID            string
 	OIDCClientSecret        string
-	SessionTTL              time.Duration
-	AccessTokenTTL          time.Duration
-	RefreshTokenTTL         time.Duration
-	AuditLogPIIRetention    time.Duration
-	DevMode                 bool
-	EnableMCP               bool
-	EnableAccountDeletion   bool
-	ClientConfigPath        string
-	MigrationsPath          string
-	SigningKeyPath          string
-	BrandName               string
-	HTTPReadHeaderTimeout   time.Duration
-	HTTPReadTimeout         time.Duration
-	HTTPWriteTimeout        time.Duration
-	HTTPIdleTimeout         time.Duration
-	ShutdownTimeout         time.Duration
-	MetricsAddr             string
-	RateLimitTokenRPS       float64
-	RateLimitTokenBurst     int
-	RateLimitAuthRPS        float64
-	RateLimitAuthBurst      int
+	// PII at-rest encryption roots (ADR-002). Secrets are base64-encoded
+	// (>=32 bytes). Optional: all four empty = encryption inert. The first
+	// encrypting consumer (PR2) makes them required in production.
+	EncRootKeyID          string
+	EncRootSecret         string
+	LookupRootKeyID       string
+	LookupRootSecret      string
+	SessionTTL            time.Duration
+	AccessTokenTTL        time.Duration
+	RefreshTokenTTL       time.Duration
+	AuditLogPIIRetention  time.Duration
+	DevMode               bool
+	EnableMCP             bool
+	EnableAccountDeletion bool
+	ClientConfigPath      string
+	MigrationsPath        string
+	SigningKeyPath        string
+	BrandName             string
+	HTTPReadHeaderTimeout time.Duration
+	HTTPReadTimeout       time.Duration
+	HTTPWriteTimeout      time.Duration
+	HTTPIdleTimeout       time.Duration
+	ShutdownTimeout       time.Duration
+	MetricsAddr           string
+	RateLimitTokenRPS     float64
+	RateLimitTokenBurst   int
+	RateLimitAuthRPS      float64
+	RateLimitAuthBurst    int
 	// TrustedProxies is a comma-separated list of CIDRs whose source addresses
 	// are allowed to set X-Forwarded-For. Empty means no proxy is trusted —
 	// the safe default for a deployment without an explicitly configured edge.
@@ -80,6 +87,10 @@ func Load() (*Config, error) {
 		OIDCHTTPTimeout:         time.Duration(envInt("OIDC_HTTP_TIMEOUT_SEC", 10)) * time.Second,
 		OIDCClientID:            envDefault("OIDC_CLIENT_ID", "authgate"),
 		OIDCClientSecret:        os.Getenv("OIDC_CLIENT_SECRET"),
+		EncRootKeyID:            os.Getenv("PII_ENC_ROOT_KEY_ID"),
+		EncRootSecret:           os.Getenv("PII_ENC_ROOT_SECRET"),
+		LookupRootKeyID:         os.Getenv("PII_LOOKUP_ROOT_KEY_ID"),
+		LookupRootSecret:        os.Getenv("PII_LOOKUP_ROOT_SECRET"),
 		SessionTTL:              time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
 		AccessTokenTTL:          time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
 		RefreshTokenTTL:         time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
@@ -133,6 +144,14 @@ func Load() (*Config, error) {
 	}
 	if c.RateLimitAuthBurst < 1 {
 		return nil, fmt.Errorf("RATE_LIMIT_AUTH_BURST must be >= 1")
+	}
+	// PII encryption roots are all-or-nothing: either fully configured
+	// (encryption active) or fully absent (inert). A partial set is a
+	// misconfiguration that must fail fast.
+	if c.EncRootKeyID != "" || c.EncRootSecret != "" || c.LookupRootKeyID != "" || c.LookupRootSecret != "" {
+		if c.EncRootKeyID == "" || c.EncRootSecret == "" || c.LookupRootKeyID == "" || c.LookupRootSecret == "" {
+			return nil, fmt.Errorf("PII encryption requires all of PII_ENC_ROOT_KEY_ID, PII_ENC_ROOT_SECRET, PII_LOOKUP_ROOT_KEY_ID, PII_LOOKUP_ROOT_SECRET")
+		}
 	}
 	if c.DBMaxOpenConns < 0 {
 		return nil, fmt.Errorf("DB_MAX_OPEN_CONNS must be >= 0")

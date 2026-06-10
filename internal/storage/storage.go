@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
+	"github.com/kangheeyong/authgate/internal/crypto"
 	"github.com/kangheeyong/authgate/internal/idgen"
 )
 
@@ -69,6 +70,10 @@ type Storage struct {
 	clients            sync.Map // map[string]*ClientModel (client_id → client)
 	clientPolicy       ClientResolutionPolicy
 	resourcePolicy     ResourceBindingPolicy
+	// keys holds the PII at-rest crypto subkeys (ADR-002). nil until SetKeys is
+	// called at startup; while nil, encryption is inert and authgate runs
+	// unchanged. The first encrypting consumer (PR2) requires it in production.
+	keys *crypto.Keys
 }
 
 func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
