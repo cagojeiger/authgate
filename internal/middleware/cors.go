@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"bufio"
+	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -91,6 +94,28 @@ func (c *corsWriter) flushCORSHeaders() {
 		h.Del("Access-Control-Allow-Credentials")
 		h.Del("Access-Control-Max-Age")
 	}
+}
+
+// Flush forwards to the underlying ResponseWriter's http.Flusher so streaming
+// handlers downstream (e.g. the OIDC provider) are not silently broken by the
+// wrapper. CORS headers are committed first so they precede any flushed body.
+func (c *corsWriter) Flush() {
+	if f, ok := c.ResponseWriter.(http.Flusher); ok {
+		if !c.written {
+			c.flushCORSHeaders()
+		}
+		f.Flush()
+	}
+}
+
+// Hijack forwards to the underlying ResponseWriter's http.Hijacker so
+// connection-upgrade handlers keep working through the wrapper. After a hijack
+// the caller owns the raw connection, so CORS response headers no longer apply.
+func (c *corsWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := c.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, errors.New("corsWriter: underlying ResponseWriter does not implement http.Hijacker")
 }
 
 // OriginsFromRedirectURIs extracts unique scheme+host values from a list of
