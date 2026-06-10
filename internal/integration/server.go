@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 
 	mcpadapter "github.com/kangheeyong/authgate/internal/adapter/mcp"
 	"github.com/kangheeyong/authgate/internal/clock"
+	"github.com/kangheeyong/authgate/internal/crypto"
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"golang.org/x/time/rate"
@@ -47,6 +49,37 @@ func SetupTestServer(t *testing.T) *TestServer {
 
 type SetupOptions struct {
 	EnableMCP bool
+	// EnableCrypto wires PII at-rest encryption keys + epochs so e2e flows run
+	// the encrypted path (ADR-002).
+	EnableCrypto bool
+}
+
+// setupCryptoKeys derives test crypto keys and registers their epochs.
+func setupCryptoKeys(t *testing.T, store *storage.Storage) {
+	t.Helper()
+	mk := func(b byte) []byte {
+		s := make([]byte, crypto.KeySize)
+		for i := range s {
+			s[i] = b
+		}
+		return s
+	}
+	enc, err := crypto.NewRoot(crypto.DomainEnc, "enc-test-1", mk(0x31))
+	if err != nil {
+		t.Fatalf("enc root: %v", err)
+	}
+	lookup, err := crypto.NewRoot(crypto.DomainLookup, "lkp-test-1", mk(0x32))
+	if err != nil {
+		t.Fatalf("lookup root: %v", err)
+	}
+	keys, err := crypto.NewKeys(enc, lookup)
+	if err != nil {
+		t.Fatalf("keys: %v", err)
+	}
+	store.SetKeys(keys)
+	if err := store.EnsureCryptoEpochs(context.Background()); err != nil {
+		t.Fatalf("ensure epochs: %v", err)
+	}
 }
 
 // SetupTestServerWithOptions creates a full authgate server with selectable optional adapters.
@@ -66,6 +99,9 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 
 	store := storage.New(db, clk, gen, stateChecker, 15*time.Minute, 30*24*time.Hour)
 	store.SetDevicePollInterval(devicePollInterval)
+	if opts.EnableCrypto {
+		setupCryptoKeys(t, store)
+	}
 	if opts.EnableMCP {
 		cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
 		clientPolicy := mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher)
