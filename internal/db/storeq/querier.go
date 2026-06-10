@@ -13,7 +13,9 @@ import (
 type Querier interface {
 	AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
+	BackfillProviderSub(ctx context.Context, arg BackfillProviderSubParams) error
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
+	CountProviderSubUnbackfilled(ctx context.Context) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
 	DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error)
@@ -35,6 +37,7 @@ type Querier interface {
 	GetRefreshTokenInfoByHashAndClientID(ctx context.Context, arg GetRefreshTokenInfoByHashAndClientIDParams) (GetRefreshTokenInfoByHashAndClientIDRow, error)
 	GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error)
 	GetUserByProviderIdentity(ctx context.Context, arg GetUserByProviderIdentityParams) (GetUserByProviderIdentityRow, error)
+	GetUserByProviderSubHash(ctx context.Context, arg GetUserByProviderSubHashParams) (GetUserByProviderSubHashRow, error)
 	GetUserForTxByID(ctx context.Context, id string) (GetUserForTxByIDRow, error)
 	GetUserInfoFieldsByID(ctx context.Context, id string) (GetUserInfoFieldsByIDRow, error)
 	GetValidSessionUser(ctx context.Context, arg GetValidSessionUserParams) (GetValidSessionUserRow, error)
@@ -50,6 +53,7 @@ type Querier interface {
 	InsertUser(ctx context.Context, arg InsertUserParams) error
 	InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error
 	ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff sql.NullTime) ([]string, error)
+	ListProviderSubBackfill(ctx context.Context, limit int32) ([]ListProviderSubBackfillRow, error)
 	MarkRefreshTokenUsedAndRevokedByID(ctx context.Context, arg MarkRefreshTokenUsedAndRevokedByIDParams) error
 	MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedByIDParams) (int64, error)
 	MarkUserPendingDeletionByID(ctx context.Context, arg MarkUserPendingDeletionByIDParams) (int64, error)

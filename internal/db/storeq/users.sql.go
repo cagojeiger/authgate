@@ -11,6 +11,43 @@ import (
 	"time"
 )
 
+const backfillProviderSub = `-- name: BackfillProviderSub :exec
+UPDATE user_identities SET
+    provider_sub_hash         = $2,
+    provider_sub_hash_key_id  = $3,
+    provider_sub_hash_version = $4,
+    provider_sub_ciphertext   = $5,
+    provider_sub_nonce        = $6,
+    provider_sub_enc_key_id   = $7,
+    provider_sub_enc_version  = $8
+WHERE id = $1
+`
+
+type BackfillProviderSubParams struct {
+	ID                     string
+	ProviderSubHash        sql.NullString
+	ProviderSubHashKeyID   sql.NullString
+	ProviderSubHashVersion sql.NullInt32
+	ProviderSubCiphertext  []byte
+	ProviderSubNonce       []byte
+	ProviderSubEncKeyID    sql.NullString
+	ProviderSubEncVersion  sql.NullInt32
+}
+
+func (q *Queries) BackfillProviderSub(ctx context.Context, arg BackfillProviderSubParams) error {
+	_, err := q.db.ExecContext(ctx, backfillProviderSub,
+		arg.ID,
+		arg.ProviderSubHash,
+		arg.ProviderSubHashKeyID,
+		arg.ProviderSubHashVersion,
+		arg.ProviderSubCiphertext,
+		arg.ProviderSubNonce,
+		arg.ProviderSubEncKeyID,
+		arg.ProviderSubEncVersion,
+	)
+	return err
+}
+
 const completeAuthRequestByID = `-- name: CompleteAuthRequestByID :execrows
 UPDATE auth_requests
 SET subject = $1, auth_time = $2, done = true
@@ -29,6 +66,19 @@ func (q *Queries) CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthR
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const countProviderSubUnbackfilled = `-- name: CountProviderSubUnbackfilled :one
+SELECT count(*)
+FROM user_identities
+WHERE provider_sub_hash IS NULL AND provider_user_id IS NOT NULL
+`
+
+func (q *Queries) CountProviderSubUnbackfilled(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countProviderSubUnbackfilled)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
@@ -73,7 +123,7 @@ WHERE ui.provider = $1 AND ui.provider_user_id = $2
 
 type GetUserByProviderIdentityParams struct {
 	Provider       string
-	ProviderUserID string
+	ProviderUserID sql.NullString
 }
 
 type GetUserByProviderIdentityRow struct {
@@ -89,6 +139,44 @@ type GetUserByProviderIdentityRow struct {
 func (q *Queries) GetUserByProviderIdentity(ctx context.Context, arg GetUserByProviderIdentityParams) (GetUserByProviderIdentityRow, error) {
 	row := q.db.QueryRowContext(ctx, getUserByProviderIdentity, arg.Provider, arg.ProviderUserID)
 	var i GetUserByProviderIdentityRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerified,
+		&i.Name,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByProviderSubHash = `-- name: GetUserByProviderSubHash :one
+SELECT u.id, u.email, u.email_verified, u.name, u.status,
+       u.created_at, u.updated_at
+FROM users u
+JOIN user_identities ui ON u.id = ui.user_id
+WHERE ui.provider = $1 AND ui.provider_sub_hash = $2
+`
+
+type GetUserByProviderSubHashParams struct {
+	Provider        string
+	ProviderSubHash sql.NullString
+}
+
+type GetUserByProviderSubHashRow struct {
+	ID            string
+	Email         string
+	EmailVerified bool
+	Name          sql.NullString
+	Status        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+func (q *Queries) GetUserByProviderSubHash(ctx context.Context, arg GetUserByProviderSubHashParams) (GetUserByProviderSubHashRow, error) {
+	row := q.db.QueryRowContext(ctx, getUserByProviderSubHash, arg.Provider, arg.ProviderSubHash)
+	var i GetUserByProviderSubHashRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
@@ -270,16 +358,27 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 }
 
 const insertUserIdentity = `-- name: InsertUserIdentity :exec
-INSERT INTO user_identities (id, user_id, provider, provider_user_id, created_at)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO user_identities (
+    id, user_id, provider, provider_user_id,
+    provider_sub_hash, provider_sub_hash_key_id, provider_sub_hash_version,
+    provider_sub_ciphertext, provider_sub_nonce, provider_sub_enc_key_id, provider_sub_enc_version,
+    created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 `
 
 type InsertUserIdentityParams struct {
-	ID             string
-	UserID         string
-	Provider       string
-	ProviderUserID string
-	CreatedAt      time.Time
+	ID                     string
+	UserID                 string
+	Provider               string
+	ProviderUserID         sql.NullString
+	ProviderSubHash        sql.NullString
+	ProviderSubHashKeyID   sql.NullString
+	ProviderSubHashVersion sql.NullInt32
+	ProviderSubCiphertext  []byte
+	ProviderSubNonce       []byte
+	ProviderSubEncKeyID    sql.NullString
+	ProviderSubEncVersion  sql.NullInt32
+	CreatedAt              time.Time
 }
 
 func (q *Queries) InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error {
@@ -288,9 +387,59 @@ func (q *Queries) InsertUserIdentity(ctx context.Context, arg InsertUserIdentity
 		arg.UserID,
 		arg.Provider,
 		arg.ProviderUserID,
+		arg.ProviderSubHash,
+		arg.ProviderSubHashKeyID,
+		arg.ProviderSubHashVersion,
+		arg.ProviderSubCiphertext,
+		arg.ProviderSubNonce,
+		arg.ProviderSubEncKeyID,
+		arg.ProviderSubEncVersion,
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const listProviderSubBackfill = `-- name: ListProviderSubBackfill :many
+SELECT id, user_id, provider, provider_user_id
+FROM user_identities
+WHERE provider_sub_hash IS NULL AND provider_user_id IS NOT NULL
+ORDER BY id
+LIMIT $1
+`
+
+type ListProviderSubBackfillRow struct {
+	ID             string
+	UserID         string
+	Provider       string
+	ProviderUserID sql.NullString
+}
+
+func (q *Queries) ListProviderSubBackfill(ctx context.Context, limit int32) ([]ListProviderSubBackfillRow, error) {
+	rows, err := q.db.QueryContext(ctx, listProviderSubBackfill, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProviderSubBackfillRow
+	for rows.Next() {
+		var i ListProviderSubBackfillRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Provider,
+			&i.ProviderUserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const markUserPendingDeletionByID = `-- name: MarkUserPendingDeletionByID :execrows

@@ -42,7 +42,14 @@ erDiagram
         uuid id PK "DEFAULT uuid_generate_v4()"
         uuid user_id FK "NOT NULL, CASCADE"
         text provider "NOT NULL, OIDC issuer에서 파생 (예: google, mock 등)"
-        text provider_user_id "NOT NULL, UNIQUE(provider, provider_user_id)"
+        text provider_user_id "nullable, 평문 (백필 후 cleanup PR에서 제거)"
+        text provider_sub_hash "nullable, lookup HMAC, UNIQUE(provider, provider_sub_hash)"
+        text provider_sub_hash_key_id "FK crypto_key_epochs"
+        int provider_sub_hash_version "nullable"
+        bytea provider_sub_ciphertext "nullable, AEAD (회전 rehash용 복구)"
+        bytea provider_sub_nonce "nullable"
+        text provider_sub_enc_key_id "FK crypto_key_epochs"
+        int provider_sub_enc_version "nullable"
         timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 
@@ -240,6 +247,7 @@ MCP
 
 | 규칙 | 적용 |
 |------|------|
+| provider sub은 lookup HMAC + AEAD ciphertext로 저장 | `provider_sub_hash`(매칭) + `provider_sub_ciphertext`(회전 복구), 평문 `provider_user_id`는 백필 후 제거 |
 | refresh_token은 SHA-256 해시로 저장 | `token_hash` 컬럼 |
 | 세션 쿠키(bearer)는 SHA-256 해시로 저장 | `sessions.token_hash` 컬럼 (`id`는 내부 PK, 쿠키 아님) |
 | audit_log.metadata의 `session_id`는 해시로 저장 | audit sanitize 시 SHA-256 (평문 bearer 미기록) |

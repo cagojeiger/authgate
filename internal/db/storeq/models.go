@@ -103,9 +103,16 @@ type User struct {
 }
 
 type UserIdentity struct {
-	ID             string
-	UserID         string
-	Provider       string
-	ProviderUserID string
-	CreatedAt      time.Time
+	ID                     string
+	UserID                 string
+	Provider               string
+	ProviderUserID         sql.NullString
+	CreatedAt              time.Time
+	ProviderSubHash        sql.NullString
+	ProviderSubHashKeyID   sql.NullString
+	ProviderSubHashVersion sql.NullInt32
+	ProviderSubCiphertext  []byte
+	ProviderSubNonce       []byte
+	ProviderSubEncKeyID    sql.NullString
+	ProviderSubEncVersion  sql.NullInt32
 }
