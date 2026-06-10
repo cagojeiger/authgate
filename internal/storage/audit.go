@@ -181,37 +181,58 @@ func (s *Storage) GetAuditClientContextBySessionID(ctx context.Context, userID, 
 // must not be failed by an audit-write error. The metadata payload is *not*
 // included in failure logs to avoid leaking session/family identifiers.
 func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
-	ipAddress = normalizeIPAddress(ipAddress)
-	metadata = s.sanitizeAuditMetadata(ctx, eventType, metadata)
-	var metaJSON []byte
-	if metadata != nil {
-		marshaled, err := json.Marshal(metadata)
-		if err != nil {
-			slog.ErrorContext(ctx, "audit log: marshal metadata",
-				"event_type", eventType,
-				"user_id", userIDLogValue(userID),
-				"error", err,
-			)
-			return
-		}
-		metaJSON = marshaled
-	}
-
-	if err := storeq.New(s.db).InsertAuditLog(ctx, storeq.InsertAuditLogParams{
-		UserID:    userIDLogValue(userID),
-		EventType: eventType,
-		IpAddress: nilIfEmpty(ipAddress),
-		UserAgent: nilIfEmpty(userAgent),
-		Metadata:  nilIfEmptyBytes(metaJSON),
-		CreatedAt: s.clock.Now(),
-	}); err != nil {
-		slog.ErrorContext(ctx, "audit log: insert",
+	params, err := s.prepareAuditRow(ctx, userID, eventType, ipAddress, userAgent, metadata)
+	if err != nil {
+		slog.ErrorContext(ctx, "audit log: marshal metadata",
 			"event_type", eventType,
 			"user_id", userIDLogValue(userID),
 			"error", err,
 		)
 		return
 	}
+	if err := storeq.New(s.db).InsertAuditLog(ctx, params); err != nil {
+		slog.ErrorContext(ctx, "audit log: insert",
+			"event_type", eventType,
+			"user_id", userIDLogValue(userID),
+			"error", err,
+		)
+	}
+}
+
+// writeAuditLogTx inserts an audit row using the supplied transaction queries
+// so the row commits atomically with the surrounding business write (see the
+// refresh-reuse path in storage_auth_tokens.go). Unlike AuditLog it returns the
+// error instead of swallowing it, so transactional callers can roll back.
+func (s *Storage) writeAuditLogTx(ctx context.Context, qtx *storeq.Queries, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
+	params, err := s.prepareAuditRow(ctx, userID, eventType, ipAddress, userAgent, metadata)
+	if err != nil {
+		return err
+	}
+	return qtx.InsertAuditLog(ctx, params)
+}
+
+// prepareAuditRow normalizes, sanitizes and marshals an audit event into insert
+// params. It performs no DB access, so both the best-effort AuditLog path and
+// the transactional writeAuditLogTx path share identical sanitization.
+func (s *Storage) prepareAuditRow(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) (storeq.InsertAuditLogParams, error) {
+	ipAddress = normalizeIPAddress(ipAddress)
+	metadata = s.sanitizeAuditMetadata(ctx, eventType, metadata)
+	var metaJSON []byte
+	if metadata != nil {
+		marshaled, err := json.Marshal(metadata)
+		if err != nil {
+			return storeq.InsertAuditLogParams{}, err
+		}
+		metaJSON = marshaled
+	}
+	return storeq.InsertAuditLogParams{
+		UserID:    userIDLogValue(userID),
+		EventType: eventType,
+		IpAddress: nilIfEmpty(ipAddress),
+		UserAgent: nilIfEmpty(userAgent),
+		Metadata:  nilIfEmptyBytes(metaJSON),
+		CreatedAt: s.clock.Now(),
+	}, nil
 }
 
 func (s *Storage) sanitizeAuditMetadata(ctx context.Context, eventType string, metadata map[string]any) map[string]any {

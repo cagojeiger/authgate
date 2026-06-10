@@ -214,11 +214,17 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		if err := revokeRefreshFamilyOnReuse(ctx, qtx, rt.FamilyID, now); err != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
+		// Write the reuse-detection audit rows in the SAME transaction as the
+		// family revoke, so the security action and its audit evidence commit
+		// atomically. If the audit insert fails the whole tx rolls back and the
+		// client's retry triggers reuse detection again — the token is already
+		// used/revoked, so it stays unusable either way.
+		if err := s.auditRefreshReuseDetectionTx(ctx, qtx, rt.UserID, rt.FamilyID); err != nil {
+			return nil, op.ErrInvalidRefreshToken
+		}
 		if err := tx.Commit(); err != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
-		// Audit only after successful commit
-		s.auditRefreshReuseDetection(ctx, rt.UserID, rt.FamilyID)
 		return nil, op.ErrInvalidRefreshToken
 	}
 
@@ -441,10 +447,16 @@ func revokeRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, family
 	})
 }
 
-func (s *Storage) auditRefreshReuseDetection(ctx context.Context, userID, familyID string) {
+// auditRefreshReuseDetectionTx writes the reuse-detection and family-revoked
+// audit rows via the supplied transaction queries, so they commit atomically
+// with the family revoke. An insert error is returned (not swallowed) so the
+// caller can roll back the whole reuse-detection transaction.
+func (s *Storage) auditRefreshReuseDetectionTx(ctx context.Context, qtx *storeq.Queries, userID, familyID string) error {
 	info := clientinfo.FromContext(ctx)
-	s.AuditLog(ctx, &userID, EventAuthRefreshReuseDetected, info.IP, info.UserAgent, map[string]any{"family_id": familyID})
-	s.AuditLog(ctx, &userID, EventAuthRefreshFamilyRevoked, info.IP, info.UserAgent, map[string]any{"family_id": familyID})
+	if err := s.writeAuditLogTx(ctx, qtx, &userID, EventAuthRefreshReuseDetected, info.IP, info.UserAgent, map[string]any{"family_id": familyID}); err != nil {
+		return err
+	}
+	return s.writeAuditLogTx(ctx, qtx, &userID, EventAuthRefreshFamilyRevoked, info.IP, info.UserAgent, map[string]any{"family_id": familyID})
 }
 
 func (s *Storage) validateRefreshTokenRequest(ctx context.Context, tx *sql.Tx, rt *RefreshTokenModel, now time.Time) error {
