@@ -115,6 +115,17 @@ func TestUserPII_Backfill(t *testing.T) {
 		t.Fatalf("remaining = %d err=%v, want 0", remaining, err)
 	}
 
+	// Backfill scrubs the plaintext columns (PII no longer at rest in clear).
+	var ePlain, nPlain sql.NullString
+	if err := s.DB().QueryRowContext(ctx,
+		`SELECT email, name FROM users WHERE id=$1`, user.ID,
+	).Scan(&ePlain, &nPlain); err != nil {
+		t.Fatalf("read plaintext: %v", err)
+	}
+	if ePlain.Valid || nPlain.Valid {
+		t.Error("plaintext email/name not cleared after backfill")
+	}
+
 	// Reads now decrypt the backfilled values.
 	got, err := s.GetUserByID(ctx, user.ID)
 	if err != nil || got.Email != email || got.Name != name {

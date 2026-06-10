@@ -91,6 +91,17 @@ func TestProviderSub_Backfill(t *testing.T) {
 		t.Fatalf("remaining = %d err=%v, want 0", remaining, err)
 	}
 
+	// Backfill scrubs the plaintext provider_user_id.
+	var pUID sql.NullString
+	if err := s.DB().QueryRowContext(ctx,
+		`SELECT provider_user_id FROM user_identities WHERE user_id=$1`, user.ID,
+	).Scan(&pUID); err != nil {
+		t.Fatalf("read plaintext: %v", err)
+	}
+	if pUID.Valid {
+		t.Error("plaintext provider_user_id not cleared after backfill")
+	}
+
 	// Lookup now resolves via hash even though the row was created as plaintext.
 	found, err := s.GetUserByProviderIdentity(ctx, "google", sub)
 	if err != nil || found.ID != user.ID {
