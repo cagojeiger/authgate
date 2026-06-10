@@ -67,7 +67,7 @@ erDiagram
     sessions {
         uuid id PK "DEFAULT uuid_generate_v4(), 내부 PK (쿠키 아님)"
         uuid user_id FK "NOT NULL, CASCADE"
-        text token_hash UK "nullable, 세션 쿠키 bearer의 SHA-256 해시"
+        text token_hash UK "nullable, 세션 쿠키 bearer 해시 (키 설정 시 lookup/session HMAC, 아니면 SHA-256)"
         timestamptz expires_at "NOT NULL, 기본 24시간(SESSION_TTL)"
         timestamptz revoked_at "nullable, 로그아웃 시 설정"
         timestamptz created_at "NOT NULL, DEFAULT NOW()"
@@ -262,7 +262,7 @@ MCP
 | email/name은 AEAD ciphertext로 저장, email은 lookup HMAC도 | `email_ciphertext`/`name_ciphertext` + `email_hash`(UNIQUE/정규화 lowercase+NFC), 평문 컬럼은 백필 후 제거. 탈퇴 시 ciphertext/hash redaction |
 | 단명 코드(device_code/user_code/authz code)는 lookup HMAC로 저장 | 기존 컬럼에 in-place 해시(키 설정 시). 짧은 수명이라 drain, 반환 모델은 평문 입력값 |
 | refresh_token은 SHA-256 해시로 저장 | `token_hash` 컬럼 |
-| 세션 쿠키(bearer)는 SHA-256 해시로 저장 | `sessions.token_hash` 컬럼 (`id`는 내부 PK, 쿠키 아님) |
+| 세션 쿠키(bearer)는 해시로 저장 | `sessions.token_hash` (`id`는 내부 PK). 키 설정 시 lookup/session HMAC, 아니면 SHA-256 |
 | audit_log.metadata의 `session_id`는 해시로 저장 | audit sanitize 시 SHA-256 (평문 bearer 미기록) |
 | client_secret은 bcrypt 해시로 저장 | `clients.yaml`의 `client_secret_hash` 필드 |
 | access_token(JWT)은 DB에 저장하지 않음 | stateless |

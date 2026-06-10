@@ -367,7 +367,7 @@ func (s *Storage) CreateSession(ctx context.Context, userID string, ttl time.Dur
 	if err := storeq.New(s.db).InsertSession(ctx, storeq.InsertSessionParams{
 		ID:        s.idgen.NewUUID(),
 		UserID:    userID,
-		TokenHash: sql.NullString{String: hashToken(token), Valid: true},
+		TokenHash: sql.NullString{String: s.sessionAtRest(token), Valid: true},
 		ExpiresAt: now.Add(ttl),
 		CreatedAt: now,
 	}); err != nil {
@@ -379,7 +379,7 @@ func (s *Storage) CreateSession(ctx context.Context, userID string, ttl time.Dur
 func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User, error) {
 	now := s.clock.Now()
 	row, err := storeq.New(s.db).GetValidSessionUser(ctx, storeq.GetValidSessionUserParams{
-		TokenHash: hashToken(sessionID),
+		TokenHash: s.sessionAtRest(sessionID),
 		ExpiresAt: now,
 	})
 	if errors.Is(err, sql.ErrNoRows) {

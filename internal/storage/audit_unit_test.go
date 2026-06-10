@@ -47,7 +47,7 @@ func TestSanitizeAuditMetadata_AllowsKnownKeysOnly(t *testing.T) {
 		"access_token":   "secret-token",
 	}
 
-	got := sanitizeAuditMetadata(context.Background(), "auth.login", metadata)
+	got := (&Storage{}).sanitizeAuditMetadata(context.Background(), "auth.login", metadata)
 	want := map[string]any{
 		"channel":     "browser",
 		"client_id":   "client-1",
@@ -65,7 +65,7 @@ func TestSanitizeAuditMetadata_AllowsKnownKeysOnly(t *testing.T) {
 }
 
 func TestSanitizeAuditMetadata_UnknownEventDropsMetadata(t *testing.T) {
-	got := sanitizeAuditMetadata(context.Background(), "custom.event", map[string]any{
+	got := (&Storage{}).sanitizeAuditMetadata(context.Background(), "custom.event", map[string]any{
 		"client_id": "client-1",
 	})
 	if got != nil {
@@ -74,7 +74,7 @@ func TestSanitizeAuditMetadata_UnknownEventDropsMetadata(t *testing.T) {
 }
 
 func TestSanitizeAuditMetadata_EmptyResultReturnsNil(t *testing.T) {
-	got := sanitizeAuditMetadata(context.Background(), "auth.login", map[string]any{
+	got := (&Storage{}).sanitizeAuditMetadata(context.Background(), "auth.login", map[string]any{
 		"email": "person@example.com",
 	})
 	if got != nil {

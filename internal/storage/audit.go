@@ -164,7 +164,7 @@ type AuditClientContext struct {
 func (s *Storage) GetAuditClientContextBySessionID(ctx context.Context, userID, sessionID string) (AuditClientContext, error) {
 	row, err := storeq.New(s.db).GetAuditClientContextBySessionID(ctx, storeq.GetAuditClientContextBySessionIDParams{
 		UserID:    userID,
-		SessionID: hashToken(sessionID),
+		SessionID: s.sessionAtRest(sessionID),
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return AuditClientContext{}, ErrNotFound
@@ -182,7 +182,7 @@ func (s *Storage) GetAuditClientContextBySessionID(ctx context.Context, userID, 
 // included in failure logs to avoid leaking session/family identifiers.
 func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) {
 	ipAddress = normalizeIPAddress(ipAddress)
-	metadata = sanitizeAuditMetadata(ctx, eventType, metadata)
+	metadata = s.sanitizeAuditMetadata(ctx, eventType, metadata)
 	var metaJSON []byte
 	if metadata != nil {
 		marshaled, err := json.Marshal(metadata)
@@ -214,7 +214,7 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 	}
 }
 
-func sanitizeAuditMetadata(ctx context.Context, eventType string, metadata map[string]any) map[string]any {
+func (s *Storage) sanitizeAuditMetadata(ctx context.Context, eventType string, metadata map[string]any) map[string]any {
 	if len(metadata) == 0 {
 		return nil
 	}
@@ -247,7 +247,7 @@ func sanitizeAuditMetadata(ctx context.Context, eventType string, metadata map[s
 	// an audit-log read cannot recover a live bearer (ADR-002). The hash matches
 	// sessions.token_hash, so GetAuditClientContextBySessionID still correlates.
 	if raw, ok := sanitized["session_id"].(string); ok && raw != "" {
-		sanitized["session_id"] = hashToken(raw)
+		sanitized["session_id"] = s.sessionAtRest(raw)
 	}
 	if len(sanitized) == 0 {
 		return nil
