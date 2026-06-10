@@ -157,6 +157,19 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		return "", "", time.Time{}, err
 	}
 
+	// On rotation, refuse to issue a child into a family that reuse detection
+	// has tombstoned. The initial code/device exchange mints a fresh family_id
+	// that can never be tombstoned, so the check is skipped there.
+	if currentRefreshToken != "" {
+		revoked, err := qtx.IsRefreshFamilyRevoked(ctx, derived.familyID)
+		if err != nil {
+			return "", "", time.Time{}, err
+		}
+		if revoked {
+			return "", "", time.Time{}, op.ErrInvalidRefreshToken
+		}
+	}
+
 	if err := revokeRefreshTokenIfPresent(ctx, qtx, currentRefreshToken, now); err != nil {
 		return "", "", time.Time{}, err
 	}
@@ -209,16 +222,21 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		return nil, err
 	}
 
-	// Already used/revoked → reuse detection → family revoke
+	// Already used/revoked → reuse detection → family revoke + tombstone
 	if isRefreshTokenUsedOrRevoked(rt) {
 		if err := revokeRefreshFamilyOnReuse(ctx, qtx, rt.FamilyID, now); err != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
-		// Write the reuse-detection audit rows in the SAME transaction as the
-		// family revoke, so the security action and its audit evidence commit
-		// atomically. If the audit insert fails the whole tx rolls back and the
-		// client's retry triggers reuse detection again — the token is already
-		// used/revoked, so it stays unusable either way.
+		// Tombstone the family in the same tx as the revoke. RevokeRefreshFamily
+		// only flips existing rows; the tombstone is what CreateAccessAndRefreshTokens
+		// checks so a child rotating in just after the revoke is still refused.
+		if err := tombstoneRefreshFamilyOnReuse(ctx, qtx, rt.FamilyID, rt.UserID, now); err != nil {
+			return nil, op.ErrInvalidRefreshToken
+		}
+		// Write the reuse-detection audit rows in the SAME transaction too, so the
+		// revoke, tombstone and audit evidence commit atomically. If any insert
+		// fails the whole tx rolls back; the client's retry triggers reuse
+		// detection again (token already used/revoked, so it stays unusable).
 		if err := s.auditRefreshReuseDetectionTx(ctx, qtx, rt.UserID, rt.FamilyID); err != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
@@ -444,6 +462,18 @@ func revokeRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, family
 	return qtx.RevokeRefreshFamily(ctx, storeq.RevokeRefreshFamilyParams{
 		RevokedAt: sql.NullTime{Time: now, Valid: true},
 		FamilyID:  familyID,
+	})
+}
+
+// tombstoneRefreshFamilyOnReuse records a permanent per-family tombstone so a
+// child token cannot be issued into the family later (checked by
+// CreateAccessAndRefreshTokens). Idempotent via ON CONFLICT DO NOTHING.
+func tombstoneRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, familyID, userID string, now time.Time) error {
+	return qtx.TombstoneRefreshFamily(ctx, storeq.TombstoneRefreshFamilyParams{
+		FamilyID:  familyID,
+		UserID:    userID,
+		Reason:    "reuse_detected",
+		RevokedAt: now,
 	})
 }
 
