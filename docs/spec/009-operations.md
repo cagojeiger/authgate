@@ -358,6 +358,8 @@ Go runtime/process Prometheus metrics를 노출한다. 운영에서는
 
 `Storage.AuditLog`는 best-effort write이므로 marshal/insert 실패가 비즈니스 트랜잭션을 차단하지 않는다. 그러나 감사 로그가 silent하게 누락되면 침해 탐지 능력 자체가 무력화되므로 실패는 구조화 로그로 남긴다.
 
+**예외**: refresh token 재사용 감지 이벤트(`auth.refresh_reuse_detected`, `auth.refresh_family_revoked`)는 family revoke·tombstone과 **같은 트랜잭션**에서 `writeAuditLogTx`로 기록된다. 감사 insert가 실패하면 트랜잭션 전체가 롤백되므로 이 두 이벤트는 silent하게 누락되지 않는다(best-effort 경로와 다름).
+
 | 로그 메시지 | 의미 |
 |-------------|------|
 | `audit log: marshal metadata` | `json.Marshal(metadata)` 실패 — 호출자 입력 형상 버그 |
