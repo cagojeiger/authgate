@@ -53,7 +53,8 @@ UPDATE user_identities SET
     provider_sub_ciphertext   = $5,
     provider_sub_nonce        = $6,
     provider_sub_enc_key_id   = $7,
-    provider_sub_enc_version  = $8
+    provider_sub_enc_version  = $8,
+    provider_user_id          = NULL
 WHERE id = $1;
 
 -- name: GetUserByID :one
@@ -102,7 +103,9 @@ UPDATE users SET
     name_ciphertext    = $9,
     name_nonce         = $10,
     name_enc_key_id    = $11,
-    name_enc_version   = $12
+    name_enc_version   = $12,
+    email              = NULL,
+    name               = NULL
 WHERE id = $1;
 
 -- name: CompleteAuthRequestByID :execrows

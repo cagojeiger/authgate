@@ -198,6 +198,11 @@ func Load() (*Config, error) {
 		if c.OIDCClientID == "" || c.OIDCClientSecret == "" {
 			return nil, fmt.Errorf("DEV_MODE=false requires OIDC_CLIENT_ID and OIDC_CLIENT_SECRET")
 		}
+		// PII at-rest encryption is mandatory in production (ADR-002): without
+		// the roots, signups would persist plaintext PII.
+		if c.EncRootKeyID == "" || c.EncRootSecret == "" || c.LookupRootKeyID == "" || c.LookupRootSecret == "" {
+			return nil, fmt.Errorf("DEV_MODE=false requires PII_ENC_ROOT_KEY_ID, PII_ENC_ROOT_SECRET, PII_LOOKUP_ROOT_KEY_ID, PII_LOOKUP_ROOT_SECRET")
+		}
 	}
 
 	return c, nil

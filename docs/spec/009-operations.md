@@ -58,10 +58,10 @@ authgate를 처음 배포할 때 필요한 것:
 | `OIDC_HTTP_TIMEOUT_SEC` | X | `10` | Upstream OIDC HTTP 호출 timeout(초) |
 | `OIDC_CLIENT_ID` | X | `authgate` | OIDC Client ID |
 | `OIDC_CLIENT_SECRET` | X | — | OIDC Client Secret (`DEV_MODE=false`에서 필수) |
-| `PII_ENC_ROOT_KEY_ID` | X | — | PII 암호화(ENC) root 식별자 (ADR-002). 4개 root 변수는 all-or-nothing — 전부 설정 시 암호화 활성, 미설정 시 inert |
-| `PII_ENC_ROOT_SECRET` | X | — | ENC root secret (base64, ≥32 bytes). 로그/감사에 노출 금지 |
-| `PII_LOOKUP_ROOT_KEY_ID` | X | — | lookup HMAC(LOOKUP) root 식별자 |
-| `PII_LOOKUP_ROOT_SECRET` | X | — | LOOKUP root secret (base64, ≥32 bytes). 로그/감사에 노출 금지 |
+| `PII_ENC_ROOT_KEY_ID` | △ | — | PII 암호화(ENC) root 식별자 (ADR-002). **`DEV_MODE=false`에서 4개 모두 필수.** 부팅 시 백필이 기존 평문을 암호화하고 평문 컬럼을 비운다 |
+| `PII_ENC_ROOT_SECRET` | △ | — | ENC root secret (base64, ≥32 bytes). 로그/감사에 노출 금지 |
+| `PII_LOOKUP_ROOT_KEY_ID` | △ | — | lookup HMAC(LOOKUP) root 식별자 |
+| `PII_LOOKUP_ROOT_SECRET` | △ | — | LOOKUP root secret (base64, ≥32 bytes). 로그/감사에 노출 금지 |
 | `SESSION_TTL` | X | `86400` | 세션 수명 (초) |
 | `ACCESS_TOKEN_TTL` | X | `900` | access_token 수명 (초, 15분) |
 | `REFRESH_TOKEN_TTL` | X | `2592000` | refresh_token 수명 (초, 30일) |

@@ -14,6 +14,8 @@ func clearEnv() {
 		"OIDC_HTTP_TIMEOUT_SEC",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "AUDIT_LOG_PII_RETENTION_DAYS",
 		"DEV_MODE", "ENABLE_MCP", "ENABLE_ACCOUNT_DELETION",
+		"PII_ENC_ROOT_KEY_ID", "PII_ENC_ROOT_SECRET",
+		"PII_LOOKUP_ROOT_KEY_ID", "PII_LOOKUP_ROOT_SECRET",
 		"SIGNING_KEY_PATH",
 		"DB_MAX_OPEN_CONNS", "DB_MAX_IDLE_CONNS",
 		"DB_CONN_MAX_LIFETIME_SEC", "DB_CONN_MAX_IDLE_TIME_SEC",
@@ -112,6 +114,26 @@ func TestLoad_DevModeFalseRequiresOIDCCredentials(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("expected error: DEV_MODE=false requires OIDC credentials")
+	}
+}
+
+func TestLoad_DevModeFalseRequiresPIIRoots(t *testing.T) {
+	clearEnv()
+	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	os.Setenv("SESSION_SECRET", "test-secret-32-chars-long-enough!")
+	os.Setenv("PUBLIC_URL", "https://authgate.example.com")
+	os.Setenv("DEV_MODE", "false")
+	os.Setenv("OIDC_ISSUER_URL", "https://accounts.google.com")
+	os.Setenv("OIDC_CLIENT_ID", "authgate")
+	os.Setenv("OIDC_CLIENT_SECRET", "secret")
+	// Missing PII_*_ROOT_* → must fail in production.
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error: DEV_MODE=false requires PII encryption roots")
+	}
+	if !strings.Contains(err.Error(), "PII_ENC_ROOT_KEY_ID") {
+		t.Errorf("error = %v, want one mentioning PII roots", err)
 	}
 }
 
