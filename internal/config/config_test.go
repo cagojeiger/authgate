@@ -137,6 +137,47 @@ func TestLoad_DevModeFalseRequiresPIIRoots(t *testing.T) {
 	}
 }
 
+func TestLoad_RejectsNonBase64RootSecret(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("PII_ENC_ROOT_KEY_ID", "enc-1")
+	os.Setenv("PII_ENC_ROOT_SECRET", "not!base64!!!")
+	os.Setenv("PII_LOOKUP_ROOT_KEY_ID", "lkp-1")
+	os.Setenv("PII_LOOKUP_ROOT_SECRET", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") // 32 bytes
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "PII_ENC_ROOT_SECRET must be base64") {
+		t.Fatalf("err = %v, want base64 error for PII_ENC_ROOT_SECRET", err)
+	}
+}
+
+func TestLoad_RejectsTooShortRootSecret(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("PII_ENC_ROOT_KEY_ID", "enc-1")
+	os.Setenv("PII_ENC_ROOT_SECRET", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") // 32 bytes, ok
+	os.Setenv("PII_LOOKUP_ROOT_KEY_ID", "lkp-1")
+	os.Setenv("PII_LOOKUP_ROOT_SECRET", "c2hvcnQ=") // "short" → 5 bytes
+
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "PII_LOOKUP_ROOT_SECRET must decode to >=") {
+		t.Fatalf("err = %v, want too-short error for PII_LOOKUP_ROOT_SECRET", err)
+	}
+}
+
+func TestLoad_AcceptsValidRootSecrets(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("PII_ENC_ROOT_KEY_ID", "enc-1")
+	os.Setenv("PII_ENC_ROOT_SECRET", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	os.Setenv("PII_LOOKUP_ROOT_KEY_ID", "lkp-1")
+	os.Setenv("PII_LOOKUP_ROOT_SECRET", "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=")
+
+	if _, err := Load(); err != nil {
+		t.Fatalf("valid root secrets rejected: %v", err)
+	}
+}
+
 func TestLoad_Defaults(t *testing.T) {
 	clearEnv()
 	setMinimal()

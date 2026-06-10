@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net"
 	"net/url"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kangheeyong/authgate/internal/crypto"
 )
 
 type Config struct {
@@ -152,6 +155,15 @@ func Load() (*Config, error) {
 		if c.EncRootKeyID == "" || c.EncRootSecret == "" || c.LookupRootKeyID == "" || c.LookupRootSecret == "" {
 			return nil, fmt.Errorf("PII encryption requires all of PII_ENC_ROOT_KEY_ID, PII_ENC_ROOT_SECRET, PII_LOOKUP_ROOT_KEY_ID, PII_LOOKUP_ROOT_SECRET")
 		}
+		// Validate the secrets here so a bad base64/too-short root fails at the
+		// config layer (which owns env correctness) rather than later at crypto
+		// wiring. Decoded bytes are discarded — Config stays string-only.
+		if err := validateRootSecret("PII_ENC_ROOT_SECRET", c.EncRootSecret); err != nil {
+			return nil, err
+		}
+		if err := validateRootSecret("PII_LOOKUP_ROOT_SECRET", c.LookupRootSecret); err != nil {
+			return nil, err
+		}
 	}
 	if c.DBMaxOpenConns < 0 {
 		return nil, fmt.Errorf("DB_MAX_OPEN_CONNS must be >= 0")
@@ -206,6 +218,20 @@ func Load() (*Config, error) {
 	}
 
 	return c, nil
+}
+
+// validateRootSecret checks that a PII root secret is valid base64 decoding to
+// at least crypto.KeySize bytes — the same floor crypto.NewRoot enforces — so
+// the failure surfaces from the config layer that owns env correctness.
+func validateRootSecret(name, b64 string) error {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return fmt.Errorf("%s must be base64: %w", name, err)
+	}
+	if len(raw) < crypto.KeySize {
+		return fmt.Errorf("%s must decode to >= %d bytes, got %d", name, crypto.KeySize, len(raw))
+	}
+	return nil
 }
 
 func validateParseableEnv() error {
