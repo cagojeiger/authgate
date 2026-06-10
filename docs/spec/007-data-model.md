@@ -214,7 +214,8 @@ CHECK (status IN ('active', 'disabled', 'pending_deletion', 'deleted'))
 CHECK (state IN ('pending', 'approved', 'denied', 'consumed'))
 
 -- user_identities
-UNIQUE (provider, provider_user_id)
+UNIQUE (provider, provider_sub_hash)  -- 로그인 매칭 (user_identities_provider_sub_hash_key). NULL 다중 허용(Postgres UNIQUE)
+UNIQUE (provider, provider_user_id)   -- 레거시 (평문 provider_user_id 매칭)
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 
 -- sessions
