@@ -31,6 +31,8 @@ HTTP request
   │    ├─ user_agent
   │    ├─ metadata allowlist
   │    └─ best-effort INSERT
+  │       (예외: refresh reuse 감지는 family revoke와 같은 트랜잭션으로
+  │        원자적 기록 — writeAuditLogTx. 감사 기록 실패 시 revoke도 롤백)
   │
   ▼
 audit_log
