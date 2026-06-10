@@ -134,7 +134,12 @@ jobs:
           go-version-file: go.mod
 
       - name: Run tests with race detector
-        run: go test -race ./...
+        # -tags=integration so the concurrency tests (refresh-token rotation
+        # atomicity, device-code polling, etc. — all behind //go:build
+        # integration) are actually compiled under the race detector. Without
+        # the tag they were excluded, leaving the concurrency paths unchecked.
+        # Same runner as the Test job, so Docker/testcontainers is available.
+        run: go test -race -tags=integration ./...
 
   coverage-report:
     name: Coverage Report
