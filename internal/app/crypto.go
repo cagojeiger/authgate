@@ -64,4 +64,12 @@ func mustSetupCrypto(cfg *config.Config, store *storage.Storage) {
 	if n > 0 {
 		slog.Info("provider_sub backfill complete", "rows", n)
 	}
+
+	m, err := store.BackfillUserPII(ctx)
+	if err != nil {
+		log.Fatalf("crypto: user PII backfill: %v", err)
+	}
+	if m > 0 {
+		slog.Info("user PII backfill complete", "rows", m)
+	}
 }

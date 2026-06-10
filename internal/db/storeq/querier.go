@@ -14,8 +14,10 @@ type Querier interface {
 	AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	BackfillProviderSub(ctx context.Context, arg BackfillProviderSubParams) error
+	BackfillUserPII(ctx context.Context, arg BackfillUserPIIParams) error
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
 	CountProviderSubUnbackfilled(ctx context.Context) (int64, error)
+	CountUsersUnbackfilled(ctx context.Context) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
 	DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error)
@@ -54,7 +56,11 @@ type Querier interface {
 	InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error
 	ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff sql.NullTime) ([]string, error)
 	ListProviderSubBackfill(ctx context.Context, limit int32) ([]ListProviderSubBackfillRow, error)
+	ListUsersBackfill(ctx context.Context, limit int32) ([]ListUsersBackfillRow, error)
 	MarkRefreshTokenUsedAndRevokedByID(ctx context.Context, arg MarkRefreshTokenUsedAndRevokedByIDParams) error
+	// PII redaction on deletion (ADR-002): the plaintext tombstone replaces email,
+	// and every encrypted/hashed email/name column is cleared so no recoverable PII
+	// remains for the deleted user.
 	MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedByIDParams) (int64, error)
 	MarkUserPendingDeletionByID(ctx context.Context, arg MarkUserPendingDeletionByIDParams) (int64, error)
 	RecoverPendingDeletionUserByID(ctx context.Context, arg RecoverPendingDeletionUserByIDParams) error

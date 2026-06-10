@@ -91,7 +91,7 @@ type Session struct {
 
 type User struct {
 	ID                  string
-	Email               string
+	Email               sql.NullString
 	EmailVerified       bool
 	Name                sql.NullString
 	Status              string
@@ -100,6 +100,17 @@ type User struct {
 	DeletedAt           sql.NullTime
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	EmailCiphertext     []byte
+	EmailNonce          []byte
+	EmailEncKeyID       sql.NullString
+	EmailEncVersion     sql.NullInt32
+	EmailHash           sql.NullString
+	EmailHashKeyID      sql.NullString
+	EmailHashVersion    sql.NullInt32
+	NameCiphertext      []byte
+	NameNonce           []byte
+	NameEncKeyID        sql.NullString
+	NameEncVersion      sql.NullInt32
 }
 
 type UserIdentity struct {
