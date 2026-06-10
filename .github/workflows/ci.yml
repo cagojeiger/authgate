@@ -115,7 +115,11 @@ jobs:
         run: go build ./...
 
       - name: Run all tests with coverage
-        run: go test -coverprofile=coverage.out -tags=integration ./internal/...
+        # -timeout 20m: the integration suite spins up testcontainers Postgres
+        # and runs in ~2-3min locally, but the shared ARC runner under load can
+        # exceed Go's default 10m per-package timeout and panic. 20m gives wide
+        # headroom without masking a genuine hang.
+        run: go test -coverprofile=coverage.out -tags=integration -timeout 20m ./internal/...
 
       - name: Upload coverage
         uses: actions/upload-artifact@v7
@@ -139,7 +143,10 @@ jobs:
         # integration) are actually compiled under the race detector. Without
         # the tag they were excluded, leaving the concurrency paths unchecked.
         # Same runner as the Test job, so Docker/testcontainers is available.
-        run: go test -race -tags=integration ./...
+        # -timeout 30m: the race detector makes the integration suite several
+        # times slower, so it needs a larger ceiling than the Test job's 20m to
+        # avoid Go's default 10m timeout panic on the shared runner.
+        run: go test -race -tags=integration -timeout 30m ./...
 
   coverage-report:
     name: Coverage Report
