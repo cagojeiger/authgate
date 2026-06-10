@@ -27,10 +27,31 @@ func registerRoutes(
 	mcpLoginHandler *handler.MCPLoginHandler,
 	isShuttingDown *atomic.Bool,
 ) {
+	// Build the per-IP rate limiters once and share them across both route
+	// groups. Building them per-registrar would give each group its own bucket
+	// map, so a single IP would get the configured burst separately on, e.g.,
+	// /authorize (provider) and /login (authgate) — silently doubling the
+	// effective limit and spawning duplicate cleanup goroutines.
+	lim := newRouteLimiters(cfg)
+
 	registerOAuthMetadataRoute(mux, cfg)
-	registerProviderRoutes(mux, cfg, store, provider)
-	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler)
+	registerProviderRoutes(mux, cfg, store, provider, lim)
+	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, lim)
 	registerHealthRoutes(mux, db, isShuttingDown)
+}
+
+// routeLimiters holds the shared rate-limiting middlewares: strict for token
+// endpoints, moderate for auth/login endpoints.
+type routeLimiters struct {
+	token func(http.Handler) http.Handler
+	auth  func(http.Handler) http.Handler
+}
+
+func newRouteLimiters(cfg *config.Config) routeLimiters {
+	return routeLimiters{
+		token: middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst),
+		auth:  middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst),
+	}
 }
 
 func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
@@ -75,10 +96,8 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 	})
 }
 
-func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *storage.Storage, provider http.Handler) {
-	// Rate limiters: strict for token endpoints, moderate for auth/login
-	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
-	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
+func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *storage.Storage, provider http.Handler, lim routeLimiters) {
+	tokenLimiter, authLimiter := lim.token, lim.auth
 
 	mux.Handle("/authorize", authLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource, err := storage.ResourceFromRequestStrict(r)
@@ -125,9 +144,9 @@ func registerAuthgateRoutes(
 	deviceHandler *handler.DeviceHandler,
 	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
+	lim routeLimiters,
 ) {
-	tokenLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitTokenRPS), cfg.RateLimitTokenBurst)
-	authLimiter := middleware.NewRateLimiter(rate.Limit(cfg.RateLimitAuthRPS), cfg.RateLimitAuthBurst)
+	tokenLimiter, authLimiter := lim.token, lim.auth
 
 	mux.Handle("/login", authLimiter(http.HandlerFunc(loginHandler.HandleLogin)))
 	mux.Handle("/login/callback", authLimiter(http.HandlerFunc(loginHandler.HandleCallback)))
