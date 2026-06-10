@@ -183,6 +183,7 @@ erDiagram
 | `auth.login` | 로그인 성공 | 브라우저/Device/MCP 로그인 |
 | `auth.channel_mismatch` | auth_request 채널 불일치 차단 | 브라우저/MCP 로그인 |
 | `auth.inactive_user` | 비활성 유저 로그인 시도 차단 | 브라우저/Device/MCP 로그인 |
+| `auth.device_code_issued` | 디바이스 코드 발급 | Device authorize 엔드포인트 |
 | `auth.device_approved` | Device 코드 승인 | Device 승인 페이지 |
 | `auth.device_denied` | Device 코드 거부 | Device 승인 페이지 |
 | `auth.deletion_requested` | 계정 삭제 요청 | 계정 삭제 API |
