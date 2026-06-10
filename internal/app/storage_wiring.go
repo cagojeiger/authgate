@@ -72,7 +72,13 @@ func configureMCPPoliciesIfEnabled(cfg *config.Config, store *storage.Storage) {
 		return
 	}
 	cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
-	clientPolicy := mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher)
+	coreResolver := storage.NewCoreClientResolutionPolicy(store)
+	// General client resolution (e.g. /authorize) may fetch CIMD documents.
+	clientPolicy := mcpadapter.NewClientResolutionPolicy(coreResolver, cimdFetcher)
 	store.SetClientResolutionPolicy(clientPolicy)
-	store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy(), clientPolicy))
+	// The resource-binding policy's token-endpoint check only needs the
+	// locally-known login_channel (browser clients are always in the local
+	// registry), so give it the NON-fetching core resolver — never trigger an
+	// outbound CIMD HTTP fetch on the hot /oauth/token path.
+	store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy(), coreResolver))
 }

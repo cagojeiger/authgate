@@ -90,10 +90,13 @@ func NewClientResolutionPolicy(base storage.ClientResolutionPolicy, fetcher stor
 	return &clientResolutionPolicy{base: base, fetcher: fetcher}
 }
 
-// NewResourceBindingPolicy returns the MCP-aware wrapper. `resolver` is
-// used to look up the client's login_channel for the legacy-data and
-// defense-in-depth checks at the token endpoint; it may be nil when the
-// caller has no client registry (test-only).
+// NewResourceBindingPolicy returns the MCP-aware wrapper. `resolver` is used to
+// look up the client's login_channel for the legacy-data and defense-in-depth
+// checks at the token endpoint; it may be nil when the caller has no client
+// registry (test-only). Pass a NON-fetching resolver (the core registry
+// lookup), not the CIMD-augmented one: the token check only needs to catch a
+// browser client carrying a resource, and browser clients are always locally
+// registered, so the token endpoint must never trigger an outbound CIMD fetch.
 func NewResourceBindingPolicy(base storage.ResourceBindingPolicy, resolver storage.ClientResolutionPolicy) storage.ResourceBindingPolicy {
 	return &resourceBindingPolicy{base: base, resolver: resolver}
 }
