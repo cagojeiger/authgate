@@ -38,3 +38,13 @@ WHERE id = $2 AND revoked_at IS NULL;
 SELECT user_id, id
 FROM refresh_tokens
 WHERE token_hash = $1 AND client_id = $2;
+
+-- name: TombstoneRefreshFamily :exec
+INSERT INTO refresh_token_families (family_id, user_id, reason, revoked_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (family_id) DO NOTHING;
+
+-- name: IsRefreshFamilyRevoked :one
+SELECT EXISTS (
+    SELECT 1 FROM refresh_token_families WHERE family_id = $1
+) AS revoked;

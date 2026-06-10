@@ -80,6 +80,13 @@ type RefreshToken struct {
 	CreatedAt time.Time
 }
 
+type RefreshTokenFamily struct {
+	FamilyID  string
+	UserID    string
+	Reason    string
+	RevokedAt time.Time
+}
+
 type Session struct {
 	ID        string
 	UserID    string

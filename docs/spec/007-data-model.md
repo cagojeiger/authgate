@@ -12,6 +12,7 @@ erDiagram
     users ||--o{ user_identities : "1:N (IdP 매핑)"
     users ||--o{ sessions : "1:N (로그인 상태)"
     users ||--o{ refresh_tokens : "1:N (토큰 갱신)"
+    users ||--o{ refresh_token_families : "1:N (재사용 tombstone)"
     users ||--o{ audit_log : "1:N (이벤트 기록)"
     users {
         uuid id PK "DEFAULT uuid_generate_v4()"
@@ -87,6 +88,13 @@ erDiagram
         timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 
+    refresh_token_families {
+        uuid family_id PK "tombstone된 family만 행 존재 (sparse)"
+        uuid user_id FK "NOT NULL, CASCADE"
+        text reason "NOT NULL, 예: reuse_detected"
+        timestamptz revoked_at "NOT NULL, DEFAULT NOW()"
+    }
+
     auth_requests {
         uuid id PK "DEFAULT uuid_generate_v4()"
         text client_id "NOT NULL"
@@ -152,6 +160,7 @@ erDiagram
 |--------|------|------|----------|
 | **sessions** | 로그인 상태 | SESSION_TTL (기본 24시간) | 만료 후 cleanup |
 | **refresh_tokens** | 토큰 갱신 권한 | REFRESH_TOKEN_TTL (기본 30일) | 폐기 후 30일 뒤 hard delete |
+| **refresh_token_families** | 재사용 감지로 폐기된 family tombstone | 영구 | CASCADE (users 삭제 시) |
 
 ### 임시 데이터
 
@@ -198,6 +207,7 @@ PK/UNIQUE/FK 제약 인덱스 외에 현재 명시적으로 생성하는 보조 
 | `sessions_user_id_idx` | `sessions (user_id)` | user 삭제 cascade 시 full scan 방지 (migration 012) |
 | `refresh_tokens_user_id_idx` | `refresh_tokens (user_id)` | user 삭제 cascade 시 full scan 방지 (migration 012) |
 | `refresh_tokens_family_id_idx` | `refresh_tokens (family_id)` | reuse 감지 family revoke (`WHERE family_id=$`) full scan 방지 (migration 012) |
+| `refresh_token_families_user_id_idx` | `refresh_token_families (user_id)` | user 삭제 cascade 시 full scan 방지 (migration 013) |
 
 현재 `sessions.expires_at`, `auth_requests.expires_at`, `device_codes.expires_at`, `refresh_tokens.expires_at/revoked_at`에는 별도 보조 인덱스를 만들지 않는다. 운영에서 조회 패턴이 커지면 다음 원칙으로 인덱스를 추가한다:
 1. 실제 병목 쿼리를 기준으로 추가한다.
@@ -222,6 +232,9 @@ FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 
 -- refresh_tokens
+FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+
+-- refresh_token_families
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 -- audit_log
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL

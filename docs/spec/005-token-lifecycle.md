@@ -132,6 +132,11 @@ sequenceDiagram
 **규칙**: 폐기된 토큰이 제출되면, 해당 `family_id`의 모든 토큰을 즉시 revoke한다.
 정상 유저는 재로그인해야 하지만, 공격자의 토큰도 무효화된다.
 
+재사용 감지는 기존 토큰 행을 revoke하는 동시에 `refresh_token_families`에 해당
+`family_id`의 **tombstone**을 남긴다(같은 트랜잭션). 토큰 발급 경로는 rotation 시
+family가 tombstone되었는지 확인하고, 되었으면 새 자식 토큰 발급을 거부한다. 이로써
+family revoke와 거의 동시에 진행되던 rotation이 끼워넣는 새 토큰까지 차단된다.
+
 ## 계정 상태별 토큰 동작
 
 [ADR-000](../adr/000-authgate-identity.md) 상태 판정 규칙과 일치:

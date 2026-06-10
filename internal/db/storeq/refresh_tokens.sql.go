@@ -120,6 +120,19 @@ func (q *Queries) InsertRefreshToken(ctx context.Context, arg InsertRefreshToken
 	return err
 }
 
+const isRefreshFamilyRevoked = `-- name: IsRefreshFamilyRevoked :one
+SELECT EXISTS (
+    SELECT 1 FROM refresh_token_families WHERE family_id = $1
+) AS revoked
+`
+
+func (q *Queries) IsRefreshFamilyRevoked(ctx context.Context, familyID string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isRefreshFamilyRevoked, familyID)
+	var revoked bool
+	err := row.Scan(&revoked)
+	return revoked, err
+}
+
 const markRefreshTokenUsedAndRevokedByID = `-- name: MarkRefreshTokenUsedAndRevokedByID :exec
 UPDATE refresh_tokens
 SET used_at = $1, revoked_at = $1
@@ -184,5 +197,28 @@ type RevokeRefreshTokenByIDParams struct {
 
 func (q *Queries) RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error {
 	_, err := q.db.ExecContext(ctx, revokeRefreshTokenByID, arg.RevokedAt, arg.ID)
+	return err
+}
+
+const tombstoneRefreshFamily = `-- name: TombstoneRefreshFamily :exec
+INSERT INTO refresh_token_families (family_id, user_id, reason, revoked_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (family_id) DO NOTHING
+`
+
+type TombstoneRefreshFamilyParams struct {
+	FamilyID  string
+	UserID    string
+	Reason    string
+	RevokedAt time.Time
+}
+
+func (q *Queries) TombstoneRefreshFamily(ctx context.Context, arg TombstoneRefreshFamilyParams) error {
+	_, err := q.db.ExecContext(ctx, tombstoneRefreshFamily,
+		arg.FamilyID,
+		arg.UserID,
+		arg.Reason,
+		arg.RevokedAt,
+	)
 	return err
 }
