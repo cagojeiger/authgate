@@ -15,9 +15,20 @@ erDiagram
     users ||--o{ audit_log : "1:N (이벤트 기록)"
     users {
         uuid id PK "DEFAULT uuid_generate_v4()"
-        text email UK "NOT NULL"
+        text email "nullable, 평문 (백필 후 cleanup PR에서 제거)"
+        bytea email_ciphertext "nullable, AEAD"
+        bytea email_nonce "nullable"
+        text email_enc_key_id "FK crypto_key_epochs"
+        int email_enc_version "nullable"
+        text email_hash "nullable, lookup HMAC, UNIQUE"
+        text email_hash_key_id "FK crypto_key_epochs"
+        int email_hash_version "nullable"
         boolean email_verified "NOT NULL, DEFAULT false"
-        text name "nullable"
+        text name "nullable, 평문 (제거 예정)"
+        bytea name_ciphertext "nullable, AEAD"
+        bytea name_nonce "nullable"
+        text name_enc_key_id "FK crypto_key_epochs"
+        int name_enc_version "nullable"
         text status "NOT NULL, DEFAULT 'active', CHECK (active/disabled/pending_deletion/deleted)"
         timestamptz deletion_requested_at "nullable"
         timestamptz deletion_scheduled_at "nullable"
@@ -248,6 +259,7 @@ MCP
 | 규칙 | 적용 |
 |------|------|
 | provider sub은 lookup HMAC + AEAD ciphertext로 저장 | `provider_sub_hash`(매칭) + `provider_sub_ciphertext`(회전 복구), 평문 `provider_user_id`는 백필 후 제거 |
+| email/name은 AEAD ciphertext로 저장, email은 lookup HMAC도 | `email_ciphertext`/`name_ciphertext` + `email_hash`(UNIQUE/정규화 lowercase+NFC), 평문 컬럼은 백필 후 제거. 탈퇴 시 ciphertext/hash redaction |
 | refresh_token은 SHA-256 해시로 저장 | `token_hash` 컬럼 |
 | 세션 쿠키(bearer)는 SHA-256 해시로 저장 | `sessions.token_hash` 컬럼 (`id`는 내부 PK, 쿠키 아님) |
 | audit_log.metadata의 `session_id`는 해시로 저장 | audit sanitize 시 SHA-256 (평문 bearer 미기록) |

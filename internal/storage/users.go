@@ -31,7 +31,9 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWi
 
 	err = s.insertUserForSignup(ctx, qtx, userID, input, now)
 	if err != nil {
-		if isUniqueViolation(err, "users_email_key") {
+		// Plaintext path conflicts on users_email_key; encrypted path on the
+		// email_hash unique index.
+		if isUniqueViolation(err, "users_email_key") || isUniqueViolation(err, usersEmailHashKey) {
 			return nil, ErrEmailConflict
 		}
 		return nil, err
@@ -57,13 +59,22 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWi
 }
 
 func (s *Storage) insertUserForSignup(ctx context.Context, qtx *storeq.Queries, userID string, input CreateUserWithIdentityInput, now time.Time) error {
-	return qtx.InsertUser(ctx, storeq.InsertUserParams{
+	params := storeq.InsertUserParams{
 		ID:            userID,
-		Email:         input.Email,
 		EmailVerified: input.EmailVerified,
-		Name:          sql.NullString{String: input.Name, Valid: true},
 		CreatedAt:     now,
-	})
+	}
+	// Encrypt email/name when keys are configured; otherwise keep the legacy
+	// plaintext path (ADR-002, keys-gated until the cleanup PR).
+	if s.keys != nil {
+		if err := s.applyUserPIIEncryption(&params, userID, input.Email, input.Name); err != nil {
+			return err
+		}
+	} else {
+		params.Email = nullStr(input.Email)
+		params.Name = nullStr(input.Name)
+	}
+	return qtx.InsertUser(ctx, params)
 }
 
 func (s *Storage) insertIdentityForSignup(ctx context.Context, qtx *storeq.Queries, userID string, input CreateUserWithIdentityInput, now time.Time) error {
@@ -100,7 +111,11 @@ func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, provi
 		if err != nil {
 			return nil, err
 		}
-		return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.Status, row.CreatedAt, row.UpdatedAt), nil
+		email, name, err := s.resolveUserPII(row.ID, row.Email, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.Name, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+		if err != nil {
+			return nil, err
+		}
+		return buildFullUser(row.ID, email, row.EmailVerified, name, row.Status, row.CreatedAt, row.UpdatedAt), nil
 	}
 	row, err := q.GetUserByProviderIdentity(ctx, storeq.GetUserByProviderIdentityParams{
 		Provider:       provider,
@@ -112,7 +127,11 @@ func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, provi
 	if err != nil {
 		return nil, err
 	}
-	return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.Status, row.CreatedAt, row.UpdatedAt), nil
+	email, name, err := s.resolveUserPII(row.ID, row.Email, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.Name, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+	if err != nil {
+		return nil, err
+	}
+	return buildFullUser(row.ID, email, row.EmailVerified, name, row.Status, row.CreatedAt, row.UpdatedAt), nil
 }
 
 func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*User, error) {
@@ -123,7 +142,11 @@ func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*
 	if err != nil {
 		return nil, err
 	}
-	return buildCoreUser(row.ID, row.Email, row.EmailVerified, row.Name, row.Status), nil
+	email, name, err := s.resolveUserPII(row.ID, row.Email, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.Name, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+	if err != nil {
+		return nil, err
+	}
+	return buildCoreUser(row.ID, email, row.EmailVerified, name, row.Status), nil
 }
 
 // GetUserByID returns a user by ID. Public wrapper for DB-level re-read after mutations.
@@ -135,7 +158,11 @@ func (s *Storage) GetUserByID(ctx context.Context, userID string) (*User, error)
 	if err != nil {
 		return nil, err
 	}
-	return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.Status, row.CreatedAt, row.UpdatedAt), nil
+	email, name, err := s.resolveUserPII(row.ID, row.Email, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.Name, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+	if err != nil {
+		return nil, err
+	}
+	return buildFullUser(row.ID, email, row.EmailVerified, name, row.Status, row.CreatedAt, row.UpdatedAt), nil
 }
 
 // RecoverUser recovers a pending_deletion user to active.
@@ -171,11 +198,15 @@ func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, user
 	if err != nil {
 		return err
 	}
+	email, name, err := s.resolveUserPII(row.ID, row.Email, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.Name, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+	if err != nil {
+		return err
+	}
 	u := &User{
 		ID:            row.ID,
-		Email:         row.Email,
+		Email:         email,
 		EmailVerified: row.EmailVerified,
-		Name:          nullStringToString(row.Name),
+		Name:          nullStringToString(name),
 	}
 
 	for _, scope := range scopes {
@@ -357,7 +388,11 @@ func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User,
 	if err != nil {
 		return nil, err
 	}
-	user := buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.Status, row.CreatedAt, row.UpdatedAt)
+	email, name, err := s.resolveUserPII(row.ID, row.Email, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.Name, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+	if err != nil {
+		return nil, err
+	}
+	user := buildFullUser(row.ID, email, row.EmailVerified, name, row.Status, row.CreatedAt, row.UpdatedAt)
 	if err := requireUsableUser(user); err != nil {
 		return user, err
 	}

@@ -4,6 +4,8 @@ VALUES ($1, $2, $3, $4, $5);
 
 -- name: GetValidSessionUser :one
 SELECT u.id, u.email, u.email_verified, u.name, u.status,
+       u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
+       u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
        u.created_at, u.updated_at
 FROM sessions s
 JOIN users u ON s.user_id = u.id

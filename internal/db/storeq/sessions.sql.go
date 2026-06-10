@@ -13,6 +13,8 @@ import (
 
 const getValidSessionUser = `-- name: GetValidSessionUser :one
 SELECT u.id, u.email, u.email_verified, u.name, u.status,
+       u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
+       u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
        u.created_at, u.updated_at
 FROM sessions s
 JOIN users u ON s.user_id = u.id
@@ -27,13 +29,21 @@ type GetValidSessionUserParams struct {
 }
 
 type GetValidSessionUserRow struct {
-	ID            string
-	Email         string
-	EmailVerified bool
-	Name          sql.NullString
-	Status        string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID              string
+	Email           sql.NullString
+	EmailVerified   bool
+	Name            sql.NullString
+	Status          string
+	EmailCiphertext []byte
+	EmailNonce      []byte
+	EmailEncKeyID   sql.NullString
+	EmailEncVersion sql.NullInt32
+	NameCiphertext  []byte
+	NameNonce       []byte
+	NameEncKeyID    sql.NullString
+	NameEncVersion  sql.NullInt32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (q *Queries) GetValidSessionUser(ctx context.Context, arg GetValidSessionUserParams) (GetValidSessionUserRow, error) {
@@ -45,6 +55,14 @@ func (q *Queries) GetValidSessionUser(ctx context.Context, arg GetValidSessionUs
 		&i.EmailVerified,
 		&i.Name,
 		&i.Status,
+		&i.EmailCiphertext,
+		&i.EmailNonce,
+		&i.EmailEncKeyID,
+		&i.EmailEncVersion,
+		&i.NameCiphertext,
+		&i.NameNonce,
+		&i.NameEncKeyID,
+		&i.NameEncVersion,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

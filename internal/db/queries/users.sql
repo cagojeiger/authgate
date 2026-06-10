@@ -1,6 +1,11 @@
 -- name: InsertUser :exec
-INSERT INTO users (id, email, email_verified, name, status, created_at, updated_at)
-VALUES ($1, $2, $3, $4, 'active', $5, $5);
+INSERT INTO users (
+    id, email, email_verified, name, status,
+    email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
+    email_hash, email_hash_key_id, email_hash_version,
+    name_ciphertext, name_nonce, name_enc_key_id, name_enc_version,
+    created_at, updated_at
+) VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16);
 
 -- name: InsertUserIdentity :exec
 INSERT INTO user_identities (
@@ -12,6 +17,8 @@ INSERT INTO user_identities (
 
 -- name: GetUserByProviderIdentity :one
 SELECT u.id, u.email, u.email_verified, u.name, u.status,
+       u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
+       u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
        u.created_at, u.updated_at
 FROM users u
 JOIN user_identities ui ON u.id = ui.user_id
@@ -19,6 +26,8 @@ WHERE ui.provider = $1 AND ui.provider_user_id = $2;
 
 -- name: GetUserByProviderSubHash :one
 SELECT u.id, u.email, u.email_verified, u.name, u.status,
+       u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
+       u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
        u.created_at, u.updated_at
 FROM users u
 JOIN user_identities ui ON u.id = ui.user_id
@@ -49,18 +58,51 @@ WHERE id = $1;
 
 -- name: GetUserByID :one
 SELECT id, email, email_verified, name, status,
+       email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
+       name_ciphertext, name_nonce, name_enc_key_id, name_enc_version,
        created_at, updated_at
 FROM users
 WHERE id = $1;
 
 -- name: GetUserForTxByID :one
-SELECT id, email, email_verified, name, status
+SELECT id, email, email_verified, name, status,
+       email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
+       name_ciphertext, name_nonce, name_enc_key_id, name_enc_version
 FROM users
 WHERE id = $1;
 
 -- name: GetUserInfoFieldsByID :one
-SELECT id, email, email_verified, name
+SELECT id, email, email_verified, name,
+       email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
+       name_ciphertext, name_nonce, name_enc_key_id, name_enc_version
 FROM users
+WHERE id = $1;
+
+-- name: ListUsersBackfill :many
+SELECT id, email, name
+FROM users
+WHERE email_hash IS NULL AND email IS NOT NULL
+ORDER BY id
+LIMIT $1;
+
+-- name: CountUsersUnbackfilled :one
+SELECT count(*)
+FROM users
+WHERE email_hash IS NULL AND email IS NOT NULL;
+
+-- name: BackfillUserPII :exec
+UPDATE users SET
+    email_ciphertext   = $2,
+    email_nonce        = $3,
+    email_enc_key_id   = $4,
+    email_enc_version  = $5,
+    email_hash         = $6,
+    email_hash_key_id  = $7,
+    email_hash_version = $8,
+    name_ciphertext    = $9,
+    name_nonce         = $10,
+    name_enc_key_id    = $11,
+    name_enc_version   = $12
 WHERE id = $1;
 
 -- name: CompleteAuthRequestByID :execrows
