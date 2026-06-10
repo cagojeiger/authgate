@@ -67,19 +67,44 @@ func (s *Storage) insertUserForSignup(ctx context.Context, qtx *storeq.Queries, 
 }
 
 func (s *Storage) insertIdentityForSignup(ctx context.Context, qtx *storeq.Queries, userID string, input CreateUserWithIdentityInput, now time.Time) error {
-	return qtx.InsertUserIdentity(ctx, storeq.InsertUserIdentityParams{
-		ID:             s.idgen.NewUUID(),
-		UserID:         userID,
-		Provider:       input.Provider,
-		ProviderUserID: input.ProviderUserID,
-		CreatedAt:      now,
-	})
+	params := storeq.InsertUserIdentityParams{
+		ID:        s.idgen.NewUUID(),
+		UserID:    userID,
+		Provider:  input.Provider,
+		CreatedAt: now,
+	}
+	// Encrypt the provider subject when keys are configured; otherwise keep the
+	// legacy plaintext path (ADR-002, keys-gated until the cleanup PR).
+	if s.keys != nil {
+		cols, err := s.encryptProviderSub(userID, input.Provider, input.ProviderUserID)
+		if err != nil {
+			return err
+		}
+		cols.applyTo(&params)
+	} else {
+		params.ProviderUserID = sql.NullString{String: input.ProviderUserID, Valid: true}
+	}
+	return qtx.InsertUserIdentity(ctx, params)
 }
 
 func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*User, error) {
-	row, err := storeq.New(s.db).GetUserByProviderIdentity(ctx, storeq.GetUserByProviderIdentityParams{
+	q := storeq.New(s.db)
+	if s.keys != nil {
+		row, err := q.GetUserByProviderSubHash(ctx, storeq.GetUserByProviderSubHashParams{
+			Provider:        provider,
+			ProviderSubHash: sql.NullString{String: s.keys.ProviderSubHash(provider, providerUserID), Valid: true},
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		return buildFullUser(row.ID, row.Email, row.EmailVerified, row.Name, row.Status, row.CreatedAt, row.UpdatedAt), nil
+	}
+	row, err := q.GetUserByProviderIdentity(ctx, storeq.GetUserByProviderIdentityParams{
 		Provider:       provider,
-		ProviderUserID: providerUserID,
+		ProviderUserID: sql.NullString{String: providerUserID, Valid: true},
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

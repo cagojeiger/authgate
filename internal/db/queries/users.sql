@@ -3,8 +3,12 @@ INSERT INTO users (id, email, email_verified, name, status, created_at, updated_
 VALUES ($1, $2, $3, $4, 'active', $5, $5);
 
 -- name: InsertUserIdentity :exec
-INSERT INTO user_identities (id, user_id, provider, provider_user_id, created_at)
-VALUES ($1, $2, $3, $4, $5);
+INSERT INTO user_identities (
+    id, user_id, provider, provider_user_id,
+    provider_sub_hash, provider_sub_hash_key_id, provider_sub_hash_version,
+    provider_sub_ciphertext, provider_sub_nonce, provider_sub_enc_key_id, provider_sub_enc_version,
+    created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
 
 -- name: GetUserByProviderIdentity :one
 SELECT u.id, u.email, u.email_verified, u.name, u.status,
@@ -12,6 +16,36 @@ SELECT u.id, u.email, u.email_verified, u.name, u.status,
 FROM users u
 JOIN user_identities ui ON u.id = ui.user_id
 WHERE ui.provider = $1 AND ui.provider_user_id = $2;
+
+-- name: GetUserByProviderSubHash :one
+SELECT u.id, u.email, u.email_verified, u.name, u.status,
+       u.created_at, u.updated_at
+FROM users u
+JOIN user_identities ui ON u.id = ui.user_id
+WHERE ui.provider = $1 AND ui.provider_sub_hash = $2;
+
+-- name: ListProviderSubBackfill :many
+SELECT id, user_id, provider, provider_user_id
+FROM user_identities
+WHERE provider_sub_hash IS NULL AND provider_user_id IS NOT NULL
+ORDER BY id
+LIMIT $1;
+
+-- name: CountProviderSubUnbackfilled :one
+SELECT count(*)
+FROM user_identities
+WHERE provider_sub_hash IS NULL AND provider_user_id IS NOT NULL;
+
+-- name: BackfillProviderSub :exec
+UPDATE user_identities SET
+    provider_sub_hash         = $2,
+    provider_sub_hash_key_id  = $3,
+    provider_sub_hash_version = $4,
+    provider_sub_ciphertext   = $5,
+    provider_sub_nonce        = $6,
+    provider_sub_enc_key_id   = $7,
+    provider_sub_enc_version  = $8
+WHERE id = $1;
 
 -- name: GetUserByID :one
 SELECT id, email, email_verified, name, status,
