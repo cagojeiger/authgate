@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
-	"github.com/kangheeyong/authgate/internal/crypto"
 	"github.com/kangheeyong/authgate/internal/idgen"
 )
 
@@ -70,11 +69,6 @@ type Storage struct {
 	clients            sync.Map // map[string]*ClientModel (client_id → client)
 	clientPolicy       ClientResolutionPolicy
 	resourcePolicy     ResourceBindingPolicy
-	// PII at-rest encryption (ADR-002). nil until SetKEKProvider is called; the
-	// DEK manager errors with ErrEncryptionNotConfigured while unset, so the
-	// rest of authgate runs unchanged until a consuming change wires keys in.
-	// The HMAC pepper provider arrives with the first hashing consumer (PR-C).
-	kekProvider *crypto.KEKProvider
 }
 
 func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecker, accessTTL, refreshTTL time.Duration) *Storage {
