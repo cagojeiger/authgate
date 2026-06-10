@@ -26,6 +26,18 @@ erDiagram
         timestamptz updated_at "NOT NULL, DEFAULT NOW()"
     }
 
+    crypto_key_epochs {
+        text key_id PK "영구 식별자, regex 제약"
+        text domain "enc | lookup"
+        text status "active | verify_only | revoked"
+        text verify_tag "HMAC(epoch-verify subkey, key-epoch:v1:domain:key_id)"
+        int version "HKDF/crypto material format version"
+        timestamptz created_at "NOT NULL, DEFAULT NOW()"
+        timestamptz activated_at "nullable"
+        timestamptz retired_at "nullable"
+        timestamptz revoked_at "nullable"
+    }
+
     user_identities {
         uuid id PK "DEFAULT uuid_generate_v4()"
         uuid user_id FK "NOT NULL, CASCADE"

@@ -40,6 +40,18 @@ type AuthRequest struct {
 	CreatedAt           time.Time
 }
 
+type CryptoKeyEpoch struct {
+	KeyID       string
+	Domain      string
+	Status      string
+	VerifyTag   string
+	Version     int32
+	CreatedAt   time.Time
+	ActivatedAt sql.NullTime
+	RetiredAt   sql.NullTime
+	RevokedAt   sql.NullTime
+}
+
 type DeviceCode struct {
 	ID           string
 	DeviceCode   string
