@@ -87,7 +87,7 @@ func (s *Storage) AuthRequestByID(ctx context.Context, id string) (op.AuthReques
 }
 
 func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRequest, error) {
-	row, err := storeq.New(s.db).GetAuthRequestByCode(ctx, sql.NullString{String: code, Valid: true})
+	row, err := storeq.New(s.db).GetAuthRequestByCode(ctx, sql.NullString{String: s.codeAtRest(code), Valid: true})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -95,6 +95,8 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 		return nil, err
 	}
 	ar := authRequestModelFromRowByCode(row)
+	// Surface the plaintext code the caller supplied, not the stored hash.
+	ar.Code = &code
 	if s.clock.Now().After(ar.ExpiresAt) {
 		return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "authorization code expired"}
 	}
@@ -116,7 +118,7 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 
 func (s *Storage) SaveAuthCode(ctx context.Context, id string, code string) error {
 	return storeq.New(s.db).UpdateAuthRequestCode(ctx, storeq.UpdateAuthRequestCodeParams{
-		Code: sql.NullString{String: code, Valid: true},
+		Code: sql.NullString{String: s.codeAtRest(code), Valid: true},
 		ID:   id,
 	})
 }

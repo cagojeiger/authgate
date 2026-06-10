@@ -260,6 +260,7 @@ MCP
 |------|------|
 | provider sub은 lookup HMAC + AEAD ciphertext로 저장 | `provider_sub_hash`(매칭) + `provider_sub_ciphertext`(회전 복구), 평문 `provider_user_id`는 백필 후 제거 |
 | email/name은 AEAD ciphertext로 저장, email은 lookup HMAC도 | `email_ciphertext`/`name_ciphertext` + `email_hash`(UNIQUE/정규화 lowercase+NFC), 평문 컬럼은 백필 후 제거. 탈퇴 시 ciphertext/hash redaction |
+| 단명 코드(device_code/user_code/authz code)는 lookup HMAC로 저장 | 기존 컬럼에 in-place 해시(키 설정 시). 짧은 수명이라 drain, 반환 모델은 평문 입력값 |
 | refresh_token은 SHA-256 해시로 저장 | `token_hash` 컬럼 |
 | 세션 쿠키(bearer)는 SHA-256 해시로 저장 | `sessions.token_hash` 컬럼 (`id`는 내부 PK, 쿠키 아님) |
 | audit_log.metadata의 `session_id`는 해시로 저장 | audit sanitize 시 SHA-256 (평문 bearer 미기록) |

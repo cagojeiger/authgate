@@ -113,8 +113,8 @@ func (s *Storage) Health(ctx context.Context) error {
 func (s *Storage) StoreDeviceAuthorization(ctx context.Context, clientID, deviceCode, userCode string, expires time.Time, scopes []string) error {
 	if err := storeq.New(s.db).InsertDeviceCode(ctx, storeq.InsertDeviceCodeParams{
 		ID:         s.idgen.NewUUID(),
-		DeviceCode: deviceCode,
-		UserCode:   userCode,
+		DeviceCode: s.codeAtRest(deviceCode),
+		UserCode:   s.codeAtRest(userCode),
 		ClientID:   clientID,
 		Scopes:     scopes,
 		ExpiresAt:  expires,
@@ -139,7 +139,7 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 	defer func() { _ = tx.Rollback() }()
 	qtx := storeq.New(tx)
 
-	dc, err := loadDeviceAuthorizationForUpdate(ctx, qtx, clientID, deviceCode)
+	dc, err := loadDeviceAuthorizationForUpdate(ctx, qtx, clientID, s.codeAtRest(deviceCode))
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +208,7 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 
 // GetDeviceCodeByUserCode looks up a device code by user_code for the approval page.
 func (s *Storage) GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*DeviceCodeModel, error) {
-	row, err := storeq.New(s.db).GetDeviceCodeByUserCode(ctx, userCode)
+	row, err := storeq.New(s.db).GetDeviceCodeByUserCode(ctx, s.codeAtRest(userCode))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -216,9 +216,11 @@ func (s *Storage) GetDeviceCodeByUserCode(ctx context.Context, userCode string) 
 		return nil, err
 	}
 	return &DeviceCodeModel{
-		ID:         row.ID,
-		DeviceCode: row.DeviceCode,
-		UserCode:   row.UserCode,
+		ID: row.ID,
+		// Return the plaintext user_code the caller supplied, never the stored
+		// hash. device_code is not surfaced by the approval flow.
+		DeviceCode: "",
+		UserCode:   userCode,
 		ClientID:   row.ClientID,
 		Scopes:     StringArray(row.Scopes),
 		State:      row.State,
@@ -234,7 +236,7 @@ func (s *Storage) ApproveDeviceCode(ctx context.Context, userCode, subject strin
 	rows, err := storeq.New(s.db).ApproveDeviceCodeByUserCode(ctx, storeq.ApproveDeviceCodeByUserCodeParams{
 		Subject:  sql.NullString{String: subject, Valid: true},
 		AuthTime: sql.NullTime{Time: now, Valid: true},
-		UserCode: userCode,
+		UserCode: s.codeAtRest(userCode),
 	})
 	if err != nil {
 		return err
@@ -244,7 +246,7 @@ func (s *Storage) ApproveDeviceCode(ctx context.Context, userCode, subject strin
 
 // DenyDeviceCode sets a device code to denied state.
 func (s *Storage) DenyDeviceCode(ctx context.Context, userCode string) error {
-	return storeq.New(s.db).DenyDeviceCodeByUserCode(ctx, userCode)
+	return storeq.New(s.db).DenyDeviceCodeByUserCode(ctx, s.codeAtRest(userCode))
 }
 
 // Compile-time interface checks
