@@ -1,0 +1,63 @@
+# Spec 010: 업그레이드 & 하위 호환
+
+## 개요
+
+버전 간 **업그레이드 순서**와 **하위 호환이 깨지는(backward-incompatible) 변경**을 정리한다.
+대부분의 릴리즈는 순서와 무관하게 올릴 수 있지만, 아래 항목은 정해진 순서를 지켜야 하고
+일부는 배포 방식(롤링 금지 등)에 제약이 있다.
+
+마이그레이션 자체는 authgate 시작 시 자동 적용된다 ([009 운영](009-operations.md) 참조).
+이 문서는 "어떤 순서로, 어떤 주의로 버전을 올리는가"를 다룬다.
+
+## PII 암호화 → 평문 제거 (2단계, 순서 필수)
+
+PII 평문(email / name / provider_user_id)을 암호화 컬럼으로 옮기는 작업은 **두 릴리즈에 걸쳐**
+적용된다. 순서를 지키지 않으면 평문 PII가 암호화되지 못한 채 컬럼이 사라져 복구 불가다.
+
+```
+[1단계] PII 암호화 릴리즈 (backfill 수행)        — 하위 호환 유지
+   · 부팅 시 기존 평문을 암호화 + 평문 컬럼을 NULL로 비운다 (신규 컬럼만 추가)
+   · backfill 완료 확인
+            ↓  (count 둘 다 0 확인 후에만)
+[2단계] 평문 제거(cleanup) 릴리즈                 — ⚠️ 하위 호환 깨짐
+   · 평문 컬럼 + 구 평문 UNIQUE 제약을 DROP (backfill 코드 없음)
+```
+
+### 1단계: PII 암호화 (backfill)
+
+- 부팅 시 기존 평문(`email` / `name` / `provider_user_id`)을 암호화하고 평문 컬럼을 `NULL`로
+  비운다.
+- `DEV_MODE=false`면 PII 키 4개(`PII_ENC_ROOT_*`, `PII_LOOKUP_ROOT_*`)가 필수다.
+- 배포 후 backfill 완료를 반드시 확인한다 (둘 다 `0`이어야 함):
+
+  ```sql
+  SELECT count(*) FROM users
+    WHERE email_hash IS NULL AND email IS NOT NULL;
+  SELECT count(*) FROM user_identities
+    WHERE provider_sub_hash IS NULL AND provider_user_id IS NOT NULL;
+  ```
+
+- 이 단계는 **하위 호환을 깨지 않는다.** 신규 컬럼만 추가되고 평문 컬럼은 그대로 남으므로,
+  이전 버전 바이너리와 공존해도 안전하다.
+
+### 2단계: 평문 제거 (cleanup) — 하위 호환 깨짐
+
+- 평문 컬럼(`users.email` / `users.name` / `user_identities.provider_user_id`)과 구 평문
+  UNIQUE 제약을 DROP한다.
+- **하위 호환이 깨지는 지점:**
+  - 평문 컬럼을 참조하던 **이전 버전의 쿼리는 `column does not exist`로 실패**한다.
+    롤링 배포로 구/신 바이너리가 공존하면 구버전이 깨진다.
+    → 단일 인스턴스 교체(구버전 종료 → 마이그레이션 → 신버전 시작)로 배포한다.
+  - DB를 외부(read-replica, 분석 파이프라인 등)와 공유 중이면 그쪽도 영향을 받는다.
+- **전제 조건:**
+  - 1단계 backfill이 100% 끝나 있어야 한다 (남은 평문 행이 있으면 영구 유실).
+  - 평문 `email`을 쓰던 계정 삭제 tombstone(`deleted-<id>@deleted.invalid`)을 다른 방식으로
+    먼저 옮겨야 한다.
+
+## 규칙 요약
+
+- 1단계를 거치지 않고 이전 버전에서 cleanup 릴리즈로 **직행 금지** (PII 유실).
+- 1단계 배포 후 backfill count가 `0`이 아니면 cleanup으로 **넘어가지 않는다**.
+- cleanup은 하위 호환을 깨므로 **롤링 배포 금지**, 단일 인스턴스 교체로 배포한다.
+- **다운그레이드 불가:** cleanup 이후에는 평문 컬럼이 없으므로 이전 버전으로 롤백할 수 없다.
+  되돌리려면 컬럼 복원 + 키로 복호화하여 평문 재생성이 필요하며 비권장이다.
