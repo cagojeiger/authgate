@@ -290,7 +290,7 @@ authgate의 CIMD 처리:
   4. 검증 성공 → 메모리에서 ClientModel 생성 → 플로우 진행
 ```
 
-### URL-form static client_id 금지 (#190)
+### URL-form static client_id 금지
 
 `clients.yaml`의 정적 등록 항목 중 `client_id`가 CIMD URL 형식 (HTTPS + path 포함)이면
 설정 로드 시점에 거부한다. `ResolveClient`는 정적 in-memory 맵을 CIMD fetcher보다 먼저

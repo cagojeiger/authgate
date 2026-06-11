@@ -354,7 +354,7 @@ Go runtime/process Prometheus metrics를 노출한다. 운영에서는
 | runtime/process | `METRICS_ADDR` opt-in 후 내부 Prometheus scrape | goroutine, heap, GC, process resource 급증 |
 | audit 쓰기 실패 | `slog.Error` 로그 (`audit log: marshal metadata`, `audit log: insert`) | 침해 탐지 인프라 silent broken (#208) |
 
-### audit_log 쓰기 실패 모니터링 (#208)
+### audit_log 쓰기 실패 모니터링
 
 `Storage.AuditLog`는 best-effort write이므로 marshal/insert 실패가 비즈니스 트랜잭션을 차단하지 않는다. 그러나 감사 로그가 silent하게 누락되면 침해 탐지 능력 자체가 무력화되므로 실패는 구조화 로그로 남긴다.
 

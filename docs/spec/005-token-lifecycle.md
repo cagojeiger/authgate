@@ -232,7 +232,7 @@ sequenceDiagram
 **RFC 7009 준수**: 토큰이 존재하지 않거나 이미 폐기된 경우에도 200 OK 반환.
 토큰 존재 여부를 외부에 노출하지 않는다.
 
-## Logout vs. Revoke (#191)
+## Logout vs. Revoke
 
 OIDC RP-Initiated Logout 1.0 §2의 `/end_session` 엔드포인트와 RFC 7009의
 `/oauth/revoke` 엔드포인트는 **별개의 개념**이다. authgate는 이 두 경로를 분리해서 처리한다.
