@@ -2,17 +2,9 @@ package middleware
 
 import "net/http"
 
-// contentSecurityPolicy is tuned for authgate's served HTML (the device-entry,
-// device-approve, result and error pages under internal/pages/templates).
-// Those pages use exactly one inline <style> block plus Google Fonts and carry
-// no scripts, no event-handler attributes and no <img> tags. The policy:
-//   - default-src 'none' denies everything not explicitly re-allowed, so
-//     script-src inherits 'none' — no inline or remote JS can ever execute.
-//   - style-src allows the inline <style> ('unsafe-inline') and the Google
-//     Fonts stylesheet; font-src allows the gstatic font files.
-//   - frame-ancestors 'none' and base-uri 'none' block clickjacking and <base>
-//     hijacking. The JSON API responses also receive this header harmlessly —
-//     browsers load no subresources from a JSON body.
+// contentSecurityPolicy matches authgate's static HTML (internal/pages/templates):
+// no scripts, one inline <style> block, Google Fonts only. See
+// docs/security/002-http-security-headers.md for the full rationale.
 const contentSecurityPolicy = "default-src 'none'; " +
 	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
 	"font-src https://fonts.gstatic.com; " +
@@ -26,15 +18,9 @@ const contentSecurityPolicy = "default-src 'none'; " +
 // control. Operators who want a stronger policy can layer it at the proxy.
 const strictTransportSecurity = "max-age=31536000"
 
-// SecurityHeaders returns middleware that sets baseline security response
-// headers on every response. It is wired as the OUTERMOST middleware so the
-// headers are present on error responses and CORS preflight replies too. The
-// headers are set before the inner handler runs, so they land in the header map
-// regardless of which downstream handler commits the response.
-//
-// devMode gates Strict-Transport-Security: in dev the server runs over plain
-// HTTP (and PUBLIC_URL is http://), where an HSTS header would be ignored by
-// browsers anyway and only confuse local testing.
+// SecurityHeaders sets baseline security headers on every response. Wire it as
+// the OUTERMOST middleware so they reach error and CORS-preflight replies too.
+// devMode omits HSTS (dev serves plain HTTP, where browsers ignore it anyway).
 func SecurityHeaders(devMode bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -25,23 +25,16 @@ func (p *clientResolutionPolicy) ResolveClient(ctx context.Context, clientID str
 	return nil, err
 }
 
+// resourceBindingPolicy enforces authgate's RFC 8707 §2.2 channel × resource
+// matrix (spec 004): mcp clients REQUIRE a resource (the token's audience);
+// browser clients MUST NOT carry one — a browser minting an MCP-audience token
+// is a boundary-confusion attack (#184).
 type resourceBindingPolicy struct {
 	base     storage.ResourceBindingPolicy
 	resolver storage.ClientResolutionPolicy
 }
 
-// ValidateAuthorizeRequest enforces the channel × resource matrix per
-// RFC 8707 §2.2 AS-side policy and authgate spec 004:
-//   - login_channel='mcp'     ⇒ resource is REQUIRED (the token would
-//     otherwise have no audience to bind to)
-//   - login_channel='browser' ⇒ resource MUST NOT be present (a browser
-//     client minting an MCP-audience token is a
-//     boundary-confusion attack — issue #184)
-//
-// Once /authorize rejects browser+resource here, the core policy's
-// existing "unexpected resource" check at /oauth/token covers the
-// follow-on token and refresh paths transitively (storedResource will
-// be empty for browser-channel auth_requests / refresh_tokens).
+// ValidateAuthorizeRequest is the primary enforcement point for the matrix.
 func (p *resourceBindingPolicy) ValidateAuthorizeRequest(ctx context.Context, client *storage.ClientModel, requestResource string) error {
 	if client != nil {
 		if client.LoginChannel == "mcp" {
@@ -57,22 +50,10 @@ func (p *resourceBindingPolicy) ValidateAuthorizeRequest(ctx context.Context, cl
 	return p.base.ValidateAuthorizeRequest(ctx, client, requestResource)
 }
 
-// ValidateTokenRequest enforces the channel × resource matrix at the
-// token endpoint. The /authorize gate is the primary enforcement point;
-// this hook makes the fix self-healing for any data minted before the
-// gate landed and is a defense-in-depth pass for direct token requests.
-//
-//   - A non-empty `storedResource` on a non-MCP client is a refresh
-//     token (or auth_request) created before #184 closed the gate.
-//     Reject with `invalid_grant` so the legacy binding fails closed
-//     on first reuse rather than continuing to mint MCP-aud tokens
-//     forever.
-//   - A non-empty `requestResource` on a non-MCP client mirrors the
-//     /authorize check on the off chance the request bypassed the
-//     primary gate.
-//
-// `resolver` may be nil; in that case the wrapper degrades to base
-// behavior (used by tests that don't need legacy-data coverage).
+// ValidateTokenRequest re-checks the matrix at the token endpoint: a non-mcp
+// client with a stored resource (legacy data) is rejected with invalid_grant so
+// it fails closed on reuse, and a non-mcp client carrying a request resource is
+// rejected too. resolver may be nil (test-only → base behavior).
 func (p *resourceBindingPolicy) ValidateTokenRequest(ctx context.Context, clientID, storedResource, requestResource string) error {
 	if (storedResource != "" || requestResource != "") && p.resolver != nil {
 		client, err := p.resolver.ResolveClient(ctx, clientID)

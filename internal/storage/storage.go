@@ -71,8 +71,7 @@ type Storage struct {
 	clientPolicy       ClientResolutionPolicy
 	resourcePolicy     ResourceBindingPolicy
 	// keys holds the PII at-rest crypto subkeys (ADR-002). nil until SetKeys is
-	// called at startup; while nil, encryption is inert and authgate runs
-	// unchanged. The first encrypting consumer (PR2) requires it in production.
+	// called at startup; while nil, encryption is inert. Required in production.
 	keys *crypto.Keys
 }
 
