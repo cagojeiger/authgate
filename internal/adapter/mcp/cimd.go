@@ -65,10 +65,9 @@ const (
 
 	// cimdFloorTTL is the minimum positive-cache TTL applied to any
 	// successful response. Server-stated max-age values smaller than this
-	// (or `no-store` / `no-cache` / `max-age<=0`, which previously bypassed
-	// the cache entirely) are raised to the floor so back-to-back identical
-	// fetches cannot keep stalling the worker pool when the upstream is
-	// slow (see #158).
+	// (including `no-store` / `no-cache` / `max-age<=0`) are raised to the
+	// floor so back-to-back identical fetches cannot keep stalling the
+	// worker pool when the upstream is slow (see #158).
 	cimdFloorTTL = 5 * time.Second
 )
 

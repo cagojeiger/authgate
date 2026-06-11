@@ -65,7 +65,7 @@ func (s *Storage) insertUserForSignup(ctx context.Context, qtx *storeq.Queries, 
 		CreatedAt:     now,
 	}
 	// Encrypt email/name when keys are configured; otherwise keep the legacy
-	// plaintext path (ADR-002, keys-gated until the cleanup PR).
+	// plaintext path (ADR-002, keys-gated).
 	if s.keys != nil {
 		if err := s.applyUserPIIEncryption(&params, userID, input.Email, input.Name); err != nil {
 			return err
@@ -85,7 +85,7 @@ func (s *Storage) insertIdentityForSignup(ctx context.Context, qtx *storeq.Queri
 		CreatedAt: now,
 	}
 	// Encrypt the provider subject when keys are configured; otherwise keep the
-	// legacy plaintext path (ADR-002, keys-gated until the cleanup PR).
+	// legacy plaintext path (ADR-002, keys-gated).
 	if s.keys != nil {
 		cols, err := s.encryptProviderSub(userID, input.Provider, input.ProviderUserID)
 		if err != nil {

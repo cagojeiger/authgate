@@ -31,9 +31,7 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, 
 
 	resource := ResourceFromContext(ctx)
 	// #184: validate the channel × resource matrix on every /authorize, not
-	// only when resource is empty. Previously the validate call was gated on
-	// `resource == ""`, which let a browser client pass an MCP-bound
-	// resource through unchallenged and mint tokens with an MCP audience.
+	// only when resource is empty.
 	client, err := s.ResolveClient(ctx, req.ClientID)
 	if err == nil {
 		if err := s.resourcePolicy.ValidateAuthorizeRequest(ctx, client, resource); err != nil {
@@ -267,14 +265,10 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 	return rt, nil
 }
 
-// TerminateSession implements OIDC RP-Initiated Logout 1.0 §2 by revoking
-// session rows for the user. Per RFC 7009 / OIDC RP-Initiated Logout, this
-// does NOT cascade into refresh-token revocation: the two endpoints are
-// deliberately distinct in the protocol, and RPs that need full token
-// invalidation must call `/oauth/revoke` separately. The `auth.logout`
-// audit event therefore signals "session terminated" only — see the
-// EventAuthLogout doc-block in audit.go and docs/spec/005-token-lifecycle.md
-// "Logout vs. Revoke" (#191).
+// TerminateSession revokes the user's server-side session rows only; per OIDC
+// RP-Initiated Logout 1.0 §2 vs RFC 7009 it does NOT revoke refresh tokens (RPs
+// must call /oauth/revoke). See docs/spec/005-token-lifecycle.md "Logout vs.
+// Revoke".
 func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID string) error {
 	err := storeq.New(s.db).RevokeSessionsByUserID(ctx, storeq.RevokeSessionsByUserIDParams{
 		RevokedAt: sql.NullTime{Time: s.clock.Now(), Valid: true},
@@ -284,10 +278,8 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 		return err
 	}
 	info := clientinfo.FromContext(ctx)
-	// Codex review NIT-3 on #191: emit client_id + client_name so the
-	// auth.logout event satisfies the audit-011 invariant ("any client-
-	// context event records both"). The clientID arrives from zitadel's
-	// RP-Initiated Logout dispatch.
+	// Emit client_id + client_name so auth.logout carries client context
+	// (audit-011 invariant). clientID arrives from zitadel's logout dispatch.
 	s.AuditLog(ctx, &userID, EventAuthLogout, info.IP, info.UserAgent, map[string]any{
 		"client_id":   clientID,
 		"client_name": s.auditClientName(ctx, clientID),

@@ -69,22 +69,9 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 			"response_types_supported":         []string{"code"},
 			"grant_types_supported":            []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
 			"code_challenge_methods_supported": []string{"S256"},
-			// #189 / RFC 8414 §2: zitadel/oidc's /oauth/token branch always
-			// accepts `client_secret_basic` (the OIDC default), accepts
-			// `client_secret_post` because op.Config.AuthMethodPost=true,
-			// and accepts `none` for public clients. Advertise all three so
-			// confidential clients trusting discovery don't pick the wrong
-			// credential location and silently fail. The /oauth/revoke
-			// branch (RFC 7009) accepts the same set, so mirror it.
-			//
-			// /oauth/introspect (RFC 7662) is mounted by zitadel by default
-			// at the OP's IntrospectionEndpoint() and authenticates via
-			// `ClientIDFromRequest` which only flips `authenticated=true`
-			// for `ClientBasicAuth` or `ClientJWTAuth`. Form-based Post
-			// credentials don't authenticate the introspector, so we
-			// advertise only `client_secret_basic` here — matching
-			// zitadel/oidc's own discovery default in
-			// `AuthMethodsIntrospectionEndpoint`.
+			// Auth methods must match zitadel/oidc behavior (RFC 8414 §2):
+			// token + revoke accept none/basic/post; introspection authenticates
+			// only via Basic. See docs/spec/004-mcp-login.md for the rationale.
 			"token_endpoint_auth_methods_supported":         []string{"none", "client_secret_basic", "client_secret_post"},
 			"revocation_endpoint_auth_methods_supported":    []string{"none", "client_secret_basic", "client_secret_post"},
 			"introspection_endpoint_auth_methods_supported": []string{"client_secret_basic"},
