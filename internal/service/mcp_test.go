@@ -23,7 +23,7 @@ func setupMCPTest(t *testing.T) (*MCPLoginService, *storage.Storage, *upstream.U
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
-	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	store := newTestStore(t, db, clk, gen, noopChecker)
 
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "mcp-sub-123", Email: "mcp@test.com", EmailVerified: true, Name: "MCP User"},

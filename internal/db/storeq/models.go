@@ -98,9 +98,7 @@ type Session struct {
 
 type User struct {
 	ID                  string
-	Email               sql.NullString
 	EmailVerified       bool
-	Name                sql.NullString
 	Status              string
 	DeletionRequestedAt sql.NullTime
 	DeletionScheduledAt sql.NullTime
@@ -124,7 +122,6 @@ type UserIdentity struct {
 	ID                     string
 	UserID                 string
 	Provider               string
-	ProviderUserID         sql.NullString
 	CreatedAt              time.Time
 	ProviderSubHash        sql.NullString
 	ProviderSubHashKeyID   sql.NullString

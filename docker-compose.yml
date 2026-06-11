@@ -35,6 +35,11 @@ services:
       OIDC_INTERNAL_URL: http://mock-idp:8082
       OIDC_CLIENT_ID: authgate
       OIDC_CLIENT_SECRET: fake-secret
+      # PII at-rest 암호화는 필수다 (ADR-002, 평문 컬럼 제거 후). 아래는 로컬 dev 전용 더미 키.
+      PII_ENC_ROOT_KEY_ID: "enc-dev-1"
+      PII_ENC_ROOT_SECRET: "ISA5aviCx54GVBxSHvU8nqcYwC5JKOj5OFUj7uwzuUA="
+      PII_LOOKUP_ROOT_KEY_ID: "lookup-dev-1"
+      PII_LOOKUP_ROOT_SECRET: "/lXaqOM5dvoYzptzzEJ5oF3n+OyEQ/etgXmCDb5bJLI="
     depends_on:
       db:
         condition: service_healthy

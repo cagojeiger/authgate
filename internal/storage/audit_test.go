@@ -20,7 +20,7 @@ func TestAudit010And011_RefreshReuseAndFamilyRevoke(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
-	store := New(db, clk, gen, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour)
+	store := withTestKeys(t, New(db, clk, gen, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour))
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "audit-refresh@test.com", EmailVerified: true, Name: "Refresh Audit", Provider: "google", ProviderUserID: "audit-refresh-sub"})
@@ -68,7 +68,7 @@ func TestAudit010And011_RefreshReuseAndFamilyRevoke(t *testing.T) {
 func TestAuditLog_AppendOnlyGuardAllowsPIIRedactionOnly(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
-	store := New(db, clk, idgen.CryptoGenerator{}, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour)
+	store := withTestKeys(t, New(db, clk, idgen.CryptoGenerator{}, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour))
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "audit-guard@test.com", EmailVerified: true, Name: "Audit Guard", Provider: "google", ProviderUserID: "audit-guard-sub"})
@@ -168,7 +168,7 @@ func TestAuditLogIndexes(t *testing.T) {
 func TestAuditDeviceCodeIssued(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
-	store := New(db, clk, idgen.CryptoGenerator{}, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour)
+	store := withTestKeys(t, New(db, clk, idgen.CryptoGenerator{}, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour))
 	store.LoadClients([]ClientConfigEntry{{
 		ClientID: "device-client",
 		Name:     "Device Client",

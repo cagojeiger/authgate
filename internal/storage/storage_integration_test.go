@@ -15,13 +15,33 @@ import (
 	"github.com/kangheeyong/authgate/internal/testutil"
 )
 
-func testStorage(t *testing.T) *Storage {
+// testStorageNoKeys builds a Storage WITHOUT PII keys. Only the inert-path test
+// (EnsureCryptoEpochs when unconfigured) should use this; user-creating tests
+// need keys (testStorage / withTestKeys).
+func testStorageNoKeys(t *testing.T) *Storage {
 	t.Helper()
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *User) error { return nil }
 	return New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+}
+
+// withTestKeys wires PII encryption keys into a Storage and registers epochs.
+// PII is always encrypted at rest (ADR-002); keys are mandatory for any test
+// that creates users or sessions.
+func withTestKeys(t *testing.T, s *Storage) *Storage {
+	t.Helper()
+	s.SetKeys(testKeys(t, "enc-1", 0x11, "lkp-1", 0x22))
+	if err := s.EnsureCryptoEpochs(context.Background()); err != nil {
+		t.Fatalf("ensure epochs: %v", err)
+	}
+	return s
+}
+
+func testStorage(t *testing.T) *Storage {
+	t.Helper()
+	return withTestKeys(t, testStorageNoKeys(t))
 }
 
 func TestCreateUserWithIdentity_Atomic(t *testing.T) {
@@ -201,8 +221,8 @@ func TestSession_TokenStoredHashed(t *testing.T) {
 	if tokenHash == token {
 		t.Error("token_hash equals the raw bearer; want hash")
 	}
-	if tokenHash != hashToken(token) {
-		t.Errorf("token_hash = %q, want hashToken(token) %q", tokenHash, hashToken(token))
+	if want := s.Keys().SessionHash(token); tokenHash != want {
+		t.Errorf("token_hash = %q, want keyed SessionHash %q", tokenHash, want)
 	}
 
 	// A leaked stored hash must NOT be usable as a cookie; only the raw token validates.
@@ -339,7 +359,7 @@ func TestRequestDeletion_PendingDeletionIsIdempotent(t *testing.T) {
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *User) error { return nil }
 	db := testutil.SetupPostgres(t)
-	s := New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	s := withTestKeys(t, New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour))
 
 	user, err := s.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{
 		Email: "del-idem@test.com", EmailVerified: true, Name: "Del Idem",

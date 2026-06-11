@@ -22,7 +22,7 @@ func setupCleanupTest(t *testing.T) (*sql.DB, *storage.Storage, *clock.FixedCloc
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
-	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	store := newTestStore(t, db, clk, gen, noopChecker)
 	return db, store, clk
 }
 
@@ -98,18 +98,18 @@ func TestCleanup_DeletionPIIScrub(t *testing.T) {
 	svc := NewCleanupService(storage.NewCleanupRunner(db), clk, time.Hour)
 	svc.RunOnce(ctx)
 
-	// User should be scrubbed
-	var status, email string
-	var name sql.NullString
-	db.QueryRowContext(ctx, `SELECT status, email, name FROM users WHERE id = $1`, user.ID).Scan(&status, &email, &name)
+	// User should be scrubbed: deletion redaction NULLs the encrypted PII columns.
+	var status string
+	var emailCipher, nameCipher []byte
+	db.QueryRowContext(ctx, `SELECT status, email_ciphertext, name_ciphertext FROM users WHERE id = $1`, user.ID).Scan(&status, &emailCipher, &nameCipher)
 	if status != "deleted" {
 		t.Errorf("status = %q, want deleted", status)
 	}
-	if email == "delete-me@test.com" {
-		t.Error("email should be scrubbed")
+	if emailCipher != nil {
+		t.Error("email ciphertext should be scrubbed (NULL) after deletion")
 	}
-	if name.Valid {
-		t.Error("name should be NULL after scrub")
+	if nameCipher != nil {
+		t.Error("name ciphertext should be scrubbed (NULL) after deletion")
 	}
 
 	// Child records should be gone

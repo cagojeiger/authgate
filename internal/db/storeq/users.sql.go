@@ -11,95 +11,6 @@ import (
 	"time"
 )
 
-const backfillProviderSub = `-- name: BackfillProviderSub :exec
-UPDATE user_identities SET
-    provider_sub_hash         = $2,
-    provider_sub_hash_key_id  = $3,
-    provider_sub_hash_version = $4,
-    provider_sub_ciphertext   = $5,
-    provider_sub_nonce        = $6,
-    provider_sub_enc_key_id   = $7,
-    provider_sub_enc_version  = $8,
-    provider_user_id          = NULL
-WHERE id = $1
-`
-
-type BackfillProviderSubParams struct {
-	ID                     string
-	ProviderSubHash        sql.NullString
-	ProviderSubHashKeyID   sql.NullString
-	ProviderSubHashVersion sql.NullInt32
-	ProviderSubCiphertext  []byte
-	ProviderSubNonce       []byte
-	ProviderSubEncKeyID    sql.NullString
-	ProviderSubEncVersion  sql.NullInt32
-}
-
-func (q *Queries) BackfillProviderSub(ctx context.Context, arg BackfillProviderSubParams) error {
-	_, err := q.db.ExecContext(ctx, backfillProviderSub,
-		arg.ID,
-		arg.ProviderSubHash,
-		arg.ProviderSubHashKeyID,
-		arg.ProviderSubHashVersion,
-		arg.ProviderSubCiphertext,
-		arg.ProviderSubNonce,
-		arg.ProviderSubEncKeyID,
-		arg.ProviderSubEncVersion,
-	)
-	return err
-}
-
-const backfillUserPII = `-- name: BackfillUserPII :exec
-UPDATE users SET
-    email_ciphertext   = $2,
-    email_nonce        = $3,
-    email_enc_key_id   = $4,
-    email_enc_version  = $5,
-    email_hash         = $6,
-    email_hash_key_id  = $7,
-    email_hash_version = $8,
-    name_ciphertext    = $9,
-    name_nonce         = $10,
-    name_enc_key_id    = $11,
-    name_enc_version   = $12,
-    email              = NULL,
-    name               = NULL
-WHERE id = $1
-`
-
-type BackfillUserPIIParams struct {
-	ID               string
-	EmailCiphertext  []byte
-	EmailNonce       []byte
-	EmailEncKeyID    sql.NullString
-	EmailEncVersion  sql.NullInt32
-	EmailHash        sql.NullString
-	EmailHashKeyID   sql.NullString
-	EmailHashVersion sql.NullInt32
-	NameCiphertext   []byte
-	NameNonce        []byte
-	NameEncKeyID     sql.NullString
-	NameEncVersion   sql.NullInt32
-}
-
-func (q *Queries) BackfillUserPII(ctx context.Context, arg BackfillUserPIIParams) error {
-	_, err := q.db.ExecContext(ctx, backfillUserPII,
-		arg.ID,
-		arg.EmailCiphertext,
-		arg.EmailNonce,
-		arg.EmailEncKeyID,
-		arg.EmailEncVersion,
-		arg.EmailHash,
-		arg.EmailHashKeyID,
-		arg.EmailHashVersion,
-		arg.NameCiphertext,
-		arg.NameNonce,
-		arg.NameEncKeyID,
-		arg.NameEncVersion,
-	)
-	return err
-}
-
 const completeAuthRequestByID = `-- name: CompleteAuthRequestByID :execrows
 UPDATE auth_requests
 SET subject = $1, auth_time = $2, done = true
@@ -120,34 +31,8 @@ func (q *Queries) CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthR
 	return result.RowsAffected()
 }
 
-const countProviderSubUnbackfilled = `-- name: CountProviderSubUnbackfilled :one
-SELECT count(*)
-FROM user_identities
-WHERE provider_sub_hash IS NULL AND provider_user_id IS NOT NULL
-`
-
-func (q *Queries) CountProviderSubUnbackfilled(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countProviderSubUnbackfilled)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
-const countUsersUnbackfilled = `-- name: CountUsersUnbackfilled :one
-SELECT count(*)
-FROM users
-WHERE email_hash IS NULL AND email IS NOT NULL
-`
-
-func (q *Queries) CountUsersUnbackfilled(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countUsersUnbackfilled)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, email_verified, name, status,
+SELECT id, email_verified, status,
        email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
        name_ciphertext, name_nonce, name_enc_key_id, name_enc_version,
        created_at, updated_at
@@ -157,9 +42,7 @@ WHERE id = $1
 
 type GetUserByIDRow struct {
 	ID              string
-	Email           sql.NullString
 	EmailVerified   bool
-	Name            sql.NullString
 	Status          string
 	EmailCiphertext []byte
 	EmailNonce      []byte
@@ -178,65 +61,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id string) (GetUserByIDRow, e
 	var i GetUserByIDRow
 	err := row.Scan(
 		&i.ID,
-		&i.Email,
 		&i.EmailVerified,
-		&i.Name,
-		&i.Status,
-		&i.EmailCiphertext,
-		&i.EmailNonce,
-		&i.EmailEncKeyID,
-		&i.EmailEncVersion,
-		&i.NameCiphertext,
-		&i.NameNonce,
-		&i.NameEncKeyID,
-		&i.NameEncVersion,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getUserByProviderIdentity = `-- name: GetUserByProviderIdentity :one
-SELECT u.id, u.email, u.email_verified, u.name, u.status,
-       u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
-       u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
-       u.created_at, u.updated_at
-FROM users u
-JOIN user_identities ui ON u.id = ui.user_id
-WHERE ui.provider = $1 AND ui.provider_user_id = $2
-`
-
-type GetUserByProviderIdentityParams struct {
-	Provider       string
-	ProviderUserID sql.NullString
-}
-
-type GetUserByProviderIdentityRow struct {
-	ID              string
-	Email           sql.NullString
-	EmailVerified   bool
-	Name            sql.NullString
-	Status          string
-	EmailCiphertext []byte
-	EmailNonce      []byte
-	EmailEncKeyID   sql.NullString
-	EmailEncVersion sql.NullInt32
-	NameCiphertext  []byte
-	NameNonce       []byte
-	NameEncKeyID    sql.NullString
-	NameEncVersion  sql.NullInt32
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-}
-
-func (q *Queries) GetUserByProviderIdentity(ctx context.Context, arg GetUserByProviderIdentityParams) (GetUserByProviderIdentityRow, error) {
-	row := q.db.QueryRowContext(ctx, getUserByProviderIdentity, arg.Provider, arg.ProviderUserID)
-	var i GetUserByProviderIdentityRow
-	err := row.Scan(
-		&i.ID,
-		&i.Email,
-		&i.EmailVerified,
-		&i.Name,
 		&i.Status,
 		&i.EmailCiphertext,
 		&i.EmailNonce,
@@ -253,7 +78,7 @@ func (q *Queries) GetUserByProviderIdentity(ctx context.Context, arg GetUserByPr
 }
 
 const getUserByProviderSubHash = `-- name: GetUserByProviderSubHash :one
-SELECT u.id, u.email, u.email_verified, u.name, u.status,
+SELECT u.id, u.email_verified, u.status,
        u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
        u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
        u.created_at, u.updated_at
@@ -269,9 +94,7 @@ type GetUserByProviderSubHashParams struct {
 
 type GetUserByProviderSubHashRow struct {
 	ID              string
-	Email           sql.NullString
 	EmailVerified   bool
-	Name            sql.NullString
 	Status          string
 	EmailCiphertext []byte
 	EmailNonce      []byte
@@ -290,9 +113,7 @@ func (q *Queries) GetUserByProviderSubHash(ctx context.Context, arg GetUserByPro
 	var i GetUserByProviderSubHashRow
 	err := row.Scan(
 		&i.ID,
-		&i.Email,
 		&i.EmailVerified,
-		&i.Name,
 		&i.Status,
 		&i.EmailCiphertext,
 		&i.EmailNonce,
@@ -309,7 +130,7 @@ func (q *Queries) GetUserByProviderSubHash(ctx context.Context, arg GetUserByPro
 }
 
 const getUserForTxByID = `-- name: GetUserForTxByID :one
-SELECT id, email, email_verified, name, status,
+SELECT id, email_verified, status,
        email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
        name_ciphertext, name_nonce, name_enc_key_id, name_enc_version
 FROM users
@@ -318,9 +139,7 @@ WHERE id = $1
 
 type GetUserForTxByIDRow struct {
 	ID              string
-	Email           sql.NullString
 	EmailVerified   bool
-	Name            sql.NullString
 	Status          string
 	EmailCiphertext []byte
 	EmailNonce      []byte
@@ -337,9 +156,7 @@ func (q *Queries) GetUserForTxByID(ctx context.Context, id string) (GetUserForTx
 	var i GetUserForTxByIDRow
 	err := row.Scan(
 		&i.ID,
-		&i.Email,
 		&i.EmailVerified,
-		&i.Name,
 		&i.Status,
 		&i.EmailCiphertext,
 		&i.EmailNonce,
@@ -354,7 +171,7 @@ func (q *Queries) GetUserForTxByID(ctx context.Context, id string) (GetUserForTx
 }
 
 const getUserInfoFieldsByID = `-- name: GetUserInfoFieldsByID :one
-SELECT id, email, email_verified, name,
+SELECT id, email_verified,
        email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
        name_ciphertext, name_nonce, name_enc_key_id, name_enc_version
 FROM users
@@ -363,9 +180,7 @@ WHERE id = $1
 
 type GetUserInfoFieldsByIDRow struct {
 	ID              string
-	Email           sql.NullString
 	EmailVerified   bool
-	Name            sql.NullString
 	EmailCiphertext []byte
 	EmailNonce      []byte
 	EmailEncKeyID   sql.NullString
@@ -381,9 +196,7 @@ func (q *Queries) GetUserInfoFieldsByID(ctx context.Context, id string) (GetUser
 	var i GetUserInfoFieldsByIDRow
 	err := row.Scan(
 		&i.ID,
-		&i.Email,
 		&i.EmailVerified,
-		&i.Name,
 		&i.EmailCiphertext,
 		&i.EmailNonce,
 		&i.EmailEncKeyID,
@@ -490,19 +303,17 @@ func (q *Queries) InsertTestAuthRequestWithResource(ctx context.Context, arg Ins
 
 const insertUser = `-- name: InsertUser :exec
 INSERT INTO users (
-    id, email, email_verified, name, status,
+    id, email_verified, status,
     email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
     email_hash, email_hash_key_id, email_hash_version,
     name_ciphertext, name_nonce, name_enc_key_id, name_enc_version,
     created_at, updated_at
-) VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+) VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
 `
 
 type InsertUserParams struct {
 	ID               string
-	Email            sql.NullString
 	EmailVerified    bool
-	Name             sql.NullString
 	EmailCiphertext  []byte
 	EmailNonce       []byte
 	EmailEncKeyID    sql.NullString
@@ -520,9 +331,7 @@ type InsertUserParams struct {
 func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 	_, err := q.db.ExecContext(ctx, insertUser,
 		arg.ID,
-		arg.Email,
 		arg.EmailVerified,
-		arg.Name,
 		arg.EmailCiphertext,
 		arg.EmailNonce,
 		arg.EmailEncKeyID,
@@ -541,18 +350,17 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 
 const insertUserIdentity = `-- name: InsertUserIdentity :exec
 INSERT INTO user_identities (
-    id, user_id, provider, provider_user_id,
+    id, user_id, provider,
     provider_sub_hash, provider_sub_hash_key_id, provider_sub_hash_version,
     provider_sub_ciphertext, provider_sub_nonce, provider_sub_enc_key_id, provider_sub_enc_version,
     created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 `
 
 type InsertUserIdentityParams struct {
 	ID                     string
 	UserID                 string
 	Provider               string
-	ProviderUserID         sql.NullString
 	ProviderSubHash        sql.NullString
 	ProviderSubHashKeyID   sql.NullString
 	ProviderSubHashVersion sql.NullInt32
@@ -568,7 +376,6 @@ func (q *Queries) InsertUserIdentity(ctx context.Context, arg InsertUserIdentity
 		arg.ID,
 		arg.UserID,
 		arg.Provider,
-		arg.ProviderUserID,
 		arg.ProviderSubHash,
 		arg.ProviderSubHashKeyID,
 		arg.ProviderSubHashVersion,
@@ -579,86 +386,6 @@ func (q *Queries) InsertUserIdentity(ctx context.Context, arg InsertUserIdentity
 		arg.CreatedAt,
 	)
 	return err
-}
-
-const listProviderSubBackfill = `-- name: ListProviderSubBackfill :many
-SELECT id, user_id, provider, provider_user_id
-FROM user_identities
-WHERE provider_sub_hash IS NULL AND provider_user_id IS NOT NULL
-ORDER BY id
-LIMIT $1
-`
-
-type ListProviderSubBackfillRow struct {
-	ID             string
-	UserID         string
-	Provider       string
-	ProviderUserID sql.NullString
-}
-
-func (q *Queries) ListProviderSubBackfill(ctx context.Context, limit int32) ([]ListProviderSubBackfillRow, error) {
-	rows, err := q.db.QueryContext(ctx, listProviderSubBackfill, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListProviderSubBackfillRow
-	for rows.Next() {
-		var i ListProviderSubBackfillRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.UserID,
-			&i.Provider,
-			&i.ProviderUserID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listUsersBackfill = `-- name: ListUsersBackfill :many
-SELECT id, email, name
-FROM users
-WHERE email_hash IS NULL AND email IS NOT NULL
-ORDER BY id
-LIMIT $1
-`
-
-type ListUsersBackfillRow struct {
-	ID    string
-	Email sql.NullString
-	Name  sql.NullString
-}
-
-func (q *Queries) ListUsersBackfill(ctx context.Context, limit int32) ([]ListUsersBackfillRow, error) {
-	rows, err := q.db.QueryContext(ctx, listUsersBackfill, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListUsersBackfillRow
-	for rows.Next() {
-		var i ListUsersBackfillRow
-		if err := rows.Scan(&i.ID, &i.Email, &i.Name); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const markUserPendingDeletionByID = `-- name: MarkUserPendingDeletionByID :execrows

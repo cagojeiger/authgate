@@ -39,7 +39,7 @@ func setupE2ETest(t *testing.T) *e2eFixture {
 		}
 		return nil
 	}
-	store := storage.New(db, clk, gen, stateChecker, 15*time.Minute, 30*24*time.Hour)
+	store := newTestStore(t, db, clk, gen, stateChecker)
 
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "e2e-sub", Email: "e2e@test.com", EmailVerified: true, Name: "E2E User"},
