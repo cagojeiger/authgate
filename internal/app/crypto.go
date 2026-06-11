@@ -53,23 +53,4 @@ func mustSetupCrypto(cfg *config.Config, store *storage.Storage) {
 		"enc_key_id", cfg.EncRootKeyID,
 		"lookup_key_id", cfg.LookupRootKeyID,
 	)
-
-	// Backfill legacy plaintext provider subjects into encrypted columns. With
-	// keys configured, lookups go through provider_sub_hash, so any row not yet
-	// backfilled would be unfindable — backfill must complete before serving.
-	n, err := store.BackfillProviderSub(ctx)
-	if err != nil {
-		log.Fatalf("crypto: provider_sub backfill: %v", err)
-	}
-	if n > 0 {
-		slog.Info("provider_sub backfill complete", "rows", n)
-	}
-
-	m, err := store.BackfillUserPII(ctx)
-	if err != nil {
-		log.Fatalf("crypto: user PII backfill: %v", err)
-	}
-	if m > 0 {
-		slog.Info("user PII backfill complete", "rows", m)
-	}
 }

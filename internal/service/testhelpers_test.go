@@ -3,16 +3,50 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
+	"github.com/kangheeyong/authgate/internal/crypto"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/storage"
 	"github.com/kangheeyong/authgate/internal/testutil"
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
+
+// newTestStore builds a Storage with PII encryption configured. Keys are
+// mandatory after the plaintext-PII cleanup (ADR-002), so every service test
+// store must have them wired.
+func newTestStore(t *testing.T, db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker storage.StateChecker) *storage.Storage {
+	t.Helper()
+	store := storage.New(db, clk, gen, checker, 15*time.Minute, 30*24*time.Hour)
+	mk := func(b byte) []byte {
+		s := make([]byte, crypto.KeySize)
+		for i := range s {
+			s[i] = b
+		}
+		return s
+	}
+	enc, err := crypto.NewRoot(crypto.DomainEnc, "enc-test-1", mk(0x31))
+	if err != nil {
+		t.Fatalf("enc root: %v", err)
+	}
+	lookup, err := crypto.NewRoot(crypto.DomainLookup, "lkp-test-1", mk(0x32))
+	if err != nil {
+		t.Fatalf("lookup root: %v", err)
+	}
+	keys, err := crypto.NewKeys(enc, lookup)
+	if err != nil {
+		t.Fatalf("keys: %v", err)
+	}
+	store.SetKeys(keys)
+	if err := store.EnsureCryptoEpochs(context.Background()); err != nil {
+		t.Fatalf("ensure epochs: %v", err)
+	}
+	return store
+}
 
 type gapFixture struct {
 	LoginSvc    *LoginService
@@ -47,7 +81,7 @@ func setupDeviceExtTest(t *testing.T, sub string) (*DeviceService, *storage.Stor
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
-	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	store := newTestStore(t, db, clk, gen, noopChecker)
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: sub, Email: sub + "@test.com", EmailVerified: true, Name: "Device Ext"},
 	}
@@ -62,7 +96,7 @@ func setupAccountExtTest(t *testing.T) (*AccountService, *storage.Storage) {
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
-	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	store := newTestStore(t, db, clk, gen, noopChecker)
 	svc := NewAccountService(store)
 	return svc, store
 }
@@ -74,7 +108,7 @@ func setupGapTest(t *testing.T) *gapFixture {
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
-	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	store := newTestStore(t, db, clk, gen, noopChecker)
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "gap-sub", Email: "gap@test.com", EmailVerified: true, Name: "Gap User"},
 	}
@@ -101,7 +135,7 @@ func setupLoginServiceWithSub(t *testing.T, sub, email string) (*LoginService, *
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
-	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	store := newTestStore(t, db, clk, gen, noopChecker)
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: sub, Email: email, EmailVerified: true, Name: "Test User"},
 	}
@@ -116,7 +150,7 @@ func setupMCPLoginServiceWithSub(t *testing.T, sub, email string) (*MCPLoginServ
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
-	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	store := newTestStore(t, db, clk, gen, noopChecker)
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: sub, Email: email, EmailVerified: true, Name: "Test User"},
 	}

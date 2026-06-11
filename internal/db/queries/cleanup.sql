@@ -42,12 +42,9 @@ DELETE FROM refresh_tokens
 WHERE user_id = $1;
 
 -- name: MarkUserDeletedByID :execrows
--- PII redaction on deletion (ADR-002): the plaintext tombstone replaces email,
--- and every encrypted/hashed email/name column is cleared so no recoverable PII
--- remains for the deleted user.
+-- PII redaction on deletion (ADR-002): every encrypted/hashed email/name column
+-- is cleared so no recoverable PII remains for the deleted user.
 UPDATE users SET
-  email = 'deleted-' || id::text || '@deleted.invalid',
-  name = NULL,
   email_ciphertext = NULL, email_nonce = NULL, email_enc_key_id = NULL, email_enc_version = NULL,
   email_hash = NULL, email_hash_key_id = NULL, email_hash_version = NULL,
   name_ciphertext = NULL, name_nonce = NULL, name_enc_key_id = NULL, name_enc_version = NULL,

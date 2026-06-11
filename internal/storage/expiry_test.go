@@ -17,7 +17,7 @@ func TestAuthRequestByID_Expired_Rejected(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
-	store := New(db, clk, gen, nil, 15*time.Minute, 30*24*time.Hour)
+	store := withTestKeys(t, New(db, clk, gen, nil, 15*time.Minute, 30*24*time.Hour))
 	ctx := context.Background()
 
 	// Create auth request with 10 min TTL
@@ -48,7 +48,7 @@ func TestAuthRequestByCode_Expired_Rejected(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
-	store := New(db, clk, gen, nil, 15*time.Minute, 30*24*time.Hour)
+	store := withTestKeys(t, New(db, clk, gen, nil, 15*time.Minute, 30*24*time.Hour))
 	ctx := context.Background()
 
 	// Create auth request + complete + save code
@@ -76,7 +76,7 @@ func TestCompleteAuthRequest_Expired_Rejected(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
-	store := New(db, clk, gen, nil, 15*time.Minute, 30*24*time.Hour)
+	store := withTestKeys(t, New(db, clk, gen, nil, 15*time.Minute, 30*24*time.Hour))
 	ctx := context.Background()
 
 	arID, _ := store.CreateTestAuthRequest(ctx, "complete-expiry")

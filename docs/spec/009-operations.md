@@ -73,7 +73,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `OIDC_HTTP_TIMEOUT_SEC` | X | `10` | Upstream OIDC HTTP 호출 timeout(초) |
 | `OIDC_CLIENT_ID` | X | `authgate` | OIDC Client ID |
 | `OIDC_CLIENT_SECRET` | X | — | OIDC Client Secret (`DEV_MODE=false`에서 필수) |
-| `PII_ENC_ROOT_KEY_ID` | △ | — | PII 암호화(ENC) root 식별자 (ADR-002). **`DEV_MODE=false`에서 4개 모두 필수.** 부팅 시 백필이 기존 평문을 암호화하고 평문 컬럼을 비운다 |
+| `PII_ENC_ROOT_KEY_ID` | △ | — | PII 암호화(ENC) root 식별자 (ADR-002). **PII at-rest 암호화는 필수** — 키 없이는 가입/로그인 불가(평문 컬럼 제거됨, migration 014). `DEV_MODE=false`는 4개 미설정 시 시작 거부, dev는 docker-compose가 더미 키 주입 |
 | `PII_ENC_ROOT_SECRET` | △ | — | ENC root secret (base64, ≥32 bytes). 로그/감사에 노출 금지 |
 | `PII_LOOKUP_ROOT_KEY_ID` | △ | — | lookup HMAC(LOOKUP) root 식별자 |
 | `PII_LOOKUP_ROOT_SECRET` | △ | — | LOOKUP root secret (base64, ≥32 bytes). 로그/감사에 노출 금지 |

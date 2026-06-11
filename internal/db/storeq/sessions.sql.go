@@ -12,7 +12,7 @@ import (
 )
 
 const getValidSessionUser = `-- name: GetValidSessionUser :one
-SELECT u.id, u.email, u.email_verified, u.name, u.status,
+SELECT u.id, u.email_verified, u.status,
        u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
        u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
        u.created_at, u.updated_at
@@ -30,9 +30,7 @@ type GetValidSessionUserParams struct {
 
 type GetValidSessionUserRow struct {
 	ID              string
-	Email           sql.NullString
 	EmailVerified   bool
-	Name            sql.NullString
 	Status          string
 	EmailCiphertext []byte
 	EmailNonce      []byte
@@ -51,9 +49,7 @@ func (q *Queries) GetValidSessionUser(ctx context.Context, arg GetValidSessionUs
 	var i GetValidSessionUserRow
 	err := row.Scan(
 		&i.ID,
-		&i.Email,
 		&i.EmailVerified,
-		&i.Name,
 		&i.Status,
 		&i.EmailCiphertext,
 		&i.EmailNonce,

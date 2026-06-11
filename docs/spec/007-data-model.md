@@ -16,7 +16,6 @@ erDiagram
     users ||--o{ audit_log : "1:N (이벤트 기록)"
     users {
         uuid id PK "DEFAULT uuid_generate_v4()"
-        text email "nullable, 평문 (백필 후 제거 예정)"
         bytea email_ciphertext "nullable, AEAD"
         bytea email_nonce "nullable"
         text email_enc_key_id "FK crypto_key_epochs"
@@ -25,7 +24,6 @@ erDiagram
         text email_hash_key_id "FK crypto_key_epochs"
         int email_hash_version "nullable"
         boolean email_verified "NOT NULL, DEFAULT false"
-        text name "nullable, 평문 (제거 예정)"
         bytea name_ciphertext "nullable, AEAD"
         bytea name_nonce "nullable"
         text name_enc_key_id "FK crypto_key_epochs"
@@ -54,7 +52,6 @@ erDiagram
         uuid id PK "DEFAULT uuid_generate_v4()"
         uuid user_id FK "NOT NULL, CASCADE"
         text provider "NOT NULL, OIDC issuer에서 파생 (예: google, mock 등)"
-        text provider_user_id "nullable, 평문 (백필 후 제거 예정)"
         text provider_sub_hash "nullable, lookup HMAC, UNIQUE(provider, provider_sub_hash)"
         text provider_sub_hash_key_id "FK crypto_key_epochs"
         int provider_sub_hash_version "nullable"
@@ -210,7 +207,6 @@ CHECK (state IN ('pending', 'approved', 'denied', 'consumed'))
 
 -- user_identities
 UNIQUE (provider, provider_sub_hash)  -- 로그인 매칭 (user_identities_provider_sub_hash_key). NULL 다중 허용(Postgres UNIQUE)
-UNIQUE (provider, provider_user_id)   -- 레거시 (평문 provider_user_id 매칭)
 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 
 -- sessions
@@ -261,8 +257,8 @@ MCP
 
 | 규칙 | 적용 |
 |------|------|
-| provider sub은 lookup HMAC + AEAD ciphertext로 저장 | `provider_sub_hash`(매칭) + `provider_sub_ciphertext`(회전 복구), 평문 `provider_user_id`는 백필 후 제거 |
-| email/name은 AEAD ciphertext로 저장, email은 lookup HMAC도 | `email_ciphertext`/`name_ciphertext` + `email_hash`(UNIQUE/정규화 lowercase+NFC), 평문 컬럼은 백필 후 제거. 탈퇴 시 ciphertext/hash redaction |
+| provider sub은 lookup HMAC + AEAD ciphertext로 저장 | `provider_sub_hash`(매칭) + `provider_sub_ciphertext`(회전 복구). 평문 `provider_user_id` 컬럼은 제거됨(migration 014) |
+| email/name은 AEAD ciphertext로 저장, email은 lookup HMAC도 | `email_ciphertext`/`name_ciphertext` + `email_hash`(UNIQUE/정규화 lowercase+NFC). 평문 `email`/`name` 컬럼은 제거됨(migration 014). 탈퇴 시 ciphertext/hash redaction |
 | 단명 코드(device_code/user_code/authz code)는 lookup HMAC로 저장 | 기존 컬럼에 in-place 해시(키 설정 시). 짧은 수명이라 drain, 반환 모델은 평문 입력값 |
 | refresh_token은 SHA-256 해시로 저장 | `token_hash` 컬럼 |
 | 세션 쿠키(bearer)는 해시로 저장 | `sessions.token_hash` (`id`는 내부 PK). 키 설정 시 lookup/session HMAC, 아니면 SHA-256 |

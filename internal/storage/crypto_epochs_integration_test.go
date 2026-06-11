@@ -95,7 +95,7 @@ func TestEnsureCryptoEpochs_DifferentActiveKeyIDRejected(t *testing.T) {
 }
 
 func TestEnsureCryptoEpochs_InertWhenUnset(t *testing.T) {
-	s := testStorage(t)
+	s := testStorageNoKeys(t)
 	if err := s.EnsureCryptoEpochs(context.Background()); err != nil {
 		t.Fatalf("inert ensure should no-op, got %v", err)
 	}

@@ -20,7 +20,8 @@ PII 평문(email / name / provider_user_id)을 암호화 컬럼으로 옮기는 
    · backfill 완료 확인
             ↓  (count 둘 다 0 확인 후에만)
 [2단계] 평문 제거(cleanup) 릴리즈                 — ⚠️ 하위 호환 깨짐
-   · 평문 컬럼 + 구 평문 UNIQUE 제약을 DROP (backfill 코드 없음)
+   · 평문 컬럼 + 구 평문 UNIQUE 제약을 DROP (migration 014). backfill 코드 제거,
+     PII 키 필수화(keys-OFF fallback 제거)
 ```
 
 ### 1단계: PII 암호화 (backfill)
@@ -43,7 +44,9 @@ PII 평문(email / name / provider_user_id)을 암호화 컬럼으로 옮기는 
 ### 2단계: 평문 제거 (cleanup) — 하위 호환 깨짐
 
 - 평문 컬럼(`users.email` / `users.name` / `user_identities.provider_user_id`)과 구 평문
-  UNIQUE 제약을 DROP한다.
+  UNIQUE 제약을 DROP한다(**migration 014**). backfill 코드와 keys-OFF 평문 fallback이 함께
+  제거되어 **PII 키가 항상 필수**가 된다. 계정 삭제 redaction은 평문 tombstone 대신 암호/해시
+  컬럼을 `NULL`로 비우는 방식으로 바뀐다.
 - **하위 호환이 깨지는 지점:**
   - 평문 컬럼을 참조하던 **이전 버전의 쿼리는 `column does not exist`로 실패**한다.
     롤링 배포로 구/신 바이너리가 공존하면 구버전이 깨진다.

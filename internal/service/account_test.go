@@ -30,7 +30,7 @@ func setupAccountTest(t *testing.T) *accountFixture {
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *storage.User) error { return nil }
-	store := storage.New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	store := newTestStore(t, db, clk, gen, noopChecker)
 
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "acct-sub-123", Email: "acct@test.com", EmailVerified: true, Name: "Acct User"},
@@ -189,13 +189,14 @@ func TestE2E_DeleteThenReregister(t *testing.T) {
 	cleanupSvc := NewCleanupService(storage.NewCleanupRunner(fx.DB), fx.Clock, time.Hour)
 	cleanupSvc.RunOnce(ctx)
 
-	var dbStatus, email string
-	fx.DB.QueryRowContext(ctx, `SELECT status, email FROM users WHERE id = $1`, userID).Scan(&dbStatus, &email)
+	var dbStatus string
+	var emailCipher []byte
+	fx.DB.QueryRowContext(ctx, `SELECT status, email_ciphertext FROM users WHERE id = $1`, userID).Scan(&dbStatus, &emailCipher)
 	if dbStatus != "deleted" {
 		t.Fatalf("status = %q, want deleted", dbStatus)
 	}
-	if email == "e2e5@test.com" {
-		t.Error("email should be scrubbed")
+	if emailCipher != nil {
+		t.Error("email ciphertext should be scrubbed (NULL) after deletion")
 	}
 
 	arID, _ := fx.Store.CreateTestAuthRequest(ctx, "e2e5-reregister")

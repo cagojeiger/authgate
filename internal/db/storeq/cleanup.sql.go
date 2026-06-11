@@ -175,8 +175,6 @@ func (q *Queries) ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff s
 
 const markUserDeletedByID = `-- name: MarkUserDeletedByID :execrows
 UPDATE users SET
-  email = 'deleted-' || id::text || '@deleted.invalid',
-  name = NULL,
   email_ciphertext = NULL, email_nonce = NULL, email_enc_key_id = NULL, email_enc_version = NULL,
   email_hash = NULL, email_hash_key_id = NULL, email_hash_version = NULL,
   name_ciphertext = NULL, name_nonce = NULL, name_enc_key_id = NULL, name_enc_version = NULL,
@@ -192,9 +190,8 @@ type MarkUserDeletedByIDParams struct {
 	UserID    string
 }
 
-// PII redaction on deletion (ADR-002): the plaintext tombstone replaces email,
-// and every encrypted/hashed email/name column is cleared so no recoverable PII
-// remains for the deleted user.
+// PII redaction on deletion (ADR-002): every encrypted/hashed email/name column
+// is cleared so no recoverable PII remains for the deleted user.
 func (q *Queries) MarkUserDeletedByID(ctx context.Context, arg MarkUserDeletedByIDParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markUserDeletedByID, arg.DeletedAt, arg.UserID)
 	if err != nil {

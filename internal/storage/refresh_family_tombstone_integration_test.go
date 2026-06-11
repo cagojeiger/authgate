@@ -20,7 +20,7 @@ func newTombstoneStore(t *testing.T) (*Storage, *clock.FixedClock, idgen.CryptoG
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
-	store := New(db, clk, gen, func(*User) error { return nil }, 15*time.Minute, 30*24*time.Hour)
+	store := withTestKeys(t, New(db, clk, gen, func(*User) error { return nil }, 15*time.Minute, 30*24*time.Hour))
 	return store, clk, gen
 }
 

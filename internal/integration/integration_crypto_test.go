@@ -17,7 +17,7 @@ import (
 // to match. Reaching the post-lookup 403 (account_not_found) proves the lookup
 // succeeded — a broken hash path would fail the user_code lookup earlier.
 func TestIntegration_Crypto_DeviceUserCodeLookup(t *testing.T) {
-	ts := SetupTestServerWithOptions(t, SetupOptions{EnableMCP: true, EnableCrypto: true})
+	ts := SetupTestServerWithOptions(t, SetupOptions{EnableMCP: true})
 	ctx := context.Background()
 
 	if err := ts.Store.StoreDeviceAuthorization(ctx, "test-client", "fresh-dc", "TEST-CODE", ts.Clock.Now().Add(5*time.Minute), []string{"openid"}); err != nil {

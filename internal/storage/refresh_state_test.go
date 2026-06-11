@@ -20,7 +20,7 @@ func TestRefreshReuseDetection_FamilyRevoke(t *testing.T) {
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	noopChecker := func(user *User) error { return nil }
-	store := New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour)
+	store := withTestKeys(t, New(db, clk, gen, noopChecker, 15*time.Minute, 30*24*time.Hour))
 	ctx := context.Background()
 
 	user, _ := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "reuse@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "reuse-sub"})
@@ -72,7 +72,7 @@ func TestRefreshStateCheck_AllStates(t *testing.T) {
 		return nil
 	}
 
-	store := New(db, clk, gen, checker, 15*time.Minute, 30*24*time.Hour)
+	store := withTestKeys(t, New(db, clk, gen, checker, 15*time.Minute, 30*24*time.Hour))
 
 	tests := []struct {
 		name      string
@@ -160,7 +160,7 @@ func TestAuthCodeStateCheck_AllStates(t *testing.T) {
 		return nil
 	}
 
-	store := New(db, clk, gen, checker2, 15*time.Minute, 30*24*time.Hour)
+	store := withTestKeys(t, New(db, clk, gen, checker2, 15*time.Minute, 30*24*time.Hour))
 
 	tests := []struct {
 		name      string
