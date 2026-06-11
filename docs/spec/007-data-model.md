@@ -16,7 +16,7 @@ erDiagram
     users ||--o{ audit_log : "1:N (이벤트 기록)"
     users {
         uuid id PK "DEFAULT uuid_generate_v4()"
-        text email "nullable, 평문 (백필 후 cleanup PR에서 제거)"
+        text email "nullable, 평문 (백필 후 제거 예정)"
         bytea email_ciphertext "nullable, AEAD"
         bytea email_nonce "nullable"
         text email_enc_key_id "FK crypto_key_epochs"
@@ -54,7 +54,7 @@ erDiagram
         uuid id PK "DEFAULT uuid_generate_v4()"
         uuid user_id FK "NOT NULL, CASCADE"
         text provider "NOT NULL, OIDC issuer에서 파생 (예: google, mock 등)"
-        text provider_user_id "nullable, 평문 (백필 후 cleanup PR에서 제거)"
+        text provider_user_id "nullable, 평문 (백필 후 제거 예정)"
         text provider_sub_hash "nullable, lookup HMAC, UNIQUE(provider, provider_sub_hash)"
         text provider_sub_hash_key_id "FK crypto_key_epochs"
         int provider_sub_hash_version "nullable"
@@ -177,23 +177,7 @@ erDiagram
 
 #### event_type 목록
 
-| event_type | 설명 | 발생 위치 |
-|------------|------|----------|
-| `auth.signup` | 신규 가입 완료 | 브라우저 로그인 (신규 유저) |
-| `auth.login` | 로그인 성공 | 브라우저/Device/MCP 로그인 |
-| `auth.channel_mismatch` | auth_request 채널 불일치 차단 | 브라우저/MCP 로그인 |
-| `auth.inactive_user` | 비활성 유저 로그인 시도 차단 | 브라우저/Device/MCP 로그인 |
-| `auth.device_code_issued` | 디바이스 코드 발급 | Device authorize 엔드포인트 |
-| `auth.device_approved` | Device 코드 승인 | Device 승인 페이지 |
-| `auth.device_denied` | Device 코드 거부 | Device 승인 페이지 |
-| `auth.deletion_requested` | 계정 삭제 요청 | 계정 삭제 API |
-| `auth.deletion_cancelled` | 삭제 예정 계정 복구 (재로그인) | 브라우저 로그인 |
-| `auth.deletion_completed` | PII 스크러빙 완료 | cleanup 배치 |
-| `auth.token_refreshed` | refresh token rotation 성공 | 토큰 갱신 |
-| `auth.logout` | RP-Initiated Logout | OIDC end_session |
-| `auth.token_revoked` | refresh token 폐기 | RFC 7009 revoke |
-| `auth.refresh_reuse_detected` | refresh token 재사용 감지 | 토큰 갱신 |
-| `auth.refresh_family_revoked` | refresh token 패밀리 전체 폐기 | 토큰 갱신 (재사용 시) |
+이벤트별 의미와 metadata는 아래 **감사 이벤트 (audit_log.event_type)** 섹션을 정본으로 둔다. 컴플라이언스 매핑은 [docs/security/001-audit-evidence-matrix.md](../security/001-audit-evidence-matrix.md).
 
 ## 인덱스
 
