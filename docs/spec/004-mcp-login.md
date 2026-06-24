@@ -278,6 +278,8 @@ GET https://app.example.com/oauth/client.json
 }
 ```
 
+`grant_types`에 authgate가 지원하지 않는 grant가 추가로 있어도, `authorization_code`가 포함되어 있으면 문서 자체는 거부하지 않는다. authgate는 내부 `ClientModel`에 `authorization_code`와 `refresh_token`만 반영한다.
+
 authgate의 CIMD 처리:
 
 ```text
@@ -335,7 +337,7 @@ CIMD fetch의 네트워크 제약. IETF draft에서 MUST/SHOULD인 것과 authga
 | `client_id` | 문서 내 값 == fetch한 URL (정확 일치) | `invalid_client` |
 | `client_name` | 필수, 비어있으면 거부 | `invalid_client` |
 | `redirect_uris` | 필수, 1개 이상 | `invalid_client` |
-| `grant_types` | `authorization_code`, `refresh_token`만 허용. 비어있으면 `authorization_code` 기본 | `invalid_client` |
+| `grant_types` | `authorization_code` 필수. `refresh_token`은 지원하며, 그 외 grant는 authgate 내부 ClientModel에는 반영하지 않는다. 비어있으면 `authorization_code` 기본 | `invalid_client` |
 | `response_types` | `code`만 허용 | `invalid_client` |
 | `token_endpoint_auth_method` | `none`만 허용 (public client). 비어있으면 `none` 기본 | `invalid_client` |
 
@@ -349,7 +351,7 @@ CIMD 메타데이터 문서의 필드별 크기/개수 제한. 문서 전체 크
 | `client_id` (URL) | 2048자 | URL 길이 실용 상한 |
 | `client_name` | 256자 | 표시용, UI 오버플로 방지 |
 | `redirect_uris` | 최대 10개, 각 2048자 | 과도한 등록 방지 |
-| `grant_types` | 최대 2개 (`authorization_code`, `refresh_token`) | 허용 값이 2종뿐 |
+| `grant_types` | 최대 8개 | 대형 metadata 방어. authgate는 지원 grant만 선택적으로 사용 |
 | `response_types` | 최대 1개 (`code`) | 허용 값이 1종뿐 |
 | `token_endpoint_auth_method` | `none` 고정 | 허용 값이 1종뿐 |
 
@@ -397,7 +399,8 @@ CIMD 클라이언트(URL 형식 client_id)는 **매 호출 시 캐시 기반으�
 ```text
 /authorize
   → CIMD fetch (캐시 기반)
-  → client_id 일치, redirect_uri, grant_types 전체 검증
+  → client_id 일치, redirect_uri, authorization_code 포함 확인
+  → 지원 grant만 내부 ClientModel에 반영
 
 /oauth/token (code exchange)
   → CIMD fetch (캐시 기반)
@@ -430,7 +433,7 @@ CIMD 클라이언트(URL 형식 client_id)는 **매 호출 시 캐시 기반으�
 메타데이터 내용이 중간에 바뀐 경우:
 - 캐시 만료 후 re-fetch 시 새 메타데이터 적용
 - `redirect_uris` 변경: `/authorize` 시점에만 검증하므로 기존 토큰에는 영향 없음
-- `grant_types` 변경: code exchange/refresh 시 재검증하므로 **영향 있음** (예: `refresh_token`이 빠지면 갱신 거부)
+- `grant_types` 변경: code exchange/refresh 시 재검증하므로 **영향 있음**. `authorization_code`가 빠지면 클라이언트 조회가 실패하고, `refresh_token`이 빠지면 새 refresh_token 발급/갱신이 거부된다. 지원하지 않는 추가 grant는 무시된다.
 
 ## 채널 정책
 

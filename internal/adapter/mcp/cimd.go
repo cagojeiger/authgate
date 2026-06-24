@@ -44,7 +44,7 @@ const (
 	maxCIMDClientNameLength  = 256
 	maxCIMDRedirectURICount  = 10
 	maxCIMDRedirectURILength = 2048
-	maxCIMDGrantTypeCount    = 2
+	maxCIMDGrantTypeCount    = 8
 	maxCIMDResponseTypeCount = 1
 
 	// cimdCacheMaxEntries caps the in-memory cache so a flood of unique
@@ -366,9 +366,9 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		}
 	}
 
-	// Defaults
-	if len(meta.GrantTypes) == 0 {
-		meta.GrantTypes = []string{"authorization_code"}
+	grantTypes, err := supportedCIMDGrantTypes(meta.GrantTypes)
+	if err != nil {
+		return nil, 0, err
 	}
 	if meta.TokenEndpointAuthMethod == "" {
 		meta.TokenEndpointAuthMethod = "none"
@@ -386,16 +386,6 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 	if len(meta.ResponseTypes) > maxCIMDResponseTypeCount {
 		return nil, 0, fmt.Errorf("cimd: response_types exceeds %d entries", maxCIMDResponseTypeCount)
 	}
-	if len(meta.GrantTypes) > maxCIMDGrantTypeCount {
-		return nil, 0, fmt.Errorf("cimd: grant_types exceeds %d entries", maxCIMDGrantTypeCount)
-	}
-	allowedGrants := map[string]bool{"authorization_code": true, "refresh_token": true}
-	for _, gt := range meta.GrantTypes {
-		if !allowedGrants[gt] {
-			return nil, 0, fmt.Errorf("cimd: unsupported grant_type: %q (only authorization_code, refresh_token supported)", gt)
-		}
-	}
-
 	return &storage.ClientModel{
 		ID:                   meta.ClientID,
 		Type:                 "public",
@@ -403,8 +393,33 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		Name:                 meta.ClientName,
 		RedirectURIList:      storage.StringArray(meta.RedirectURIs),
 		AllowedScopeList:     storage.StringArray([]string{"openid", "profile", "email", "offline_access"}),
-		AllowedGrantTypeList: storage.StringArray(meta.GrantTypes),
+		AllowedGrantTypeList: storage.StringArray(grantTypes),
 	}, cacheTTLFromCacheControl(resp.Header.Get("Cache-Control"), f.cacheTTL), nil
+}
+
+func supportedCIMDGrantTypes(grantTypes []string) ([]string, error) {
+	if len(grantTypes) == 0 {
+		return []string{"authorization_code"}, nil
+	}
+	if len(grantTypes) > maxCIMDGrantTypeCount {
+		return nil, fmt.Errorf("cimd: grant_types exceeds %d entries", maxCIMDGrantTypeCount)
+	}
+
+	seen := make(map[string]bool, 2)
+	var supported []string
+	for _, gt := range grantTypes {
+		switch gt {
+		case "authorization_code", "refresh_token":
+			if !seen[gt] {
+				seen[gt] = true
+				supported = append(supported, gt)
+			}
+		}
+	}
+	if !seen["authorization_code"] {
+		return nil, fmt.Errorf("cimd: grant_types must include authorization_code")
+	}
+	return supported, nil
 }
 
 func cacheTTLFromCacheControl(cacheControl string, fallback time.Duration) time.Duration {
