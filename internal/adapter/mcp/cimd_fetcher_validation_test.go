@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
+	"github.com/kangheeyong/authgate/internal/storage"
 )
 
 func TestCIMDFetcher_UnsupportedAuthMethod(t *testing.T) {
@@ -83,7 +85,7 @@ func TestCIMDFetcher_OversizedDocument(t *testing.T) {
 	}
 }
 
-func TestCIMDFetcher_UnsupportedGrantType(t *testing.T) {
+func TestCIMDFetcher_GrantTypesMustIncludeAuthorizationCode(t *testing.T) {
 	var serverURL string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -100,10 +102,37 @@ func TestCIMDFetcher_UnsupportedGrantType(t *testing.T) {
 	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
-		t.Fatal("expected error for unsupported grant_type, got nil")
+		t.Fatal("expected error for grant_types without authorization_code, got nil")
 	}
-	if !strings.Contains(err.Error(), "grant_type") {
-		t.Errorf("error = %q, want to contain 'grant_type'", err.Error())
+	if !strings.Contains(err.Error(), "authorization_code") {
+		t.Errorf("error = %q, want to contain 'authorization_code'", err.Error())
+	}
+}
+
+func TestCIMDFetcher_IgnoresUnsupportedAdditionalGrantTypes(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":                  serverURL + "/client.json",
+			"client_name":                "Claude",
+			"redirect_uris":              []string{"https://claude.ai/api/mcp/auth_callback"},
+			"grant_types":                []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"},
+			"response_types":             []string{"code"},
+			"token_endpoint_auth_method": "none",
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	client, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
+	if err != nil {
+		t.Fatalf("FetchClient failed: %v", err)
+	}
+	want := storage.StringArray([]string{"authorization_code", "refresh_token"})
+	if !reflect.DeepEqual(client.AllowedGrantTypeList, want) {
+		t.Fatalf("grant_types = %v, want %v", client.AllowedGrantTypeList, want)
 	}
 }
 
@@ -183,12 +212,18 @@ func TestCIMDFetcher_RedirectURITooLong(t *testing.T) {
 func TestCIMDFetcher_TooManyGrantTypes(t *testing.T) {
 	var serverURL string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		grantTypes := make([]string, maxCIMDGrantTypeCount+1)
+		for i := range grantTypes {
+			grantTypes[i] = fmt.Sprintf("urn:example:grant:%d", i)
+		}
+		grantTypes[0] = "authorization_code"
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
 			"client_id":     serverURL + "/client.json",
 			"client_name":   "Too Many Grants",
 			"redirect_uris": []string{"http://localhost:3000/callback"},
-			"grant_types":   []string{"authorization_code", "refresh_token", "refresh_token"},
+			"grant_types":   grantTypes,
 		})
 	}))
 	defer srv.Close()
