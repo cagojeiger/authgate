@@ -47,7 +47,7 @@ jobs:
     runs-on: arc-runner-set-authgate
     container: catthehacker/ubuntu:act-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -66,7 +66,7 @@ jobs:
     runs-on: arc-runner-set-authgate
     container: catthehacker/ubuntu:act-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -106,7 +106,7 @@ jobs:
     runs-on: arc-runner-set-authgate
     container: catthehacker/ubuntu:act-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -132,7 +132,7 @@ jobs:
     runs-on: arc-runner-set-authgate
     container: catthehacker/ubuntu:act-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -154,7 +154,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -178,7 +178,7 @@ jobs:
     runs-on: arc-runner-set-authgate
     container: catthehacker/ubuntu:act-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -189,7 +189,7 @@ jobs:
     runs-on: arc-runner-set-authgate
     container: catthehacker/ubuntu:act-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -208,7 +208,7 @@ jobs:
     runs-on: arc-runner-set-authgate
     container: catthehacker/ubuntu:act-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
