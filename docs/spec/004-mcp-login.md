@@ -319,7 +319,8 @@ CIMD fetch의 네트워크 제약. IETF draft에서 MUST/SHOULD인 것과 authga
 | 규칙 | 근거 | 값 |
 |------|------|-----|
 | HTTPS 필수 | IETF draft MUST | `https://` + path 필수 |
-| private/loopback/unspecified IP 거부 | IETF draft SHOULD (SSRF) | `0.0.0.0`, `::`, `127.0.0.1`, `10/8`, `172.16/12`, `192.168/16`, link-local 전부 차단 |
+| private/loopback/unspecified IP 거부 | IETF draft SHOULD (SSRF) | `0.0.0.0`, `::`, `127.0.0.1`, `10/8`, `172.16/12`, `192.168/16`, link-local, multicast 전부 차단 |
+| 특수용도 대역 거부 | authgate 정책 (SSRF) | CGNAT `100.64/10`(RFC 6598 — EKS 등 클라우드 파드 대역), `192.0.0/24`, TEST-NET 3종, `198.18/15`(벤치마킹), `240/4`, NAT64 `64:ff9b::/96`, `100::/64`, `2001:db8::/32` 차단 |
 | IPv4-mapped IPv6 정규화 | authgate 정책 | `::ffff:x.x.x.x` → IPv4로 변환 후 검사 |
 | DNS resolve → 검증된 IP로 직접 dial | authgate 정책 (DNS rebinding 방지) | resolve와 connect 사이 TOCTOU 제거 |
 | 리다이렉트 차단 | authgate 정책 | 301/302/307/308 모두 거부. CIMD URL이 곧 client_id이므로 다른 URL로의 이동은 허용 불가 |

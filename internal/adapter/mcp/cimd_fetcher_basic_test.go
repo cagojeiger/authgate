@@ -184,7 +184,22 @@ func TestIsPrivateIP(t *testing.T) {
 		{"0.0.0.0", true},
 		{"::", true},
 		{"::ffff:127.0.0.1", true},
+		{"100.64.0.1", true},        // RFC 6598 CGNAT (EKS VPC CNI pod range)
+		{"100.127.255.254", true},   // CGNAT upper edge
+		{"::ffff:100.64.0.1", true}, // IPv4-mapped CGNAT
+		{"192.0.0.10", true},        // RFC 6890 protocol assignments
+		{"192.0.2.1", true},         // TEST-NET-1
+		{"198.51.100.7", true},      // TEST-NET-2
+		{"203.0.113.9", true},       // TEST-NET-3
+		{"198.18.0.1", true},        // RFC 2544 benchmarking
+		{"224.0.1.1", true},         // multicast (non link-local)
+		{"255.255.255.255", true},   // limited broadcast (240/4)
+		{"64:ff9b::a00:1", true},    // NAT64-embedded 10.0.0.1
+		{"100::1", true},            // discard-only
+		{"2001:db8::1", true},       // documentation
 		{"8.8.8.8", false},
+		{"100.63.255.255", false}, // just below CGNAT
+		{"100.128.0.1", false},    // just above CGNAT
 		{"2001:4860:4860::8888", false},
 	}
 	for _, tt := range tests {
