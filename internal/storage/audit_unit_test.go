@@ -76,7 +76,7 @@ func TestSanitizeAuditMetadata_AllowsKnownKeysOnly(t *testing.T) {
 	}
 
 	keys := unitKeys(t)
-	got := (&Storage{keys: keys}).sanitizeAuditMetadata(context.Background(), "auth.login", metadata)
+	got := newAuditLogger(nil, nil, (&Storage{keys: keys}).sessionAtRest).sanitize(context.Background(), "auth.login", metadata)
 	want := map[string]any{
 		"channel":     "browser",
 		"client_id":   "client-1",
@@ -94,7 +94,7 @@ func TestSanitizeAuditMetadata_AllowsKnownKeysOnly(t *testing.T) {
 }
 
 func TestSanitizeAuditMetadata_UnknownEventDropsMetadata(t *testing.T) {
-	got := (&Storage{}).sanitizeAuditMetadata(context.Background(), "custom.event", map[string]any{
+	got := newAuditLogger(nil, nil, nil).sanitize(context.Background(), "custom.event", map[string]any{
 		"client_id": "client-1",
 	})
 	if got != nil {
@@ -103,7 +103,7 @@ func TestSanitizeAuditMetadata_UnknownEventDropsMetadata(t *testing.T) {
 }
 
 func TestSanitizeAuditMetadata_EmptyResultReturnsNil(t *testing.T) {
-	got := (&Storage{}).sanitizeAuditMetadata(context.Background(), "auth.login", map[string]any{
+	got := newAuditLogger(nil, nil, nil).sanitize(context.Background(), "auth.login", map[string]any{
 		"email": "person@example.com",
 	})
 	if got != nil {

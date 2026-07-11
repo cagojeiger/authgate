@@ -62,6 +62,7 @@ type Storage struct {
 	// `op.DeviceAuthorizationConfig.PollInterval`.
 	devicePollInterval time.Duration
 	registry           *clientRegistry
+	audit              *auditLogger
 	resourcePolicy     ResourceBindingPolicy
 	// keys holds the PII at-rest crypto subkeys (ADR-002). nil until SetKeys is
 	// called at startup; while nil, encryption is inert. Required in production.
@@ -79,8 +80,18 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 		devicePollInterval: 5 * time.Second,
 		registry:           newClientRegistry(),
 	}
+	s.audit = newAuditLogger(db, clk, s.sessionAtRest)
 	s.resourcePolicy = NewCoreResourceBindingPolicy()
 	return s
+}
+
+// ensureAudit lazily builds the audit logger so a Storage constructed directly
+// (e.g. &Storage{} in tests) rather than through New() still records audits.
+func (s *Storage) ensureAudit() *auditLogger {
+	if s.audit == nil {
+		s.audit = newAuditLogger(s.db, s.clock, s.sessionAtRest)
+	}
+	return s.audit
 }
 
 // SetDevicePollInterval overrides the device-flow poll interval used for
