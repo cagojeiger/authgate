@@ -115,6 +115,47 @@ func (s *LoginService) handleSessionLogin(ctx context.Context, authRequestID, se
 	return s.handleExistingSession(ctx, user, authRequestID, sessionID, ipAddress, userAgent)
 }
 
+// completeReusedSessionLogin runs the shared tail of a session-reuse login for
+// the browser and mcp channels (device flow has a different shape — it shows an
+// approval page instead of auto-completing). The caller has already resolved
+// the session, run CheckAccess, and performed any channel-specific recovery;
+// `recovered` is only ever true for the browser channel, which is the only one
+// whose CheckAccess returns AccessRecover. This loads the auth_request, verifies
+// the channel binding, audits a deletion-cancelled recovery when applicable,
+// completes the request, and writes the auth.login audit — all identically
+// across channels except for the channel label.
+func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel string, user *storage.User, authRequestID, sessionID, ipAddress, userAgent string, recovered bool) *LoginResult {
+	authReq, err := store.GetAuthRequestModel(ctx, authRequestID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return &LoginResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
+	}
+	if err != nil {
+		return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+	}
+
+	clientName, errMsg, code := verifyAuthRequestChannel(ctx, store, authReq, channel, ipAddress, userAgent, &user.ID)
+	if errMsg != "" {
+		return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
+	}
+	if recovered {
+		store.AuditLog(ctx, &user.ID, storage.EventAuthDeletionCancelled, ipAddress, userAgent, lifecycleAuditMetadata(
+			channel, sessionID, authReq.ClientID, clientName,
+		))
+	}
+
+	if err := store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
+		return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
+	}
+	store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
+		"channel":        channel,
+		"session_id":     sessionID,
+		"client_id":      authReq.ClientID,
+		"client_name":    clientName,
+		"reused_session": true,
+	})
+	return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
+}
+
 func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authRequestID, sessionID, ipAddress, userAgent string) *LoginResult {
 	recovered := false
 	switch CheckAccess(user.Status, "browser") {
@@ -129,33 +170,7 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 		recovered = true
 	}
 
-	authReq, err := s.store.GetAuthRequestModel(ctx, authRequestID)
-	if errors.Is(err, storage.ErrNotFound) {
-		return &LoginResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
-	}
-	if err != nil {
-		return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
-	}
-
-	clientName, errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, &user.ID)
-	if errMsg != "" {
-		return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
-	}
-	if recovered {
-		s.auditDeletionCancelled(ctx, user.ID, sessionID, authReq, ipAddress, userAgent)
-	}
-
-	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
-		return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
-	}
-	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
-		"channel":        "browser",
-		"session_id":     sessionID,
-		"client_id":      authReq.ClientID,
-		"client_name":    clientName,
-		"reused_session": true,
-	})
-	return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
+	return completeReusedSessionLogin(ctx, s.store, "browser", user, authRequestID, sessionID, ipAddress, userAgent, recovered)
 }
 
 // CallbackResult describes what the handler should do after HandleCallback.

@@ -42,28 +42,9 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 				s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
 				return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 			}
-			authReq, err := s.store.GetAuthRequestModel(ctx, authRequestID)
-			if errors.Is(err, storage.ErrNotFound) {
-				return &LoginResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
-			}
-			if err != nil {
-				return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
-			}
-			clientName, errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, &user.ID)
-			if errMsg != "" {
-				return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
-			}
-			if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
-				return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
-			}
-			s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
-				"channel":        "mcp",
-				"session_id":     sessionID,
-				"client_id":      authReq.ClientID,
-				"client_name":    clientName,
-				"reused_session": true,
-			})
-			return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
+			// mcp never recovers (CheckAccess denies pending_deletion for mcp),
+			// so recovered is always false.
+			return completeReusedSessionLogin(ctx, s.store, "mcp", user, authRequestID, sessionID, ipAddress, userAgent, false)
 		}
 	}
 
