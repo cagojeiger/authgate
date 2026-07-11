@@ -5,7 +5,6 @@ import (
 	"crypto/rsa"
 	"database/sql"
 	"errors"
-	"sync"
 	"time"
 
 	"github.com/kangheeyong/authgate/internal/clock"
@@ -62,8 +61,7 @@ type Storage struct {
 	// Defaults to 5s in New() to match the value advertised in
 	// `op.DeviceAuthorizationConfig.PollInterval`.
 	devicePollInterval time.Duration
-	clients            sync.Map // map[string]*ClientModel (client_id → client)
-	clientPolicy       ClientResolutionPolicy
+	registry           *clientRegistry
 	resourcePolicy     ResourceBindingPolicy
 	// keys holds the PII at-rest crypto subkeys (ADR-002). nil until SetKeys is
 	// called at startup; while nil, encryption is inert. Required in production.
@@ -79,8 +77,8 @@ func New(db *sql.DB, clk clock.Clock, gen idgen.IDGenerator, checker StateChecke
 		accessTokenTTL:     accessTTL,
 		refreshTokenTTL:    refreshTTL,
 		devicePollInterval: 5 * time.Second,
+		registry:           newClientRegistry(),
 	}
-	s.clientPolicy = NewCoreClientResolutionPolicy(s)
 	s.resourcePolicy = NewCoreResourceBindingPolicy()
 	return s
 }

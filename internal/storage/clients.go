@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -154,35 +153,22 @@ func ValidateClientChannels(clients []ClientConfigEntry, enableMCP bool) error {
 // LoadClientConfig — a URL-form entry in the static map would bypass
 // every CIMDFetcher validation, so we log and skip rather than silently
 // admit it.
-func (s *Storage) LoadClients(clients []ClientConfigEntry) {
-	for _, c := range clients {
-		if IsCIMDClientID(c.ClientID) {
-			slog.Warn("LoadClients: dropping URL-form client_id from static registry — use dynamic CIMD resolution instead",
-				"client_id", c.ClientID)
-			continue
-		}
-		cm := &ClientModel{
-			ID:                   c.ClientID,
-			SecretHash:           c.ClientSecretHash,
-			Type:                 c.ClientType,
-			LoginChannel:         c.LoginChannel,
-			Name:                 c.Name,
-			URL:                  c.URL,
-			RedirectURIList:      StringArray(c.RedirectURIs),
-			AllowedScopeList:     StringArray(c.AllowedScopes),
-			AllowedGrantTypeList: StringArray(c.AllowedGrantTypes),
-		}
-		s.clients.Store(c.ClientID, cm)
+// ensureRegistry lazily initialises the client registry so a Storage built
+// directly (e.g. in tests via &Storage{}) rather than through New() still works.
+func (s *Storage) ensureRegistry() *clientRegistry {
+	if s.registry == nil {
+		s.registry = newClientRegistry()
 	}
+	return s.registry
+}
+
+func (s *Storage) LoadClients(clients []ClientConfigEntry) {
+	s.ensureRegistry().Load(clients)
 }
 
 // SetClientResolutionPolicy overrides client resolution behavior for op.Storage lookups.
 func (s *Storage) SetClientResolutionPolicy(policy ClientResolutionPolicy) {
-	if policy == nil {
-		s.clientPolicy = NewCoreClientResolutionPolicy(s)
-		return
-	}
-	s.clientPolicy = policy
+	s.ensureRegistry().SetPolicy(policy)
 }
 
 // SetResourceBindingPolicy overrides resource binding validation for authorize/token flows.
@@ -200,8 +186,5 @@ func (s *Storage) SetResourceBindingPolicy(policy ResourceBindingPolicy) {
 // human-readable client name without holding a Storage pointer.
 func (s *Storage) ResolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
 	// Safety net for tests constructing Storage without New().
-	if s.clientPolicy == nil {
-		s.clientPolicy = NewCoreClientResolutionPolicy(s)
-	}
-	return s.clientPolicy.ResolveClient(ctx, clientID)
+	return s.ensureRegistry().Resolve(ctx, clientID)
 }
