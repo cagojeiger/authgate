@@ -5,27 +5,17 @@ import (
 	"fmt"
 	"io"
 	"mime"
-	"net"
 	"net/http"
 	"net/url"
 	"path"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/storage"
 	"golang.org/x/sync/singleflight"
 )
-
-// cimdCacheEntry holds a cached CIMD client with expiration.
-type cimdCacheEntry struct {
-	client    *storage.ClientModel
-	err       error
-	expiresAt time.Time
-}
 
 // CIMDMetadata represents a Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document).
 type CIMDMetadata struct {
@@ -55,13 +45,6 @@ const (
 	// outbound HTTP fetches (see #156).
 	cimdNegativeCacheTTL = 30 * time.Second
 
-	// cimdFailureLimit / cimdFailureWindow form a per-client_id failure
-	// quota. Once a single client_id produces this many failures inside the
-	// window, the fetcher rejects further attempts without an outbound call
-	// until the window passes (see #156).
-	cimdFailureLimit  = 5
-	cimdFailureWindow = 5 * time.Minute
-
 	// cimdFloorTTL is the minimum positive-cache TTL applied to any
 	// successful response. Server-stated max-age values smaller than this
 	// (including `no-store` / `no-cache` / `max-age<=0`) are raised to the
@@ -76,81 +59,40 @@ const (
 	cimdCeilTTL = 24 * time.Hour
 )
 
-// errCIMDRateLimited is returned when a client_id exceeds cimdFailureLimit
-// failures inside cimdFailureWindow.
-var errCIMDRateLimited = fmt.Errorf("cimd: too many recent failures, retry later")
-
 // HTTPCIMDFetcher fetches CIMD metadata via HTTP with SSRF protection and caching.
 type HTTPCIMDFetcher struct {
 	client    *http.Client
 	clock     clock.Clock
-	cache     *lru.Cache[string, *cimdCacheEntry]
+	cache     *cimdCache
 	cacheTTL  time.Duration
 	cacheMax  int // overrides cimdCacheMaxEntries when > 0; primarily for tests.
 	cacheOnce sync.Once
 	sf        singleflight.Group
 
-	failuresMu   sync.Mutex
-	failures     *lru.Cache[string, *cimdFailureRecord]
+	failures     *failureTracker
 	failuresOnce sync.Once
 }
 
-// cimdFailureRecord tracks the timestamps of recent failures for a single
-// client_id; entries outside cimdFailureWindow are pruned on access.
-type cimdFailureRecord struct {
-	times []time.Time
-}
-
-func (f *HTTPCIMDFetcher) ensureCache() *lru.Cache[string, *cimdCacheEntry] {
+func (f *HTTPCIMDFetcher) ensureCache() *cimdCache {
 	f.cacheOnce.Do(func() {
 		max := f.cacheMax
 		if max <= 0 {
 			max = cimdCacheMaxEntries
 		}
-		c, _ := lru.New[string, *cimdCacheEntry](max)
-		f.cache = c
+		f.cache = newCIMDCache(max)
 	})
 	return f.cache
 }
 
-func (f *HTTPCIMDFetcher) ensureFailures() *lru.Cache[string, *cimdFailureRecord] {
+func (f *HTTPCIMDFetcher) ensureFailures() *failureTracker {
 	f.failuresOnce.Do(func() {
 		max := f.cacheMax
 		if max <= 0 {
 			max = cimdCacheMaxEntries
 		}
-		c, _ := lru.New[string, *cimdFailureRecord](max)
-		f.failures = c
+		f.failures = newFailureTracker(max)
 	})
 	return f.failures
-}
-
-// isRateLimited reports whether clientID has exceeded cimdFailureLimit
-// failures inside cimdFailureWindow as of now. It also prunes timestamps
-// that have aged out of the window.
-func (f *HTTPCIMDFetcher) isRateLimited(clientID string, now time.Time) bool {
-	f.failuresMu.Lock()
-	defer f.failuresMu.Unlock()
-	rec, ok := f.ensureFailures().Get(clientID)
-	if !ok {
-		return false
-	}
-	rec.times = pruneOldTimestamps(rec.times, now, cimdFailureWindow)
-	return len(rec.times) >= cimdFailureLimit
-}
-
-// recordFailure appends a failure timestamp for clientID, pruning any that
-// have aged out of cimdFailureWindow.
-func (f *HTTPCIMDFetcher) recordFailure(clientID string, now time.Time) {
-	f.failuresMu.Lock()
-	defer f.failuresMu.Unlock()
-	cache := f.ensureFailures()
-	rec, ok := cache.Get(clientID)
-	if !ok {
-		rec = &cimdFailureRecord{}
-		cache.Add(clientID, rec)
-	}
-	rec.times = append(pruneOldTimestamps(rec.times, now, cimdFailureWindow), now)
 }
 
 // canonicalCIMDKey returns the canonical form of clientID:
@@ -202,49 +144,11 @@ func isCanonicalCIMDClientID(clientID string) bool {
 	return canonicalCIMDKey(clientID) == clientID
 }
 
-func pruneOldTimestamps(times []time.Time, now time.Time, window time.Duration) []time.Time {
-	cutoff := now.Add(-window)
-	kept := times[:0]
-	for _, t := range times {
-		if t.After(cutoff) {
-			kept = append(kept, t)
-		}
-	}
-	return kept
-}
-
-// NewHTTPCIMDFetcher creates a CIMD fetcher with SSRF-safe HTTP client.
+// NewHTTPCIMDFetcher creates a CIMD fetcher with an SSRF-safe HTTP client
+// (see newSSRFSafeHTTPClient in cimd_transport.go).
 func NewHTTPCIMDFetcher() *HTTPCIMDFetcher {
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, fmt.Errorf("cimd: invalid address: %s", addr)
-			}
-			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, fmt.Errorf("cimd: DNS lookup failed: %w", err)
-			}
-			// Find first public IP and dial it directly (prevents DNS rebinding)
-			for _, ip := range ips {
-				if isPrivateIP(ip.IP) {
-					continue
-				}
-				dialer := &net.Dialer{Timeout: 3 * time.Second}
-				return dialer.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port))
-			}
-			return nil, fmt.Errorf("cimd: no public IP found for %s", host)
-		},
-		TLSHandshakeTimeout: 3 * time.Second,
-	}
 	return &HTTPCIMDFetcher{
-		client: &http.Client{
-			Transport: transport,
-			Timeout:   3 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return fmt.Errorf("cimd: redirects not allowed")
-			},
-		},
+		client:   newSSRFSafeHTTPClient(),
 		clock:    clock.RealClock{},
 		cacheTTL: 5 * time.Minute,
 	}
@@ -261,19 +165,16 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 	cache := f.ensureCache()
 
 	// Check cache (positive or negative entry).
-	if ce, ok := cache.Get(clientID); ok {
-		if f.clock.Now().Before(ce.expiresAt) {
-			if ce.err != nil {
-				return nil, ce.err
-			}
-			return ce.client, nil
+	if client, cachedErr, hit := cache.Lookup(clientID, f.clock.Now()); hit {
+		if cachedErr != nil {
+			return nil, cachedErr
 		}
-		cache.Remove(clientID)
+		return client, nil
 	}
 
 	// Reject without an outbound call when this client_id is currently
 	// rate-limited.
-	if f.isRateLimited(clientID, f.clock.Now()) {
+	if f.ensureFailures().IsRateLimited(clientID, f.clock.Now()) {
 		return nil, errCIMDRateLimited
 	}
 
@@ -282,19 +183,13 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 		client, ttl, fetchErr := f.fetchAndValidate(ctx, clientID)
 		if fetchErr != nil {
 			now := f.clock.Now()
-			f.recordFailure(clientID, now)
-			cache.Add(clientID, &cimdCacheEntry{
-				err:       fetchErr,
-				expiresAt: now.Add(cimdNegativeCacheTTL),
-			})
+			f.ensureFailures().Record(clientID, now)
+			cache.PutNegative(clientID, fetchErr, now.Add(cimdNegativeCacheTTL))
 			return nil, fetchErr
 		}
 
 		if ttl > 0 {
-			cache.Add(clientID, &cimdCacheEntry{
-				client:    client,
-				expiresAt: f.clock.Now().Add(ttl),
-			})
+			cache.PutPositive(clientID, client, f.clock.Now().Add(ttl))
 		}
 		return client, nil
 	})
@@ -343,95 +238,4 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		return nil, 0, err
 	}
 	return client, cacheTTLFromCacheControl(resp.Header.Get("Cache-Control"), f.cacheTTL), nil
-}
-
-func cacheTTLFromCacheControl(cacheControl string, fallback time.Duration) time.Duration {
-	ttl := parseCacheControlTTL(cacheControl, fallback)
-	if ttl < cimdFloorTTL {
-		return cimdFloorTTL
-	}
-	if ttl > cimdCeilTTL {
-		return cimdCeilTTL
-	}
-	return ttl
-}
-
-// parseCacheControlTTL returns the TTL implied by a Cache-Control header
-// without applying the cimdFloorTTL clamp. `no-store`, `no-cache`, and
-// `max-age<=0` map to 0; an unparseable header falls back to `fallback`.
-func parseCacheControlTTL(cacheControl string, fallback time.Duration) time.Duration {
-	if cacheControl == "" {
-		return fallback
-	}
-	directives := strings.Split(cacheControl, ",")
-	for _, d := range directives {
-		d = strings.TrimSpace(strings.ToLower(d))
-		if d == "no-store" || d == "no-cache" {
-			return 0
-		}
-		if strings.HasPrefix(d, "max-age=") {
-			v := strings.TrimSpace(strings.TrimPrefix(d, "max-age="))
-			seconds, err := strconv.ParseInt(v, 10, 64)
-			if err != nil || seconds <= 0 {
-				return 0
-			}
-			return time.Duration(seconds) * time.Second
-		}
-	}
-	return fallback
-}
-
-// specialPurposeCIDRs are non-global special-use ranges that the net.IP
-// helpers below do not cover. CGNAT 100.64.0.0/10 matters most: cloud pod
-// networks (e.g. EKS VPC CNI) assign it to in-cluster workloads, so a CIMD
-// client_id resolving there would let the fetcher reach internal services.
-var specialPurposeCIDRs = mustParseCIDRs(
-	"100.64.0.0/10",   // RFC 6598 CGNAT / shared address space
-	"192.0.0.0/24",    // RFC 6890 IETF protocol assignments
-	"192.0.2.0/24",    // RFC 5737 TEST-NET-1
-	"198.51.100.0/24", // RFC 5737 TEST-NET-2
-	"203.0.113.0/24",  // RFC 5737 TEST-NET-3
-	"198.18.0.0/15",   // RFC 2544 benchmarking
-	"240.0.0.0/4",     // reserved (incl. limited broadcast)
-	"64:ff9b::/96",    // RFC 6052 NAT64 (embeds IPv4)
-	"100::/64",        // RFC 6666 discard-only
-	"2001:db8::/32",   // RFC 3849 documentation
-)
-
-func mustParseCIDRs(cidrs ...string) []*net.IPNet {
-	nets := make([]*net.IPNet, 0, len(cidrs))
-	for _, c := range cidrs {
-		_, n, err := net.ParseCIDR(c)
-		if err != nil {
-			panic("cimd: invalid builtin CIDR " + c)
-		}
-		nets = append(nets, n)
-	}
-	return nets
-}
-
-// isPrivateIP checks if an IP is private/loopback/link-local/multicast or in
-// a special-purpose range that must never be a CIMD fetch target.
-func isPrivateIP(ip net.IP) bool {
-	if ip == nil {
-		return true
-	}
-	// Normalize IPv4-mapped IPv6 addresses (::ffff:a.b.c.d) to IPv4.
-	if v4 := ip.To4(); v4 != nil {
-		ip = v4
-	}
-	if ip.IsLoopback() ||
-		ip.IsPrivate() ||
-		ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() ||
-		ip.IsUnspecified() {
-		return true
-	}
-	for _, n := range specialPurposeCIDRs {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return false
 }
