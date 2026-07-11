@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -556,5 +558,72 @@ func TestLoad_DBPoolClampIdleToOpen(t *testing.T) {
 	}
 	if cfg.DBMaxIdleConns != 10 {
 		t.Errorf("DBMaxIdleConns = %d, want clamped 10", cfg.DBMaxIdleConns)
+	}
+}
+
+// setValidProd sets a complete, valid DEV_MODE=false environment so Load()
+// succeeds; individual tests then tweak one variable.
+func setValidProd() {
+	os.Setenv("DATABASE_URL", "postgres://localhost/test")
+	os.Setenv("SESSION_SECRET", "test-secret-32-chars-long-enough!")
+	os.Setenv("PUBLIC_URL", "https://auth.example.com")
+	os.Setenv("OIDC_ISSUER_URL", "https://accounts.google.com")
+	os.Setenv("OIDC_CLIENT_ID", "authgate")
+	os.Setenv("OIDC_CLIENT_SECRET", "secret")
+	os.Setenv("PII_ENC_ROOT_KEY_ID", "enc-1")
+	os.Setenv("PII_ENC_ROOT_SECRET", "ISA5aviCx54GVBxSHvU8nqcYwC5JKOj5OFUj7uwzuUA=")
+	os.Setenv("PII_LOOKUP_ROOT_KEY_ID", "lookup-1")
+	os.Setenv("PII_LOOKUP_ROOT_SECRET", "/lXaqOM5dvoYzptzzEJ5oF3n+OyEQ/etgXmCDb5bJLI=")
+	os.Setenv("DEV_MODE", "false")
+}
+
+func captureWarnLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+func TestLoad_ProdEmptyAllowlist_Warns(t *testing.T) {
+	clearEnv()
+	setValidProd()
+	// OIDC_ISSUER_HOST_ALLOWLIST unset
+
+	logs := captureWarnLogs(t)
+	if _, err := Load(); err != nil {
+		t.Fatalf("valid prod config with empty allowlist should load: %v", err)
+	}
+	if !strings.Contains(logs.String(), "OIDC_ISSUER_HOST_ALLOWLIST is empty") {
+		t.Errorf("expected empty-allowlist warning in production; logs = %q", logs.String())
+	}
+}
+
+func TestLoad_ProdWithAllowlist_NoWarn(t *testing.T) {
+	clearEnv()
+	setValidProd()
+	os.Setenv("OIDC_ISSUER_HOST_ALLOWLIST", "accounts.google.com")
+
+	logs := captureWarnLogs(t)
+	if _, err := Load(); err != nil {
+		t.Fatalf("valid prod config with allowlist should load: %v", err)
+	}
+	if strings.Contains(logs.String(), "OIDC_ISSUER_HOST_ALLOWLIST is empty") {
+		t.Errorf("did not expect empty-allowlist warning when allowlist set; logs = %q", logs.String())
+	}
+}
+
+func TestLoad_DevModeEmptyAllowlist_NoWarn(t *testing.T) {
+	clearEnv()
+	setMinimal() // DEV_MODE=true
+	os.Setenv("OIDC_ISSUER_URL", "https://accounts.google.com")
+
+	logs := captureWarnLogs(t)
+	if _, err := Load(); err != nil {
+		t.Fatalf("dev config should load: %v", err)
+	}
+	if strings.Contains(logs.String(), "OIDC_ISSUER_HOST_ALLOWLIST is empty") {
+		t.Errorf("dev mode should not warn about allowlist; logs = %q", logs.String())
 	}
 }

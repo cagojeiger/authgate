@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -214,6 +215,13 @@ func Load() (*Config, error) {
 		// the roots, signups would persist plaintext PII.
 		if c.EncRootKeyID == "" || c.EncRootSecret == "" || c.LookupRootKeyID == "" || c.LookupRootSecret == "" {
 			return nil, fmt.Errorf("DEV_MODE=false requires PII_ENC_ROOT_KEY_ID, PII_ENC_ROOT_SECRET, PII_LOOKUP_ROOT_KEY_ID, PII_LOOKUP_ROOT_SECRET")
+		}
+		// Kept a warning rather than a hard requirement for backward
+		// compatibility: an empty allowlist disables upstream issuer host
+		// validation, so a misconfigured or compromised OIDC_ISSUER_URL would
+		// not be caught (phishing-redirect risk). Recommended in production.
+		if len(c.OIDCIssuerHostAllowlist) == 0 {
+			slog.Warn("OIDC_ISSUER_HOST_ALLOWLIST is empty: upstream issuer host is not validated in production; set it to the expected IdP host(s) to fail-fast on a misconfigured OIDC_ISSUER_URL")
 		}
 	}
 
