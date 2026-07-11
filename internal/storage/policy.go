@@ -7,11 +7,11 @@ import (
 )
 
 type coreClientResolutionPolicy struct {
-	s *Storage
+	reg *clientRegistry
 }
 
 func (p coreClientResolutionPolicy) ResolveClient(ctx context.Context, clientID string) (*ClientModel, error) {
-	if v, ok := p.s.clients.Load(clientID); ok {
+	if v, ok := p.reg.clients.Load(clientID); ok {
 		return v.(*ClientModel), nil
 	}
 	return nil, ErrNotFound
@@ -40,7 +40,7 @@ func (coreResourceBindingPolicy) ValidateTokenRequest(ctx context.Context, clien
 }
 
 func NewCoreClientResolutionPolicy(s *Storage) ClientResolutionPolicy {
-	return coreClientResolutionPolicy{s: s}
+	return coreClientResolutionPolicy{reg: s.registry}
 }
 
 func NewCoreResourceBindingPolicy() ResourceBindingPolicy {

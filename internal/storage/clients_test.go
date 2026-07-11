@@ -254,10 +254,10 @@ func TestLoadClients_DropsCIMDShapedClientID(t *testing.T) {
 		{ClientID: "https://app.example.com/oauth/client.json", LoginChannel: "mcp"},
 	})
 
-	if _, ok := s.clients.Load("static-ok"); !ok {
+	if _, ok := s.registry.clients.Load("static-ok"); !ok {
 		t.Errorf("non-URL static-ok client should be loaded")
 	}
-	if _, ok := s.clients.Load("https://app.example.com/oauth/client.json"); ok {
+	if _, ok := s.registry.clients.Load("https://app.example.com/oauth/client.json"); ok {
 		t.Errorf("URL-form client_id should NOT be loaded into static registry")
 	}
 }
