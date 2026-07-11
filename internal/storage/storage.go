@@ -115,3 +115,7 @@ func (s *Storage) SetPreviousKey(key *rsa.PrivateKey, keyID string) {
 
 // DB returns the underlying *sql.DB. For testing only.
 func (s *Storage) DB() *sql.DB { return s.db }
+
+// pii returns a codec bound to the current PII keys. It is a cheap value
+// wrapper, constructed per call so it always reflects the latest SetKeys.
+func (s *Storage) pii() piiCodec { return piiCodec{keys: s.keys} }
