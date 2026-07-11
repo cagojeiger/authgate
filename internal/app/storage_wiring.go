@@ -12,12 +12,16 @@ import (
 	"github.com/kangheeyong/authgate/internal/config"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/middleware"
+	"github.com/kangheeyong/authgate/internal/service"
 	"github.com/kangheeyong/authgate/internal/storage"
 )
 
+// newStateChecker adapts the account state-machine policy (owned by the
+// service layer, ADR-000) into the func Storage expects. The "active" rule
+// lives in service.IsActive, not inline in this composition root.
 func newStateChecker() func(*storage.User) error {
 	return func(user *storage.User) error {
-		if user.Status != "active" {
+		if !service.IsActive(user.Status) {
 			return fmt.Errorf("account not active: %s", user.Status)
 		}
 		return nil
