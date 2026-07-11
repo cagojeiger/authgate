@@ -3,9 +3,7 @@ package storage
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 
-	"github.com/kangheeyong/authgate/internal/crypto"
 	"github.com/kangheeyong/authgate/internal/db/storeq"
 )
 
@@ -28,23 +26,8 @@ type providerSubColumns struct {
 	encKeyID   string
 }
 
-// encryptProviderSub derives the lookup hash and AEAD ciphertext columns for a
-// provider subject under the configured keys. The AAD binds the ciphertext to
-// the owning user_id so it cannot be replayed onto another row.
-func (s *Storage) encryptProviderSub(userID, provider, sub string) (providerSubColumns, error) {
-	aad := crypto.FieldAAD(providerSubAADField, userID, s.keys.EncKeyID(), providerSubVersion)
-	ciphertext, nonce, err := s.keys.EncryptPII([]byte(sub), aad)
-	if err != nil {
-		return providerSubColumns{}, fmt.Errorf("encrypt provider sub: %w", err)
-	}
-	return providerSubColumns{
-		hash:       s.keys.ProviderSubHash(provider, sub),
-		hashKeyID:  s.keys.LookupKeyID(),
-		ciphertext: ciphertext,
-		nonce:      nonce,
-		encKeyID:   s.keys.EncKeyID(),
-	}, nil
-}
+// encryptProviderSub lives on piiCodec (pii_codec.go); providerSubColumns and
+// its applyTo mapping stay here with the other user-identity column code.
 
 // applyTo fills the encrypted provider_sub columns of an insert params struct.
 func (c providerSubColumns) applyTo(p *storeq.InsertUserIdentityParams) {

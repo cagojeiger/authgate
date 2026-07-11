@@ -67,7 +67,7 @@ func (s *Storage) insertUserForSignup(ctx context.Context, qtx *storeq.Queries, 
 	if s.keys == nil {
 		return ErrEncryptionNotConfigured
 	}
-	if err := s.applyUserPIIEncryption(&params, userID, input.Email, input.Name); err != nil {
+	if err := s.pii().applyUserEncryption(&params, userID, input.Email, input.Name); err != nil {
 		return err
 	}
 	return qtx.InsertUser(ctx, params)
@@ -84,7 +84,7 @@ func (s *Storage) insertIdentityForSignup(ctx context.Context, qtx *storeq.Queri
 	if s.keys == nil {
 		return ErrEncryptionNotConfigured
 	}
-	cols, err := s.encryptProviderSub(userID, input.Provider, input.ProviderUserID)
+	cols, err := s.pii().encryptProviderSub(userID, input.Provider, input.ProviderUserID)
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, provi
 	if err != nil {
 		return nil, err
 	}
-	email, name, err := s.resolveUserPII(row.ID, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+	email, name, err := s.pii().resolveUser(row.ID, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*
 	if err != nil {
 		return nil, err
 	}
-	email, name, err := s.resolveUserPII(row.ID, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+	email, name, err := s.pii().resolveUser(row.ID, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (s *Storage) GetUserByID(ctx context.Context, userID string) (*User, error)
 	if err != nil {
 		return nil, err
 	}
-	email, name, err := s.resolveUserPII(row.ID, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+	email, name, err := s.pii().resolveUser(row.ID, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (s *Storage) setUserinfo(ctx context.Context, userinfo *oidc.UserInfo, user
 	if err != nil {
 		return err
 	}
-	email, name, err := s.resolveUserPII(row.ID, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+	email, name, err := s.pii().resolveUser(row.ID, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
 	if err != nil {
 		return err
 	}
@@ -368,7 +368,7 @@ func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User,
 	if err != nil {
 		return nil, err
 	}
-	email, name, err := s.resolveUserPII(row.ID, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
+	email, name, err := s.pii().resolveUser(row.ID, row.EmailCiphertext, row.EmailNonce, row.EmailEncKeyID, row.EmailEncVersion, row.NameCiphertext, row.NameNonce, row.NameEncKeyID, row.NameEncVersion)
 	if err != nil {
 		return nil, err
 	}
