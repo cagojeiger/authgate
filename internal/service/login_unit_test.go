@@ -20,7 +20,6 @@ type fakeLoginStore struct {
 	getUserByIDFn             func(ctx context.Context, userID string) (*storage.User, error)
 	createSessionFn           func(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	getAuthRequestModelFn     func(ctx context.Context, id string) (*storage.AuthRequestModel, error)
-	getClientLoginChannelFn   func(ctx context.Context, clientID string) (string, error)
 	resolveClientFn           func(ctx context.Context, clientID string) (*storage.ClientModel, error)
 }
 
@@ -57,15 +56,6 @@ func (f *fakeLoginStore) GetUserByID(ctx context.Context, userID string) (*stora
 
 func (f *fakeLoginStore) CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error) {
 	return f.createSessionFn(ctx, userID, ttl)
-}
-
-func (f *fakeLoginStore) GetClientLoginChannel(ctx context.Context, clientID string) (string, error) {
-	if f.getClientLoginChannelFn == nil {
-		// Default: callers that don't care about channel binding get "browser",
-		// matching the historical behavior before #149.
-		return "browser", nil
-	}
-	return f.getClientLoginChannelFn(ctx, clientID)
 }
 
 func TestLogin_HandleLogin_RecoversPendingDeletionSession(t *testing.T) {
@@ -247,8 +237,8 @@ func TestLogin_HandleLogin_RejectsCrossChannelAuthRequest(t *testing.T) {
 		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
 			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "mcp-client"}, nil
 		},
-		getClientLoginChannelFn: func(context.Context, string) (string, error) {
-			return "mcp", nil
+		resolveClientFn: func(context.Context, string) (*storage.ClientModel, error) {
+			return &storage.ClientModel{ID: "mcp-client", Name: "MCP Client", LoginChannel: "mcp"}, nil
 		},
 		completeAuthRequestFn: func(context.Context, string, string) error {
 			t.Fatal("CompleteAuthRequest must not be called on channel mismatch")
@@ -288,8 +278,8 @@ func TestMCPLogin_HandleCallback_AuditLogIncludesSessionAndClient(t *testing.T) 
 		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
 			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "mcp-client", Resource: "http://localhost/mcp"}, nil
 		},
-		getClientLoginChannelFn: func(context.Context, string) (string, error) {
-			return "mcp", nil
+		resolveClientFn: func(context.Context, string) (*storage.ClientModel, error) {
+			return &storage.ClientModel{ID: "mcp-client", Name: "MCP Client", LoginChannel: "mcp"}, nil
 		},
 		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
 			return &storage.User{ID: "u1", Status: "active"}, nil
@@ -348,5 +338,8 @@ func (f *fakeLoginStore) ResolveClient(ctx context.Context, clientID string) (*s
 	if f.resolveClientFn != nil {
 		return f.resolveClientFn(ctx, clientID)
 	}
-	return nil, storage.ErrNotFound
+	// Default: a browser client, matching the permissive channel default the
+	// removed getClientLoginChannelFn used to provide. Tests exercising the
+	// mcp channel or a specific client name set resolveClientFn explicitly.
+	return &storage.ClientModel{ID: clientID, Name: "Test Client", LoginChannel: "browser"}, nil
 }
