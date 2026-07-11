@@ -54,10 +54,7 @@ type Storage struct {
 	clock           clock.Clock
 	idgen           idgen.IDGenerator
 	stateChecker    StateChecker
-	signingKey      *rsa.PrivateKey
-	signingKeyID    string
-	previousKey     *rsa.PrivateKey
-	previousKeyID   string
+	signing         signingKeyProvider
 	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
 	// devicePollInterval is the minimum gap between successive device-flow
@@ -98,15 +95,13 @@ func (s *Storage) SetDevicePollInterval(d time.Duration) {
 
 // SetSigningKey sets the current RSA signing key used for JWT issuance.
 func (s *Storage) SetSigningKey(key *rsa.PrivateKey, keyID string) {
-	s.signingKey = key
-	s.signingKeyID = keyID
+	s.signing.SetCurrent(key, keyID)
 }
 
 // SetPreviousKey sets the previous signing key for 2-slot rotation.
 // JWKS will return both keys; JWTs are signed with the current key only.
 func (s *Storage) SetPreviousKey(key *rsa.PrivateKey, keyID string) {
-	s.previousKey = key
-	s.previousKeyID = keyID
+	s.signing.SetPrevious(key, keyID)
 }
 
 // DB returns the underlying *sql.DB. For testing only.

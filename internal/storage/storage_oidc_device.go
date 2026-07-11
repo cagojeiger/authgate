@@ -16,40 +16,15 @@ import (
 )
 
 func (s *Storage) SigningKey(ctx context.Context) (op.SigningKey, error) {
-	if s.signingKey == nil {
-		return nil, errors.New("no signing key configured")
-	}
-	return &signingKeyModel{
-		id:        s.signingKeyID,
-		algorithm: jose.RS256,
-		key:       s.signingKey,
-	}, nil
+	return s.signing.SigningKey()
 }
 
 func (s *Storage) SignatureAlgorithms(ctx context.Context) ([]jose.SignatureAlgorithm, error) {
-	return []jose.SignatureAlgorithm{jose.RS256}, nil
+	return s.signing.SignatureAlgorithms(), nil
 }
 
 func (s *Storage) KeySet(ctx context.Context) ([]op.Key, error) {
-	if s.signingKey == nil {
-		return nil, nil
-	}
-	keys := []op.Key{
-		&publicKeyModel{
-			id:        s.signingKeyID,
-			algorithm: jose.RS256,
-			key:       &s.signingKey.PublicKey,
-		},
-	}
-	// 2-slot rotation: include previous key if set
-	if s.previousKey != nil {
-		keys = append(keys, &publicKeyModel{
-			id:        s.previousKeyID,
-			algorithm: jose.RS256,
-			key:       &s.previousKey.PublicKey,
-		})
-	}
-	return keys, nil
+	return s.signing.KeySet(), nil
 }
 
 // --- op.Storage: OPStorage ---
