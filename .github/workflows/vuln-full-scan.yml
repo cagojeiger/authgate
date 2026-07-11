@@ -12,7 +12,7 @@ permissions:
 jobs:
   full-vuln-scan:
     name: Full Vulnerability Scan
-    runs-on: arc-runner-set-authgate
+    runs-on: ubuntu-latest
     container: catthehacker/ubuntu:act-latest
     steps:
       - uses: actions/checkout@v7
