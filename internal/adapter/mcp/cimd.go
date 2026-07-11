@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,13 +18,6 @@ import (
 	"github.com/kangheeyong/authgate/internal/storage"
 	"golang.org/x/sync/singleflight"
 )
-
-// cimdCacheEntry holds a cached CIMD client with expiration.
-type cimdCacheEntry struct {
-	client    *storage.ClientModel
-	err       error
-	expiresAt time.Time
-}
 
 // CIMDMetadata represents a Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document).
 type CIMDMetadata struct {
@@ -84,7 +76,7 @@ var errCIMDRateLimited = fmt.Errorf("cimd: too many recent failures, retry later
 type HTTPCIMDFetcher struct {
 	client    *http.Client
 	clock     clock.Clock
-	cache     *lru.Cache[string, *cimdCacheEntry]
+	cache     *cimdCache
 	cacheTTL  time.Duration
 	cacheMax  int // overrides cimdCacheMaxEntries when > 0; primarily for tests.
 	cacheOnce sync.Once
@@ -101,14 +93,13 @@ type cimdFailureRecord struct {
 	times []time.Time
 }
 
-func (f *HTTPCIMDFetcher) ensureCache() *lru.Cache[string, *cimdCacheEntry] {
+func (f *HTTPCIMDFetcher) ensureCache() *cimdCache {
 	f.cacheOnce.Do(func() {
 		max := f.cacheMax
 		if max <= 0 {
 			max = cimdCacheMaxEntries
 		}
-		c, _ := lru.New[string, *cimdCacheEntry](max)
-		f.cache = c
+		f.cache = newCIMDCache(max)
 	})
 	return f.cache
 }
@@ -261,14 +252,11 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 	cache := f.ensureCache()
 
 	// Check cache (positive or negative entry).
-	if ce, ok := cache.Get(clientID); ok {
-		if f.clock.Now().Before(ce.expiresAt) {
-			if ce.err != nil {
-				return nil, ce.err
-			}
-			return ce.client, nil
+	if client, cachedErr, hit := cache.Lookup(clientID, f.clock.Now()); hit {
+		if cachedErr != nil {
+			return nil, cachedErr
 		}
-		cache.Remove(clientID)
+		return client, nil
 	}
 
 	// Reject without an outbound call when this client_id is currently
@@ -283,18 +271,12 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 		if fetchErr != nil {
 			now := f.clock.Now()
 			f.recordFailure(clientID, now)
-			cache.Add(clientID, &cimdCacheEntry{
-				err:       fetchErr,
-				expiresAt: now.Add(cimdNegativeCacheTTL),
-			})
+			cache.PutNegative(clientID, fetchErr, now.Add(cimdNegativeCacheTTL))
 			return nil, fetchErr
 		}
 
 		if ttl > 0 {
-			cache.Add(clientID, &cimdCacheEntry{
-				client:    client,
-				expiresAt: f.clock.Now().Add(ttl),
-			})
+			cache.PutPositive(clientID, client, f.clock.Now().Add(ttl))
 		}
 		return client, nil
 	})
@@ -343,42 +325,6 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		return nil, 0, err
 	}
 	return client, cacheTTLFromCacheControl(resp.Header.Get("Cache-Control"), f.cacheTTL), nil
-}
-
-func cacheTTLFromCacheControl(cacheControl string, fallback time.Duration) time.Duration {
-	ttl := parseCacheControlTTL(cacheControl, fallback)
-	if ttl < cimdFloorTTL {
-		return cimdFloorTTL
-	}
-	if ttl > cimdCeilTTL {
-		return cimdCeilTTL
-	}
-	return ttl
-}
-
-// parseCacheControlTTL returns the TTL implied by a Cache-Control header
-// without applying the cimdFloorTTL clamp. `no-store`, `no-cache`, and
-// `max-age<=0` map to 0; an unparseable header falls back to `fallback`.
-func parseCacheControlTTL(cacheControl string, fallback time.Duration) time.Duration {
-	if cacheControl == "" {
-		return fallback
-	}
-	directives := strings.Split(cacheControl, ",")
-	for _, d := range directives {
-		d = strings.TrimSpace(strings.ToLower(d))
-		if d == "no-store" || d == "no-cache" {
-			return 0
-		}
-		if strings.HasPrefix(d, "max-age=") {
-			v := strings.TrimSpace(strings.TrimPrefix(d, "max-age="))
-			seconds, err := strconv.ParseInt(v, 10, 64)
-			if err != nil || seconds <= 0 {
-				return 0
-			}
-			return time.Duration(seconds) * time.Second
-		}
-	}
-	return fallback
 }
 
 // specialPurposeCIDRs are non-global special-use ranges that the net.IP
