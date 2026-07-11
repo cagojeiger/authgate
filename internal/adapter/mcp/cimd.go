@@ -239,4 +239,3 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 	}
 	return client, cacheTTLFromCacheControl(resp.Header.Get("Cache-Control"), f.cacheTTL), nil
 }
-
