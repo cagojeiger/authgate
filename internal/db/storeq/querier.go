@@ -15,12 +15,16 @@ type Querier interface {
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
-	DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error)
-	DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error)
-	DeleteExpiredOrRevokedSessions(ctx context.Context, cutoff time.Time) (int64, error)
-	DeleteExpiredRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteExpiredAuthRequestsBefore(ctx context.Context, arg DeleteExpiredAuthRequestsBeforeParams) (int64, error)
+	DeleteExpiredDeviceCodesBefore(ctx context.Context, arg DeleteExpiredDeviceCodesBeforeParams) (int64, error)
+	DeleteExpiredOrRevokedSessions(ctx context.Context, arg DeleteExpiredOrRevokedSessionsParams) (int64, error)
+	DeleteExpiredRefreshTokensBefore(ctx context.Context, arg DeleteExpiredRefreshTokensBeforeParams) (int64, error)
 	DeleteRefreshTokensByUserID(ctx context.Context, userID string) error
-	DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff sql.NullTime) (int64, error)
+	// Each delete is bounded by LIMIT and the caller loops until fewer than the
+	// batch size come back, so a backlog (e.g. after downtime) is drained in
+	// bounded transactions instead of one lock-holding statement over millions of
+	// rows. ctid IN (...) is the standard Postgres batched-delete idiom.
+	DeleteRevokedRefreshTokensBefore(ctx context.Context, arg DeleteRevokedRefreshTokensBeforeParams) (int64, error)
 	DeleteSessionsByUserID(ctx context.Context, userID string) error
 	DeleteUserIdentitiesByUserID(ctx context.Context, userID string) error
 	DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error

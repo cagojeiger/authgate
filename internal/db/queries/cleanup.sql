@@ -1,22 +1,47 @@
+-- Each delete is bounded by LIMIT and the caller loops until fewer than the
+-- batch size come back, so a backlog (e.g. after downtime) is drained in
+-- bounded transactions instead of one lock-holding statement over millions of
+-- rows. ctid IN (...) is the standard Postgres batched-delete idiom.
+
 -- name: DeleteRevokedRefreshTokensBefore :execrows
 DELETE FROM refresh_tokens
-WHERE revoked_at IS NOT NULL AND revoked_at < sqlc.arg(cutoff);
+WHERE ctid IN (
+  SELECT t.ctid FROM refresh_tokens t
+  WHERE t.revoked_at IS NOT NULL AND t.revoked_at < sqlc.arg(cutoff)
+  LIMIT sqlc.arg(batch_size)
+);
 
 -- name: DeleteExpiredRefreshTokensBefore :execrows
 DELETE FROM refresh_tokens
-WHERE expires_at < sqlc.arg(cutoff);
+WHERE ctid IN (
+  SELECT t.ctid FROM refresh_tokens t
+  WHERE t.expires_at < sqlc.arg(cutoff)
+  LIMIT sqlc.arg(batch_size)
+);
 
 -- name: DeleteExpiredOrRevokedSessions :execrows
 DELETE FROM sessions
-WHERE expires_at < sqlc.arg(cutoff) OR revoked_at IS NOT NULL;
+WHERE ctid IN (
+  SELECT t.ctid FROM sessions t
+  WHERE t.expires_at < sqlc.arg(cutoff) OR t.revoked_at IS NOT NULL
+  LIMIT sqlc.arg(batch_size)
+);
 
 -- name: DeleteExpiredAuthRequestsBefore :execrows
 DELETE FROM auth_requests
-WHERE expires_at < sqlc.arg(cutoff);
+WHERE ctid IN (
+  SELECT t.ctid FROM auth_requests t
+  WHERE t.expires_at < sqlc.arg(cutoff)
+  LIMIT sqlc.arg(batch_size)
+);
 
 -- name: DeleteExpiredDeviceCodesBefore :execrows
 DELETE FROM device_codes
-WHERE expires_at < sqlc.arg(cutoff);
+WHERE ctid IN (
+  SELECT t.ctid FROM device_codes t
+  WHERE t.expires_at < sqlc.arg(cutoff)
+  LIMIT sqlc.arg(batch_size)
+);
 
 -- name: TryCleanupAdvisoryLock :one
 SELECT pg_try_advisory_lock(sqlc.arg(lock_key)::bigint);

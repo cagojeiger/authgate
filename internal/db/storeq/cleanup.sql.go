@@ -30,11 +30,20 @@ func (q *Queries) AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time)
 
 const deleteExpiredAuthRequestsBefore = `-- name: DeleteExpiredAuthRequestsBefore :execrows
 DELETE FROM auth_requests
-WHERE expires_at < $1
+WHERE ctid IN (
+  SELECT t.ctid FROM auth_requests t
+  WHERE t.expires_at < $1
+  LIMIT $2
+)
 `
 
-func (q *Queries) DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredAuthRequestsBefore, cutoff)
+type DeleteExpiredAuthRequestsBeforeParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+func (q *Queries) DeleteExpiredAuthRequestsBefore(ctx context.Context, arg DeleteExpiredAuthRequestsBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredAuthRequestsBefore, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -43,11 +52,20 @@ func (q *Queries) DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff ti
 
 const deleteExpiredDeviceCodesBefore = `-- name: DeleteExpiredDeviceCodesBefore :execrows
 DELETE FROM device_codes
-WHERE expires_at < $1
+WHERE ctid IN (
+  SELECT t.ctid FROM device_codes t
+  WHERE t.expires_at < $1
+  LIMIT $2
+)
 `
 
-func (q *Queries) DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredDeviceCodesBefore, cutoff)
+type DeleteExpiredDeviceCodesBeforeParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+func (q *Queries) DeleteExpiredDeviceCodesBefore(ctx context.Context, arg DeleteExpiredDeviceCodesBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredDeviceCodesBefore, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -56,11 +74,20 @@ func (q *Queries) DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff tim
 
 const deleteExpiredOrRevokedSessions = `-- name: DeleteExpiredOrRevokedSessions :execrows
 DELETE FROM sessions
-WHERE expires_at < $1 OR revoked_at IS NOT NULL
+WHERE ctid IN (
+  SELECT t.ctid FROM sessions t
+  WHERE t.expires_at < $1 OR t.revoked_at IS NOT NULL
+  LIMIT $2
+)
 `
 
-func (q *Queries) DeleteExpiredOrRevokedSessions(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredOrRevokedSessions, cutoff)
+type DeleteExpiredOrRevokedSessionsParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+func (q *Queries) DeleteExpiredOrRevokedSessions(ctx context.Context, arg DeleteExpiredOrRevokedSessionsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredOrRevokedSessions, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -69,11 +96,20 @@ func (q *Queries) DeleteExpiredOrRevokedSessions(ctx context.Context, cutoff tim
 
 const deleteExpiredRefreshTokensBefore = `-- name: DeleteExpiredRefreshTokensBefore :execrows
 DELETE FROM refresh_tokens
-WHERE expires_at < $1
+WHERE ctid IN (
+  SELECT t.ctid FROM refresh_tokens t
+  WHERE t.expires_at < $1
+  LIMIT $2
+)
 `
 
-func (q *Queries) DeleteExpiredRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteExpiredRefreshTokensBefore, cutoff)
+type DeleteExpiredRefreshTokensBeforeParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+func (q *Queries) DeleteExpiredRefreshTokensBefore(ctx context.Context, arg DeleteExpiredRefreshTokensBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExpiredRefreshTokensBefore, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}
@@ -91,12 +127,26 @@ func (q *Queries) DeleteRefreshTokensByUserID(ctx context.Context, userID string
 }
 
 const deleteRevokedRefreshTokensBefore = `-- name: DeleteRevokedRefreshTokensBefore :execrows
+
 DELETE FROM refresh_tokens
-WHERE revoked_at IS NOT NULL AND revoked_at < $1
+WHERE ctid IN (
+  SELECT t.ctid FROM refresh_tokens t
+  WHERE t.revoked_at IS NOT NULL AND t.revoked_at < $1
+  LIMIT $2
+)
 `
 
-func (q *Queries) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff sql.NullTime) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteRevokedRefreshTokensBefore, cutoff)
+type DeleteRevokedRefreshTokensBeforeParams struct {
+	Cutoff    sql.NullTime
+	BatchSize int32
+}
+
+// Each delete is bounded by LIMIT and the caller loops until fewer than the
+// batch size come back, so a backlog (e.g. after downtime) is drained in
+// bounded transactions instead of one lock-holding statement over millions of
+// rows. ctid IN (...) is the standard Postgres batched-delete idiom.
+func (q *Queries) DeleteRevokedRefreshTokensBefore(ctx context.Context, arg DeleteRevokedRefreshTokensBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteRevokedRefreshTokensBefore, arg.Cutoff, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}

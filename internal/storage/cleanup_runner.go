@@ -53,24 +53,72 @@ func (r *CleanupRunner) WithExclusiveLock(ctx context.Context, fn func(context.C
 	return true, nil
 }
 
+// cleanupBatchSize bounds each cleanup DELETE so a large backlog (e.g. after
+// downtime) is drained in bounded transactions rather than one statement that
+// locks a table while deleting millions of rows. Overridable in tests to
+// exercise the multi-iteration batch loop without inserting 10k+ rows.
+var cleanupBatchSize int32 = 10_000
+
+// deleteInBatches calls del with the batch size repeatedly until a call returns
+// fewer rows than the batch size (the table is drained), summing the total. On
+// error it returns the running total alongside the error.
+func deleteInBatches(ctx context.Context, del func(ctx context.Context, batch int32) (int64, error)) (int64, error) {
+	var total int64
+	for {
+		n, err := del(ctx, cleanupBatchSize)
+		total += n
+		if err != nil {
+			return total, err
+		}
+		if n < int64(cleanupBatchSize) {
+			return total, nil
+		}
+	}
+}
+
 func (r *CleanupRunner) DeleteRevokedRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	return storeq.New(r.db).DeleteRevokedRefreshTokensBefore(ctx, sql.NullTime{Time: cutoff, Valid: true})
+	q := storeq.New(r.db)
+	return deleteInBatches(ctx, func(ctx context.Context, batch int32) (int64, error) {
+		return q.DeleteRevokedRefreshTokensBefore(ctx, storeq.DeleteRevokedRefreshTokensBeforeParams{
+			Cutoff: sql.NullTime{Time: cutoff, Valid: true}, BatchSize: batch,
+		})
+	})
 }
 
 func (r *CleanupRunner) DeleteExpiredRefreshTokensBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	return storeq.New(r.db).DeleteExpiredRefreshTokensBefore(ctx, cutoff)
+	q := storeq.New(r.db)
+	return deleteInBatches(ctx, func(ctx context.Context, batch int32) (int64, error) {
+		return q.DeleteExpiredRefreshTokensBefore(ctx, storeq.DeleteExpiredRefreshTokensBeforeParams{
+			Cutoff: cutoff, BatchSize: batch,
+		})
+	})
 }
 
 func (r *CleanupRunner) DeleteExpiredOrRevokedSessions(ctx context.Context, cutoff time.Time) (int64, error) {
-	return storeq.New(r.db).DeleteExpiredOrRevokedSessions(ctx, cutoff)
+	q := storeq.New(r.db)
+	return deleteInBatches(ctx, func(ctx context.Context, batch int32) (int64, error) {
+		return q.DeleteExpiredOrRevokedSessions(ctx, storeq.DeleteExpiredOrRevokedSessionsParams{
+			Cutoff: cutoff, BatchSize: batch,
+		})
+	})
 }
 
 func (r *CleanupRunner) DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	return storeq.New(r.db).DeleteExpiredAuthRequestsBefore(ctx, cutoff)
+	q := storeq.New(r.db)
+	return deleteInBatches(ctx, func(ctx context.Context, batch int32) (int64, error) {
+		return q.DeleteExpiredAuthRequestsBefore(ctx, storeq.DeleteExpiredAuthRequestsBeforeParams{
+			Cutoff: cutoff, BatchSize: batch,
+		})
+	})
 }
 
 func (r *CleanupRunner) DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	return storeq.New(r.db).DeleteExpiredDeviceCodesBefore(ctx, cutoff)
+	q := storeq.New(r.db)
+	return deleteInBatches(ctx, func(ctx context.Context, batch int32) (int64, error) {
+		return q.DeleteExpiredDeviceCodesBefore(ctx, storeq.DeleteExpiredDeviceCodesBeforeParams{
+			Cutoff: cutoff, BatchSize: batch,
+		})
+	})
 }
 
 func (r *CleanupRunner) ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff time.Time) ([]string, error) {
