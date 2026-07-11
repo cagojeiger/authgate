@@ -328,13 +328,13 @@ CIMD fetch의 네트워크 제약. IETF draft에서 MUST/SHOULD인 것과 authga
 | Content-Type 검증 | IETF draft MUST | `application/json`만 허용 |
 | userinfo in URL 거부 | authgate 정책 | `https://user:pass@host/path` 형식 차단 |
 | fragment 거부 | authgate 정책 | `#` 포함 시 차단 (fragment는 서버로 전송되지 않음) |
-| query 허용 | authgate 정책 | `?` 허용. ChatGPT 등 일부 CIMD 제공자는 `?token_endpoint_auth_method=none` 같은 쿼리를 포함한 자기참조 `client_id`를 서빙한다. 문서의 `client_id`가 쿼리까지 정확히 일치해야 하고(아래 검증 규칙), canonical key가 쿼리를 그대로 보존하므로 별칭 표면이 늘지 않는다 |
+| query 허용 | authgate 정책 | `?` 허용. ChatGPT 등 일부 CIMD 제공자는 `?token_endpoint_auth_method=none` 같은 쿼리를 포함한 `client_id`로 요청하면서, 문서에는 쿼리 없는 URL을 `client_id`로 서빙한다. 문서 값은 fetch URL과 정확 일치하거나 fetch URL에서 쿼리만 제거한 값과 일치해야 한다(아래 검증 규칙). 캐시 key·rate limit·ClientModel 신원은 모두 요청된(쿼리 포함) `client_id`를 그대로 쓰므로 authorize/token 간 신원이 일관되고, redirect_uris는 항상 문서 소유자가 발행한 값이다 |
 
 ### CIMD 메타데이터 검증 규칙
 
 | 필드 | 검증 | 거부 시 에러 |
 |------|------|------------|
-| `client_id` | 문서 내 값 == fetch한 URL (정확 일치) | `invalid_client` |
+| `client_id` | 문서 내 값 == fetch한 URL (정확 일치), 또는 문서 내 값 == fetch한 URL에서 query만 제거한 값 (ChatGPT 호환. path 등 나머지 불일치는 거부) | `invalid_client` |
 | `client_name` | 필수, 비어있으면 거부 | `invalid_client` |
 | `redirect_uris` | 필수, 1개 이상 | `invalid_client` |
 | `grant_types` | `authorization_code` 필수. `refresh_token`은 지원하며, 그 외 grant는 authgate 내부 ClientModel에는 반영하지 않는다. 비어있으면 `authorization_code` 기본 | `invalid_client` |

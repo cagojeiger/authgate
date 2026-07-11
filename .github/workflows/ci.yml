@@ -44,7 +44,7 @@ permissions:
 jobs:
   fmt:
     name: Go Format
-    runs-on: arc-runner-set-authgate
+    runs-on: ubuntu-latest
     container: catthehacker/ubuntu:act-latest
     steps:
       - uses: actions/checkout@v7
@@ -63,7 +63,7 @@ jobs:
 
   sqlc:
     name: SQLC
-    runs-on: arc-runner-set-authgate
+    runs-on: ubuntu-latest
     container: catthehacker/ubuntu:act-latest
     steps:
       - uses: actions/checkout@v7
@@ -103,7 +103,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: arc-runner-set-authgate
+    runs-on: ubuntu-latest
     container: catthehacker/ubuntu:act-latest
     steps:
       - uses: actions/checkout@v7
@@ -129,7 +129,7 @@ jobs:
 
   race:
     name: Race
-    runs-on: arc-runner-set-authgate
+    runs-on: ubuntu-latest
     container: catthehacker/ubuntu:act-latest
     steps:
       - uses: actions/checkout@v7
@@ -175,7 +175,7 @@ jobs:
 
   vet:
     name: Go Vet
-    runs-on: arc-runner-set-authgate
+    runs-on: ubuntu-latest
     container: catthehacker/ubuntu:act-latest
     steps:
       - uses: actions/checkout@v7
@@ -186,7 +186,7 @@ jobs:
 
   lint:
     name: GolangCI-Lint
-    runs-on: arc-runner-set-authgate
+    runs-on: ubuntu-latest
     container: catthehacker/ubuntu:act-latest
     steps:
       - uses: actions/checkout@v7
@@ -205,7 +205,7 @@ jobs:
 
   vuln:
     name: Vulnerability Check
-    runs-on: arc-runner-set-authgate
+    runs-on: ubuntu-latest
     container: catthehacker/ubuntu:act-latest
     steps:
       - uses: actions/checkout@v7

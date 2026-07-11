@@ -295,3 +295,57 @@ func TestCIMDFetcher_RedirectRejected(t *testing.T) {
 		t.Errorf("error = %q, want to contain 'redirect'", err.Error())
 	}
 }
+
+// ChatGPT requests with a query-string client_id (?token_endpoint_auth_method=none)
+// while its published document carries the client_id without the query. The
+// fetch must succeed and the requested (query-full) client_id must stay the
+// client identity so authorize/token lookups remain consistent.
+func TestCIMDFetcher_QueryClientIDAcceptsQuerylessDocument(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":     serverURL + "/client.json",
+			"client_name":   "ChatGPT",
+			"redirect_uris": []string{"https://chatgpt.com/connector/oauth/cb"},
+			"grant_types":   []string{"authorization_code", "refresh_token"},
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	requested := serverURL + "/client.json?token_endpoint_auth_method=none"
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	client, err := fetcher.FetchClient(context.Background(), requested)
+	if err != nil {
+		t.Fatalf("FetchClient() error = %v, want nil", err)
+	}
+	if client.ID != requested {
+		t.Errorf("client.ID = %q, want requested client_id %q", client.ID, requested)
+	}
+}
+
+// A document whose client_id differs beyond the query string (different path)
+// must still be rejected even when the request carries a query.
+func TestCIMDFetcher_ClientIDPathMismatchRejected(t *testing.T) {
+	var serverURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"client_id":     serverURL + "/other.json",
+			"client_name":   "Impostor",
+			"redirect_uris": []string{"https://example.com/cb"},
+		})
+	}))
+	defer srv.Close()
+	serverURL = srv.URL
+
+	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json?token_endpoint_auth_method=none")
+	if err == nil {
+		t.Fatal("expected client_id mismatch error, got nil")
+	}
+	if !strings.Contains(err.Error(), "client_id mismatch") {
+		t.Errorf("error = %q, want to contain 'client_id mismatch'", err.Error())
+	}
+}
