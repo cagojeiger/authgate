@@ -69,6 +69,12 @@ const (
 	// floor so back-to-back identical fetches cannot keep stalling the
 	// worker pool when the upstream is slow (see #158).
 	cimdFloorTTL = 5 * time.Second
+
+	// cimdCeilTTL caps the positive-cache TTL. A malicious or misbehaving CIMD
+	// server sending e.g. `Cache-Control: max-age=99999999` would otherwise pin
+	// stale client metadata (including redirect_uris) for years; clamping to a
+	// day bounds how long a client's published document can go re-fetched.
+	cimdCeilTTL = 24 * time.Hour
 )
 
 // errCIMDRateLimited is returned when a client_id exceeds cimdFailureLimit
@@ -442,6 +448,9 @@ func cacheTTLFromCacheControl(cacheControl string, fallback time.Duration) time.
 	ttl := parseCacheControlTTL(cacheControl, fallback)
 	if ttl < cimdFloorTTL {
 		return cimdFloorTTL
+	}
+	if ttl > cimdCeilTTL {
+		return cimdCeilTTL
 	}
 	return ttl
 }

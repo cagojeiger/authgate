@@ -21,6 +21,12 @@ import (
 	"github.com/kangheeyong/authgate/internal/telemetry"
 )
 
+// maxHeaderBytes caps request header size on both the main and metrics servers.
+// authgate's requests carry only OAuth params, a session cookie and normal
+// proxy headers, so 64 KiB is generous; the explicit cap avoids relying on
+// net/http's 1 MB default and bounds per-connection header memory.
+const maxHeaderBytes = 64 << 10
+
 func buildHTTPServer(cfg *config.Config, mux http.Handler, inflightRequests *int64) (*http.Server, string) {
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	trackedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -36,6 +42,7 @@ func buildHTTPServer(cfg *config.Config, mux http.Handler, inflightRequests *int
 		ReadTimeout:       cfg.HTTPReadTimeout,
 		WriteTimeout:      cfg.HTTPWriteTimeout,
 		IdleTimeout:       cfg.HTTPIdleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
 	}, addr
 }
 
@@ -64,6 +71,7 @@ func startMetricsServer(cfg *config.Config) context.CancelFunc {
 		ReadTimeout:       cfg.HTTPReadTimeout,
 		WriteTimeout:      cfg.HTTPWriteTimeout,
 		IdleTimeout:       cfg.HTTPIdleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
 	}
 	go func() {
 		slog.Info("metrics server starting", "addr", cfg.MetricsAddr)
