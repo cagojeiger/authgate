@@ -27,6 +27,11 @@ func mustBuildOIDCProvider(cfg *config.Config, store *storage.Storage) http.Hand
 	return provider
 }
 
+// supportedScopes is the single source of truth for the scopes authgate's OP
+// advertises. It feeds both the zitadel op.Config and the hand-authored
+// /.well-known/oauth-authorization-server document so the two cannot drift.
+var supportedScopes = []string{"openid", "profile", "email", "offline_access"}
+
 func buildOPConfig(cfg *config.Config) *op.Config {
 	cryptoKey := sha256.Sum256([]byte(cfg.SessionSecret))
 	return &op.Config{
@@ -34,7 +39,7 @@ func buildOPConfig(cfg *config.Config) *op.Config {
 		CodeMethodS256:        true,
 		AuthMethodPost:        true,
 		GrantTypeRefreshToken: true,
-		SupportedScopes:       []string{"openid", "profile", "email", "offline_access"},
+		SupportedScopes:       supportedScopes,
 		DeviceAuthorization: op.DeviceAuthorizationConfig{
 			Lifetime:     5 * time.Minute,
 			PollInterval: devicePollInterval,

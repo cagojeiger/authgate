@@ -75,7 +75,7 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 			"token_endpoint_auth_methods_supported":         []string{"none", "client_secret_basic", "client_secret_post"},
 			"revocation_endpoint_auth_methods_supported":    []string{"none", "client_secret_basic", "client_secret_post"},
 			"introspection_endpoint_auth_methods_supported": []string{"client_secret_basic"},
-			"scopes_supported":                              []string{"openid", "profile", "email", "offline_access"},
+			"scopes_supported":                              supportedScopes,
 			"client_id_metadata_document_supported":         cfg.EnableMCP,
 		}
 		w.Header().Set("Content-Type", "application/json")
