@@ -3,9 +3,7 @@ package storage
 import (
 	"context"
 	"crypto/rsa"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"sync"
 	"time"
@@ -113,9 +111,3 @@ func (s *Storage) SetPreviousKey(key *rsa.PrivateKey, keyID string) {
 
 // DB returns the underlying *sql.DB. For testing only.
 func (s *Storage) DB() *sql.DB { return s.db }
-
-// hashToken returns SHA-256 hex hash of a token string.
-func hashToken(token string) string {
-	h := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(h[:])
-}

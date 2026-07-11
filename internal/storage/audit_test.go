@@ -32,8 +32,8 @@ func TestAudit010And011_RefreshReuseAndFamilyRevoke(t *testing.T) {
 	familyID := gen.NewUUID()
 	reusedToken := "audit-reused-token"
 	currentToken := "audit-current-token"
-	reusedHash := hashToken(reusedToken)
-	currentHash := hashToken(currentToken)
+	reusedHash := store.Keys().RefreshHash(reusedToken)
+	currentHash := store.Keys().RefreshHash(currentToken)
 
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, revoked_at, used_at, created_at)

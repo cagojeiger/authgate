@@ -42,7 +42,7 @@ func TestRefreshFamily_TombstonedOnReuse(t *testing.T) {
 	if _, err := store.DB().ExecContext(ctx,
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, revoked_at, used_at, created_at)
 		 VALUES (uuid_generate_v4(), $1, $2, $3, 'test-client', '{openid}', $4, $5, $5, $5)`,
-		hashToken(reusedToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
+		store.Keys().RefreshHash(reusedToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
 	); err != nil {
 		t.Fatalf("insert reused token: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestRefreshFamily_TombstoneBlocksChildIssue(t *testing.T) {
 	if _, err := store.DB().ExecContext(ctx,
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
 		 VALUES (uuid_generate_v4(), $1, $2, $3, 'test-client', '{openid}', $4, $5)`,
-		hashToken(currentToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
+		store.Keys().RefreshHash(currentToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
 	); err != nil {
 		t.Fatalf("insert current token: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestRefreshFamily_HealthyFamilyRotates(t *testing.T) {
 	if _, err := store.DB().ExecContext(ctx,
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
 		 VALUES (uuid_generate_v4(), $1, $2, $3, 'test-client', '{openid}', $4, $5)`,
-		hashToken(currentToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
+		store.Keys().RefreshHash(currentToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
 	); err != nil {
 		t.Fatalf("insert current token: %v", err)
 	}

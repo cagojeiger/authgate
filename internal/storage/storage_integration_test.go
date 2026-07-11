@@ -95,7 +95,7 @@ func TestRefreshTokenRotation_Atomicity(t *testing.T) {
 
 	// Insert refresh token directly
 	token := "test-refresh-token-atomicity"
-	tokenHash := hashToken(token)
+	tokenHash := s.Keys().RefreshHash(token)
 	now := s.clock.Now()
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)

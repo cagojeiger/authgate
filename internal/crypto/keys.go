@@ -22,6 +22,7 @@ type Keys struct {
 	email             []byte
 	code              []byte
 	session           []byte
+	refresh           []byte
 }
 
 // NewKeys derives every purpose subkey from the enc and lookup roots.
@@ -51,6 +52,7 @@ func NewKeys(enc, lookup *Root) (*Keys, error) {
 	derive(lookup, LabelEmail, &k.email)
 	derive(lookup, LabelCode, &k.code)
 	derive(lookup, LabelSession, &k.session)
+	derive(lookup, LabelRefresh, &k.refresh)
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +92,15 @@ func (k *Keys) CodeHash(code string) string {
 // SessionHash returns the lookup HMAC for a session bearer token.
 func (k *Keys) SessionHash(token string) string {
 	return hmacHex(k.session, "session:v1:"+token)
+}
+
+// RefreshHash returns the lookup HMAC for a refresh token bearer value. Like
+// SessionHash/CodeHash it keys the lookup so a database dump alone cannot
+// verify a token (ADR-002); refresh tokens carry no key_id column, so a lookup
+// root rotation invalidates outstanding refresh tokens the same way it does
+// sessions and codes.
+func (k *Keys) RefreshHash(token string) string {
+	return hmacHex(k.refresh, "refresh:v1:"+token)
 }
 
 // VerifyTag computes the crypto_key_epochs verify_tag for the given domain,
