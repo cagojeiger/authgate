@@ -25,6 +25,7 @@ const (
 	LabelEmail             = "authgate/lookup/email/v1"
 	LabelCode              = "authgate/lookup/code/v1"
 	LabelSession           = "authgate/lookup/session/v1"
+	LabelRefresh           = "authgate/lookup/refresh/v1"
 )
 
 // Root is a domain root secret (loaded from env). Its raw bytes are never used

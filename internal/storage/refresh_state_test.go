@@ -31,8 +31,8 @@ func TestRefreshReuseDetection_FamilyRevoke(t *testing.T) {
 	familyID := gen.NewUUID()
 	token1 := "reuse-token-1"
 	token2 := "reuse-token-2"
-	hash1 := hashToken(token1)
-	hash2 := hashToken(token2)
+	hash1 := store.Keys().RefreshHash(token1)
+	hash2 := store.Keys().RefreshHash(token2)
 
 	db.ExecContext(ctx,
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, revoked_at, used_at, created_at)
@@ -125,7 +125,7 @@ func TestRefreshStateCheck_AllStates(t *testing.T) {
 
 			// Insert a refresh token
 			token := fmt.Sprintf("refresh-state-token-%d", i)
-			tokenHash := hashToken(token)
+			tokenHash := store.Keys().RefreshHash(token)
 			now := clk.Now()
 			_, err = db.ExecContext(ctx,
 				`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)

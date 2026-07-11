@@ -140,7 +140,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		return "", "", time.Time{}, err
 	}
 
-	newHash := hashToken(newRefresh)
+	newHash := s.keys.RefreshHash(newRefresh)
 	now := s.clock.Now()
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -168,7 +168,11 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		}
 	}
 
-	if err := revokeRefreshTokenIfPresent(ctx, qtx, currentRefreshToken, now); err != nil {
+	var currentRefreshHash string
+	if currentRefreshToken != "" {
+		currentRefreshHash = s.keys.RefreshHash(currentRefreshToken)
+	}
+	if err := revokeRefreshTokenIfPresent(ctx, qtx, currentRefreshHash, now); err != nil {
 		return "", "", time.Time{}, err
 	}
 
@@ -205,7 +209,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 }
 
 func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken string) (op.RefreshTokenRequest, error) {
-	h := hashToken(refreshToken)
+	h := s.keys.RefreshHash(refreshToken)
 	now := s.clock.Now()
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -292,7 +296,7 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 	q := storeq.New(s.db)
 	info := clientinfo.FromContext(ctx)
 
-	if tryRevokeRefreshByHash(ctx, q, tokenOrTokenID, now) {
+	if tryRevokeRefreshByHash(ctx, q, s.keys.RefreshHash(tokenOrTokenID), now) {
 		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, info.IP, info.UserAgent, map[string]any{
 			"client_id":   clientID,
 			"client_name": s.auditClientName(ctx, clientID),
@@ -312,7 +316,7 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 }
 
 func (s *Storage) GetRefreshTokenInfo(ctx context.Context, clientID string, token string) (string, string, error) {
-	h := hashToken(token)
+	h := s.keys.RefreshHash(token)
 	row, err := storeq.New(s.db).GetRefreshTokenInfoByHashAndClientID(ctx, storeq.GetRefreshTokenInfoByHashAndClientIDParams{
 		TokenHash: h,
 		ClientID:  clientID,
@@ -394,7 +398,7 @@ func (s *Storage) deriveRefreshTokenAttributes(ctx context.Context, qtx *storeq.
 			derived.resource = existing.Resource
 		}
 		if currentRefreshToken != "" {
-			oldHash := hashToken(currentRefreshToken)
+			oldHash := s.keys.RefreshHash(currentRefreshToken)
 			fid, err := qtx.GetRefreshFamilyIDByTokenHash(ctx, oldHash)
 			if err == nil {
 				derived.familyID = fid
@@ -410,15 +414,18 @@ func (s *Storage) deriveRefreshTokenAttributes(ctx context.Context, qtx *storeq.
 	return derived, nil
 }
 
-func revokeRefreshTokenIfPresent(ctx context.Context, qtx *storeq.Queries, currentRefreshToken string, now time.Time) error {
-	if currentRefreshToken == "" {
+// revokeRefreshTokenIfPresent revokes the row matching tokenHash, which the
+// caller computes with Keys.RefreshHash (empty string when there is no current
+// token). Hashing stays in the *Storage caller so the lookup key never has to
+// be threaded into free functions.
+func revokeRefreshTokenIfPresent(ctx context.Context, qtx *storeq.Queries, tokenHash string, now time.Time) error {
+	if tokenHash == "" {
 		return nil
 	}
 
-	oldHash := hashToken(currentRefreshToken)
 	_, err := qtx.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
 		RevokedAt: sql.NullTime{Time: now, Valid: true},
-		TokenHash: oldHash,
+		TokenHash: tokenHash,
 	})
 	return err
 }
@@ -503,11 +510,12 @@ func (s *Storage) validateRefreshTokenRequest(ctx context.Context, tx *sql.Tx, r
 	return nil
 }
 
-func tryRevokeRefreshByHash(ctx context.Context, q *storeq.Queries, tokenOrTokenID string, now time.Time) bool {
-	h := hashToken(tokenOrTokenID)
+// tryRevokeRefreshByHash revokes the row matching tokenHash (computed by the
+// caller with Keys.RefreshHash) and reports whether a row was affected.
+func tryRevokeRefreshByHash(ctx context.Context, q *storeq.Queries, tokenHash string, now time.Time) bool {
 	rows, err := q.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
 		RevokedAt: sql.NullTime{Time: now, Valid: true},
-		TokenHash: h,
+		TokenHash: tokenHash,
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "revoke refresh token by hash", "error", err)
