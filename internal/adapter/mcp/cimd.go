@@ -338,8 +338,15 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		return nil, 0, fmt.Errorf("cimd: invalid JSON: %w", err)
 	}
 
-	// Validate: client_id in document must match the fetched URL
-	if meta.ClientID != clientID {
+	// Validate: client_id in document must match the fetched URL. Real-world
+	// exception: ChatGPT requests with a query-string client_id (e.g.
+	// ?token_endpoint_auth_method=none) while its document publishes the URL
+	// without the query — accept when the document value equals the fetch URL
+	// minus its query. The requested client_id stays the identity everywhere
+	// (cache key, rate limit, ClientModel.ID), so authorize/token remain
+	// consistent and no alias gains a different redirect_uris set than the
+	// document owner published.
+	if meta.ClientID != clientID && meta.ClientID != stripCIMDQuery(clientID) {
 		return nil, 0, fmt.Errorf("cimd: client_id mismatch: document=%q, url=%q", meta.ClientID, clientID)
 	}
 	if len(meta.ClientID) > maxCIMDClientIDLength {
@@ -387,7 +394,7 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		return nil, 0, fmt.Errorf("cimd: response_types exceeds %d entries", maxCIMDResponseTypeCount)
 	}
 	return &storage.ClientModel{
-		ID:                   meta.ClientID,
+		ID:                   clientID,
 		Type:                 "public",
 		LoginChannel:         "mcp",
 		Name:                 meta.ClientName,
@@ -395,6 +402,15 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		AllowedScopeList:     storage.StringArray([]string{"openid", "profile", "email", "offline_access"}),
 		AllowedGrantTypeList: storage.StringArray(grantTypes),
 	}, cacheTTLFromCacheControl(resp.Header.Get("Cache-Control"), f.cacheTTL), nil
+}
+
+// stripCIMDQuery returns clientID without its query string. Fragments are
+// rejected before fetch (IsCIMDClientID), so cutting at '?' is exact.
+func stripCIMDQuery(clientID string) string {
+	if i := strings.IndexByte(clientID, '?'); i >= 0 {
+		return clientID[:i]
+	}
+	return clientID
 }
 
 func supportedCIMDGrantTypes(grantTypes []string) ([]string, error) {
