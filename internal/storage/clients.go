@@ -205,15 +205,3 @@ func (s *Storage) ResolveClient(ctx context.Context, clientID string) (*ClientMo
 	}
 	return s.clientPolicy.ResolveClient(ctx, clientID)
 }
-
-// GetClientLoginChannel returns the login_channel ("browser" or "mcp") for the
-// given client. Used by service-layer channel-binding checks so that an
-// auth_request issued for one channel cannot be completed via the other
-// channel's login flow.
-func (s *Storage) GetClientLoginChannel(ctx context.Context, clientID string) (string, error) {
-	cm, err := s.ResolveClient(ctx, clientID)
-	if err != nil {
-		return "", err
-	}
-	return cm.LoginChannel, nil
-}

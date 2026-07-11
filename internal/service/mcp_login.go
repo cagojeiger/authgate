@@ -49,7 +49,8 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 			if err != nil {
 				return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 			}
-			if errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, &user.ID); errMsg != "" {
+			clientName, errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, &user.ID)
+			if errMsg != "" {
 				return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
 			}
 			if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
@@ -59,7 +60,7 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 				"channel":        "mcp",
 				"session_id":     sessionID,
 				"client_id":      authReq.ClientID,
-				"client_name":    resolveClientName(ctx, s.store, authReq.ClientID),
+				"client_name":    clientName,
 				"reused_session": true,
 			})
 			return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
@@ -98,7 +99,8 @@ func (s *MCPLoginService) CompleteMCPLogin(ctx context.Context, state string, in
 		return &CallbackResult{Action: ActionError, Error: "invalid_target", ErrorCode: http.StatusBadRequest}
 	}
 
-	if errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, nil); errMsg != "" {
+	clientName, errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, nil)
+	if errMsg != "" {
 		return &CallbackResult{Action: ActionError, Error: errMsg, ErrorCode: statusCode}
 	}
 
@@ -128,7 +130,7 @@ func (s *MCPLoginService) CompleteMCPLogin(ctx context.Context, state string, in
 		"channel":     "mcp",
 		"session_id":  sessionID,
 		"client_id":   authReq.ClientID,
-		"client_name": resolveClientName(ctx, s.store, authReq.ClientID),
+		"client_name": clientName,
 	})
 	return &CallbackResult{Action: ActionAutoApprove, AuthRequestID: authRequestID, SessionID: sessionID}
 }

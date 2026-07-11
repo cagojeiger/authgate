@@ -27,7 +27,6 @@ type LoginStore interface {
 	GetUserByID(ctx context.Context, userID string) (*storage.User, error)
 	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	GetAuthRequestModel(ctx context.Context, id string) (*storage.AuthRequestModel, error)
-	GetClientLoginChannel(ctx context.Context, clientID string) (string, error)
 	ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error)
 }
 
@@ -36,21 +35,25 @@ type LoginStore interface {
 // returns an error message + HTTP status suitable for a *LoginResult or
 // *CallbackResult. Lookup errors return ("internal_error", 500); a clean match
 // returns ("", 0).
-func verifyAuthRequestChannel(ctx context.Context, store LoginStore, authReq *storage.AuthRequestModel, expected, ipAddress, userAgent string, userID *string) (string, int) {
-	channel, err := store.GetClientLoginChannel(ctx, authReq.ClientID)
-	if err != nil {
-		return "internal_error", http.StatusInternalServerError
+// It resolves the client once and returns its display name so the caller's
+// success audit can reuse it instead of resolving a second time — for MCP
+// clients a resolve may trigger an outbound CIMD fetch, so collapsing the two
+// lookups avoids a duplicate fetch per login (#302 M2).
+func verifyAuthRequestChannel(ctx context.Context, store LoginStore, authReq *storage.AuthRequestModel, expected, ipAddress, userAgent string, userID *string) (clientName string, errMsg string, statusCode int) {
+	client, err := store.ResolveClient(ctx, authReq.ClientID)
+	if err != nil || client == nil {
+		return "", "internal_error", http.StatusInternalServerError
 	}
-	if channel != expected {
+	if client.LoginChannel != expected {
 		store.AuditLog(ctx, userID, storage.EventAuthChannelMismatch, ipAddress, userAgent, map[string]any{
 			"expected_channel": expected,
-			"actual_channel":   channel,
+			"actual_channel":   client.LoginChannel,
 			"client_id":        authReq.ClientID,
-			"client_name":      resolveClientName(ctx, store, authReq.ClientID),
+			"client_name":      client.Name,
 		})
-		return "channel_mismatch", http.StatusBadRequest
+		return client.Name, "channel_mismatch", http.StatusBadRequest
 	}
-	return "", 0
+	return client.Name, "", 0
 }
 
 func NewLoginService(store LoginStore, providerName string, sessionTTL time.Duration) *LoginService {
@@ -134,7 +137,8 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 		return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 
-	if errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, &user.ID); errMsg != "" {
+	clientName, errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, &user.ID)
+	if errMsg != "" {
 		return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
 	}
 	if recovered {
@@ -148,7 +152,7 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 		"channel":        "browser",
 		"session_id":     sessionID,
 		"client_id":      authReq.ClientID,
-		"client_name":    resolveClientName(ctx, s.store, authReq.ClientID),
+		"client_name":    clientName,
 		"reused_session": true,
 	})
 	return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
@@ -185,7 +189,8 @@ func (s *LoginService) completeBrowserLogin(ctx context.Context, authRequestID s
 	if result != nil {
 		return result
 	}
-	if errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, nil); errMsg != "" {
+	clientName, errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, nil)
+	if errMsg != "" {
 		return &CallbackResult{Action: ActionError, Error: errMsg, ErrorCode: statusCode}
 	}
 
@@ -209,7 +214,7 @@ func (s *LoginService) completeBrowserLogin(ctx context.Context, authRequestID s
 		"channel":     "browser",
 		"session_id":  sessionID,
 		"client_id":   authReq.ClientID,
-		"client_name": resolveClientName(ctx, s.store, authReq.ClientID),
+		"client_name": clientName,
 		"signup":      signedUp,
 	})
 
