@@ -29,3 +29,23 @@ func TestCacheTTLFromCacheControl_AppliesFloor(t *testing.T) {
 		})
 	}
 }
+
+func TestCacheTTLFromCacheControl_AppliesCeiling(t *testing.T) {
+	fallback := 5 * time.Minute
+	cases := []struct {
+		name string
+		hdr  string
+		want time.Duration
+	}{
+		{"max-age below ceiling is kept verbatim", "max-age=86399", 86399 * time.Second},
+		{"max-age equal to ceiling is kept", "max-age=86400", cimdCeilTTL},
+		{"max-age above ceiling is clamped", "max-age=99999999", cimdCeilTTL},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cacheTTLFromCacheControl(tc.hdr, fallback); got != tc.want {
+				t.Errorf("cacheTTLFromCacheControl(%q) = %v, want %v", tc.hdr, got, tc.want)
+			}
+		})
+	}
+}
