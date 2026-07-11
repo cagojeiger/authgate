@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -339,109 +338,11 @@ func (f *HTTPCIMDFetcher) fetchAndValidate(ctx context.Context, clientID string)
 		return nil, 0, fmt.Errorf("cimd: document exceeds 10KB limit")
 	}
 
-	var meta CIMDMetadata
-	if err := json.Unmarshal(body, &meta); err != nil {
-		return nil, 0, fmt.Errorf("cimd: invalid JSON: %w", err)
-	}
-
-	// Validate: client_id in document must match the fetched URL. Real-world
-	// exception: ChatGPT requests with a query-string client_id (e.g.
-	// ?token_endpoint_auth_method=none) while its document publishes the URL
-	// without the query — accept when the document value equals the fetch URL
-	// minus its query. The requested client_id stays the identity everywhere
-	// (cache key, rate limit, ClientModel.ID), so authorize/token remain
-	// consistent and no alias gains a different redirect_uris set than the
-	// document owner published.
-	if meta.ClientID != clientID && meta.ClientID != stripCIMDQuery(clientID) {
-		return nil, 0, fmt.Errorf("cimd: client_id mismatch: document=%q, url=%q", meta.ClientID, clientID)
-	}
-	if len(meta.ClientID) > maxCIMDClientIDLength {
-		return nil, 0, fmt.Errorf("cimd: client_id exceeds %d chars", maxCIMDClientIDLength)
-	}
-	if meta.ClientName == "" {
-		return nil, 0, fmt.Errorf("cimd: client_name is required")
-	}
-	if len(meta.ClientName) > maxCIMDClientNameLength {
-		return nil, 0, fmt.Errorf("cimd: client_name exceeds %d chars", maxCIMDClientNameLength)
-	}
-	if len(meta.RedirectURIs) == 0 {
-		return nil, 0, fmt.Errorf("cimd: redirect_uris is required")
-	}
-	if len(meta.RedirectURIs) > maxCIMDRedirectURICount {
-		return nil, 0, fmt.Errorf("cimd: redirect_uris exceeds %d entries", maxCIMDRedirectURICount)
-	}
-	for _, uri := range meta.RedirectURIs {
-		if len(uri) == 0 {
-			return nil, 0, fmt.Errorf("cimd: redirect_uri cannot be empty")
-		}
-		if len(uri) > maxCIMDRedirectURILength {
-			return nil, 0, fmt.Errorf("cimd: redirect_uri exceeds %d chars", maxCIMDRedirectURILength)
-		}
-	}
-
-	grantTypes, err := supportedCIMDGrantTypes(meta.GrantTypes)
+	client, err := validateCIMDMetadata(body, clientID)
 	if err != nil {
 		return nil, 0, err
 	}
-	if meta.TokenEndpointAuthMethod == "" {
-		meta.TokenEndpointAuthMethod = "none"
-	}
-
-	// Validate supported values
-	if meta.TokenEndpointAuthMethod != "none" {
-		return nil, 0, fmt.Errorf("cimd: unsupported token_endpoint_auth_method: %q (only 'none' supported)", meta.TokenEndpointAuthMethod)
-	}
-	for _, rt := range meta.ResponseTypes {
-		if rt != "code" {
-			return nil, 0, fmt.Errorf("cimd: unsupported response_type: %q (only 'code' supported)", rt)
-		}
-	}
-	if len(meta.ResponseTypes) > maxCIMDResponseTypeCount {
-		return nil, 0, fmt.Errorf("cimd: response_types exceeds %d entries", maxCIMDResponseTypeCount)
-	}
-	return &storage.ClientModel{
-		ID:                   clientID,
-		Type:                 "public",
-		LoginChannel:         "mcp",
-		Name:                 meta.ClientName,
-		RedirectURIList:      storage.StringArray(meta.RedirectURIs),
-		AllowedScopeList:     storage.StringArray([]string{"openid", "profile", "email", "offline_access"}),
-		AllowedGrantTypeList: storage.StringArray(grantTypes),
-	}, cacheTTLFromCacheControl(resp.Header.Get("Cache-Control"), f.cacheTTL), nil
-}
-
-// stripCIMDQuery returns clientID without its query string. Fragments are
-// rejected before fetch (IsCIMDClientID), so cutting at '?' is exact.
-func stripCIMDQuery(clientID string) string {
-	if i := strings.IndexByte(clientID, '?'); i >= 0 {
-		return clientID[:i]
-	}
-	return clientID
-}
-
-func supportedCIMDGrantTypes(grantTypes []string) ([]string, error) {
-	if len(grantTypes) == 0 {
-		return []string{"authorization_code"}, nil
-	}
-	if len(grantTypes) > maxCIMDGrantTypeCount {
-		return nil, fmt.Errorf("cimd: grant_types exceeds %d entries", maxCIMDGrantTypeCount)
-	}
-
-	seen := make(map[string]bool, 2)
-	var supported []string
-	for _, gt := range grantTypes {
-		switch gt {
-		case "authorization_code", "refresh_token":
-			if !seen[gt] {
-				seen[gt] = true
-				supported = append(supported, gt)
-			}
-		}
-	}
-	if !seen["authorization_code"] {
-		return nil, fmt.Errorf("cimd: grant_types must include authorization_code")
-	}
-	return supported, nil
+	return client, cacheTTLFromCacheControl(resp.Header.Get("Cache-Control"), f.cacheTTL), nil
 }
 
 func cacheTTLFromCacheControl(cacheControl string, fallback time.Duration) time.Duration {
