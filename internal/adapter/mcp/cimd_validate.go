@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/kangheeyong/authgate/internal/storage"
@@ -63,7 +64,12 @@ func validateCIMDMetadata(body []byte, clientID string) (*storage.ClientModel, e
 	if meta.TokenEndpointAuthMethod == "" {
 		meta.TokenEndpointAuthMethod = "none"
 	}
-	if meta.TokenEndpointAuthMethod != "none" {
+	// A CIMD client may publish token_endpoint_auth_method=private_key_jwt in its
+	// document yet advertise "none" in token_endpoint_auth_methods_supported and
+	// request it via the client_id query (?token_endpoint_auth_method=none) — this
+	// is what ChatGPT connectors do. authgate registers CIMD clients as public
+	// (auth=none), so accept "none" whenever the client offered it there.
+	if meta.TokenEndpointAuthMethod != "none" && !cimdClientOffersNone(clientID, meta.TokenEndpointAuthMethodsSupported) {
 		return nil, fmt.Errorf("cimd: unsupported token_endpoint_auth_method: %q (only 'none' supported)", meta.TokenEndpointAuthMethod)
 	}
 	for _, rt := range meta.ResponseTypes {
@@ -92,6 +98,22 @@ func stripCIMDQuery(clientID string) string {
 		return clientID[:i]
 	}
 	return clientID
+}
+
+// cimdClientOffersNone reports whether the client offered public auth ("none"):
+// either the requested client_id carries ?token_endpoint_auth_method=none, or the
+// document lists "none" in token_endpoint_auth_methods_supported. authgate only
+// implements public clients, so it negotiates down to "none" when available.
+func cimdClientOffersNone(clientID string, supported []string) bool {
+	if u, err := url.Parse(clientID); err == nil && u.Query().Get("token_endpoint_auth_method") == "none" {
+		return true
+	}
+	for _, m := range supported {
+		if m == "none" {
+			return true
+		}
+	}
+	return false
 }
 
 func supportedCIMDGrantTypes(grantTypes []string) ([]string, error) {

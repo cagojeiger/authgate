@@ -48,6 +48,40 @@ func TestValidateCIMDMetadata_QueryClientIDMatchesQuerylessDocument(t *testing.T
 	}
 }
 
+func TestValidateCIMDMetadata_AcceptsNoneWhenClientOffersIt(t *testing.T) {
+	// ChatGPT connectors publish token_endpoint_auth_method=private_key_jwt but list
+	// "none" in token_endpoint_auth_methods_supported and request it via the
+	// client_id query. authgate must negotiate down to a public ("none") client
+	// instead of rejecting with "unable to retrieve client by id".
+	cases := []struct {
+		name string
+		id   string
+		body string
+	}{
+		{
+			"via client_id query",
+			"https://chatgpt.com/oauth/x/client.json?token_endpoint_auth_method=none",
+			`{"client_id":"https://chatgpt.com/oauth/x/client.json","client_name":"ChatGPT","redirect_uris":["https://chatgpt.com/cb"],"token_endpoint_auth_method":"private_key_jwt","token_endpoint_auth_methods_supported":["none","private_key_jwt"]}`,
+		},
+		{
+			"via supported list only",
+			"https://chatgpt.com/oauth/x/client.json",
+			`{"client_id":"https://chatgpt.com/oauth/x/client.json","client_name":"ChatGPT","redirect_uris":["https://chatgpt.com/cb"],"token_endpoint_auth_method":"private_key_jwt","token_endpoint_auth_methods_supported":["private_key_jwt","none"]}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client, err := validateCIMDMetadata([]byte(tc.body), tc.id)
+			if err != nil {
+				t.Fatalf("validateCIMDMetadata() error = %v, want nil", err)
+			}
+			if client.Type != "public" {
+				t.Errorf("client.Type = %q, want public", client.Type)
+			}
+		})
+	}
+}
+
 func TestValidateCIMDMetadata_Rejects(t *testing.T) {
 	cases := []struct {
 		name    string
