@@ -25,6 +25,10 @@ type CIMDMetadata struct {
 	GrantTypes              []string `json:"grant_types"`
 	ResponseTypes           []string `json:"response_types"`
 	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	// TokenEndpointAuthMethodsSupported lets a client advertise the methods it can
+	// use (e.g. ChatGPT lists both "none" and "private_key_jwt"); authgate accepts
+	// the client when "none" is among them.
+	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
 }
 
 const (
