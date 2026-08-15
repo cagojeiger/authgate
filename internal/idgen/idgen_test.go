@@ -1,6 +1,7 @@
 package idgen
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -37,4 +38,19 @@ func TestSequentialGenerator(t *testing.T) {
 	if tok1 == tok2 {
 		t.Error("sequential tokens should be different")
 	}
+}
+
+// SequentialGenerator returns predictable values for tests.
+type SequentialGenerator struct {
+	counter int
+}
+
+func (g *SequentialGenerator) NewUUID() string {
+	g.counter++
+	return fmt.Sprintf("00000000-0000-0000-0000-%012d", g.counter)
+}
+
+func (g *SequentialGenerator) NewOpaqueToken() (string, error) {
+	g.counter++
+	return fmt.Sprintf("token-%d", g.counter), nil
 }

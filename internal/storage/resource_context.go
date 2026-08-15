@@ -30,25 +30,6 @@ func ResourceFromContext(ctx context.Context) string {
 	return strings.TrimSpace(resource)
 }
 
-// ResourceFromRequest returns the first `resource` value seen on the
-// request (or empty string). Retained for callers that intentionally want
-// permissive single-value extraction; new code should prefer
-// ResourceFromRequestStrict so that duplicate parameters surface as an
-// error instead of silently dropping additional audiences.
-func ResourceFromRequest(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-	if err := r.ParseForm(); err != nil {
-		return ""
-	}
-	values := r.Form["resource"]
-	if len(values) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(values[0])
-}
-
 // ResourceFromRequestStrict enforces the single-audience policy at the
 // HTTP boundary: any request carrying more than one `resource` parameter
 // is rejected with ErrMultipleResourceParams before the auth_request is

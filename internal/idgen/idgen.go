@@ -29,18 +29,3 @@ func (CryptoGenerator) NewOpaqueToken() (string, error) {
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
-
-// SequentialGenerator returns predictable values for tests.
-type SequentialGenerator struct {
-	counter int
-}
-
-func (g *SequentialGenerator) NewUUID() string {
-	g.counter++
-	return fmt.Sprintf("00000000-0000-0000-0000-%012d", g.counter)
-}
-
-func (g *SequentialGenerator) NewOpaqueToken() (string, error) {
-	g.counter++
-	return fmt.Sprintf("token-%d", g.counter), nil
-}
