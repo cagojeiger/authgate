@@ -139,6 +139,9 @@ func followRedirectsToCode(t *testing.T, client *http.Client, resp *http.Respons
 		// Check if this redirect contains a code
 		u, _ := url.Parse(loc)
 		if code := u.Query().Get("code"); code != "" {
+			if issuer := u.Query().Get("iss"); issuer != baseURL {
+				t.Fatalf("authorization response iss = %q, want %q", issuer, baseURL)
+			}
 			return code
 		}
 
