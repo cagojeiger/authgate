@@ -21,7 +21,6 @@ type e2eFixture struct {
 	LoginSvc    *LoginService
 	MCPLoginSvc *MCPLoginService
 	DeviceSvc   *DeviceService
-	AccountSvc  *AccountService
 	Store       *storage.Storage
 	DB          *sql.DB
 	Clock       *clock.FixedClock
@@ -48,12 +47,10 @@ func setupE2ETest(t *testing.T) *e2eFixture {
 	loginSvc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
 	mcpLoginSvc := NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
 	deviceSvc := NewDeviceService(store, fakeProvider.Name(), "http://localhost:8080", 24*time.Hour, clk)
-	accountSvc := NewAccountService(store)
 	return &e2eFixture{
 		LoginSvc:    loginSvc,
 		MCPLoginSvc: mcpLoginSvc,
 		DeviceSvc:   deviceSvc,
-		AccountSvc:  accountSvc,
 		Store:       store,
 		DB:          db,
 		Clock:       clk,
@@ -158,13 +155,15 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "e2e4-full@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "e2e-sub"})
-	sessionID, _ := fx.Store.CreateSession(ctx, user.ID, 24*time.Hour)
+	// 세션이 살아 있는 상태에서 삭제를 요청한다 (RequestDeletion 은 세션을 폐기하지 않음).
+	if _, err := fx.Store.CreateSession(ctx, user.ID, 24*time.Hour); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 	refreshToken := createRefreshTokenForUser(t, ctx, fx.Store, user.ID)
 
-	// 1. DELETE /account -> pending_deletion
-	result := fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
-	if !result.Success {
-		t.Fatalf("step 1: deletion request failed: %s", result.Message)
+	// 1. 삭제 요청 -> pending_deletion
+	if _, err := fx.Store.RequestDeletion(ctx, user.ID); err != nil {
+		t.Fatalf("step 1: deletion request failed: %v", err)
 	}
 	var status string
 	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
@@ -226,12 +225,14 @@ func TestE2E5_RecoveryThenAuthRequestRetry(t *testing.T) {
 	ctx := context.Background()
 
 	user, _ := fx.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{Email: "e2e5-retry@test.com", EmailVerified: true, Name: "Retry User", Provider: "google", ProviderUserID: "e2e-sub"})
-	sessionID, _ := fx.Store.CreateSession(ctx, user.ID, 24*time.Hour)
+	// 세션이 살아 있는 상태에서 삭제를 요청한다 (RequestDeletion 은 세션을 폐기하지 않음).
+	if _, err := fx.Store.CreateSession(ctx, user.ID, 24*time.Hour); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 
 	// 1) pending_deletion 전환
-	del := fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
-	if !del.Success {
-		t.Fatalf("deletion request failed: %s", del.Message)
+	if _, err := fx.Store.RequestDeletion(ctx, user.ID); err != nil {
+		t.Fatalf("deletion request failed: %v", err)
 	}
 
 	// 2) 잘못된 authRequestID 콜백은 Exchange 이전에 거부되고 복구도 일어나지 않는다.

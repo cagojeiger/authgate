@@ -291,45 +291,6 @@ func TestAudit005_DeviceDenied(t *testing.T) {
 	}
 }
 
-func TestAudit006_DeletionRequested(t *testing.T) {
-	loginSvc, store, fakeUser := setupLoginService(t)
-	svc := NewAccountService(store)
-	ctx := context.Background()
-
-	arID, err := store.CreateTestAuthRequest(ctx, "audit-delete")
-	if err != nil {
-		t.Fatalf("create auth request: %v", err)
-	}
-	loginResult := loginSvc.CompleteBrowserLogin(ctx, arID, fakeUser, "127.0.0.1", "login-agent")
-	if loginResult.Action != ActionAutoApprove {
-		t.Fatalf("login action = %v, want AutoApprove", loginResult.Action)
-	}
-
-	user, err := store.GetUserByProviderIdentity(ctx, "google", "google-sub-123")
-	if err != nil {
-		t.Fatalf("get user: %v", err)
-	}
-
-	result := svc.RequestDeletion(ctx, loginResult.SessionID, "127.0.0.1", "delete-agent")
-	if !result.Success {
-		t.Fatalf("request deletion failed: %s", result.Message)
-	}
-
-	event := requireSingleAuditEvent(t, store.DB(), user.ID, storage.EventAuthDeletionRequested)
-	if event.Metadata["channel"] != "browser" {
-		t.Fatalf("channel = %v, want browser", event.Metadata["channel"])
-	}
-	if event.Metadata["session_id"] != hashedSessionID(store, loginResult.SessionID) {
-		t.Fatalf("session_id = %v, want hashed %s", event.Metadata["session_id"], loginResult.SessionID)
-	}
-	if event.Metadata["client_id"] != "test-app" {
-		t.Fatalf("client_id = %v, want test-app", event.Metadata["client_id"])
-	}
-	if event.Metadata["client_name"] != "Test App" {
-		t.Fatalf("client_name = %v, want Test App", event.Metadata["client_name"])
-	}
-}
-
 func TestAudit007_DeletionCancelled(t *testing.T) {
 	svc, store, fakeUser := setupLoginService(t)
 	ctx := context.Background()

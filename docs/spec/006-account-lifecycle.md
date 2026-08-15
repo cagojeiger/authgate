@@ -15,7 +15,6 @@ authgate 계정의 생성부터 삭제까지 전체 상태 전이와 각 상태�
 
 | Method | Path | 내부 처리 | 설명 |
 |--------|------|----------|------|
-| DELETE | `/account` | authgate 핸들러 | 계정 삭제 요청 (30일 유예). 기본 비활성화, `ENABLE_ACCOUNT_DELETION=true`일 때만 사용 가능 |
 | GET | `/health` | authgate 핸들러 | liveness 체크 |
 | GET | `/ready` | authgate 핸들러 | readiness 체크 (DB 포함) |
 
@@ -23,13 +22,18 @@ authgate 계정의 생성부터 삭제까지 전체 상태 전이와 각 상태�
 - `pending_deletion` → `active`: 브라우저 로그인(Spec 002) 시 자동 복구
 - `disabled` → `active`: DB 직접 수정 (Spec 009 운영 참조)
 
+**계정 관리 진입점은 HTTP에 존재하지 않는다.** 삭제 요청·계정 정지 등
+관리 조작은 gRPC 관리면(jelly-cloud)에서 제공하며, 공개 HTTP 표면에는
+노출하지 않는다. authgate의 HTTP 표면은 OIDC 프로토콜과 로그인 플로우로
+한정된다.
+
 ## 계정 상태
 
 ```mermaid
 stateDiagram-v2
     [*] --> active: 계정 생성 (Spec 001)
 
-    active --> pending_deletion: DELETE /account<br/>ENABLE_ACCOUNT_DELETION=true
+    active --> pending_deletion: 관리면 삭제 요청 (gRPC)
     active --> disabled: 운영자 조치 (Spec 009)
 
     pending_deletion --> active: 30일 내 브라우저 로그인 (자동 복구)
@@ -62,9 +66,8 @@ sequenceDiagram
     participant AG as authgate
     participant DB as PostgreSQL
 
-    U->>AG: DELETE /account (ENABLE_ACCOUNT_DELETION=true, 세션 쿠키 + Origin 필요)
-    AG->>AG: Origin == PUBLIC_URL 확인
-    AG->>AG: getSessionUser → 유저 확인
+    U->>AG: 삭제 요청 (관리면 gRPC 경유)
+    AG->>AG: 대상 user_id 확인
     AG->>DB: BEGIN
     AG->>DB: UPDATE users SET status='pending_deletion', deletion_scheduled_at=NOW()+30일
     AG->>DB: UPDATE refresh_tokens SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL
@@ -73,8 +76,12 @@ sequenceDiagram
     AG-->>U: 200 {"status": "pending_deletion", "message": "Account scheduled for deletion in 30 days. Login to cancel."}
 ```
 
-`ENABLE_ACCOUNT_DELETION=false`(기본값)이면 `DELETE /account`는 404 `account deletion disabled`를 반환하고 상태를 변경하지 않는다.
-연결된 서비스/클라이언트가 authgate 전역 계정 삭제를 유발하지 않도록, Authgate가 소유한 명시적 확인 UX와 운영 정책이 준비된 배포에서만 활성화한다.
+상태 전이 트랜잭션(`Storage.RequestDeletion`)은 `status='active'` 조건부
+UPDATE로 보호된다 — `disabled`/`deleted` 계정은 `ErrUserAccountClosed`로
+거부되어, 운영자가 정지시킨 계정이 삭제 요청으로 덮어써지지 않는다.
+
+연결된 서비스가 authgate 전역 계정 삭제를 유발하지 않도록, 명시적 확인
+절차와 서비스별 영향 고지는 호출자(관리면)의 책임이다.
 
 **삭제 요청 즉시 refresh_token 전부 revoke.** 기존 access_token은 만료(15분)를 기다린다.
 
@@ -165,10 +172,8 @@ authgate는 2종의 account cleanup을 별도 lifecycle로 관리한다:
 
 | 상황 | 에러 코드 | HTTP | 설명 |
 |------|----------|------|------|
-| 삭제 기능 비활성화 | `account deletion disabled` | 404 | 기본값. `ENABLE_ACCOUNT_DELETION=true`에서만 실제 삭제 요청 처리 |
-| Origin 누락/불일치 | `origin mismatch` | 403 | destructive action CSRF 방어. `Origin`은 `PUBLIC_URL`과 정확히 일치해야 함 |
-| 비로그인 상태 삭제 요청 | `unauthorized` | 401 | 세션 쿠키 필요. Origin 검사를 통과한 뒤 세션이 없을 때 |
-| 이미 pending_deletion | — | 200 | 멱등 (재요청 무시) |
+| 삭제 요청 대상이 disabled/deleted | `ErrUserAccountClosed` | — | 조건부 UPDATE가 거부. 실제 상태를 함께 반환해 호출자가 감사에 기록 |
+| 이미 pending_deletion | — | — | 멱등 (재요청은 성공으로 수렴) |
 | disabled 계정 로그인 | `account_inactive` | 403 | |
 | deleted 계정 로그인 (브라우저) | — | — | `user_identities` 삭제됨 → `ErrNotFound` → 신규 가입으로 처리 (Spec 001) |
 | deleted 계정 로그인 (Device/MCP) | `account_not_found` | 403 | `user_identities` 삭제됨 → `ErrNotFound` → 브라우저 가입 필요 |
@@ -178,7 +183,7 @@ authgate는 2종의 account cleanup을 별도 lifecycle로 관리한다:
 
 | 이벤트 | 시점 | 설명 |
 |--------|------|------|
-| `auth.deletion_requested` | DELETE /account (`ENABLE_ACCOUNT_DELETION=true`) | 삭제 요청 + refresh_token 즉시 revoke |
+| `auth.deletion_requested` | 관리면 삭제 요청 (gRPC) | 삭제 요청 + refresh_token 즉시 revoke. **현재 방출자 없음** — 관리면 구현 시 함께 복원 |
 | `auth.deletion_cancelled` | 유예 중 브라우저 로그인 | 자동 복구 |
 | `auth.deletion_completed` | cleanup 고루틴 PII 스크러빙 완료 | TX 커밋 이후 best-effort 기록 |
 | `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 차단 | status, channel 포함 |

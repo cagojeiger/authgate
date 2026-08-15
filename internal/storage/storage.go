@@ -113,7 +113,8 @@ func (s *Storage) SetPreviousKey(key *rsa.PrivateKey, keyID string) {
 	s.signing.SetPrevious(key, keyID)
 }
 
-// DB returns the underlying *sql.DB. For testing only.
+// DB returns the underlying *sql.DB. For cross-package integration tests only
+// (they assert on rows this package writes); no production caller.
 func (s *Storage) DB() *sql.DB { return s.db }
 
 // pii returns a codec bound to the current PII keys. It is a cheap value

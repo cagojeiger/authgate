@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -16,12 +17,11 @@ import (
 )
 
 type accountFixture struct {
-	AccountSvc *AccountService
-	LoginSvc   *LoginService
-	Store      *storage.Storage
-	DB         *sql.DB
-	Clock      *clock.FixedClock
-	FakeUser   *upstream.UserInfo
+	LoginSvc *LoginService
+	Store    *storage.Storage
+	DB       *sql.DB
+	Clock    *clock.FixedClock
+	FakeUser *upstream.UserInfo
 }
 
 func setupAccountTest(t *testing.T) *accountFixture {
@@ -36,15 +36,13 @@ func setupAccountTest(t *testing.T) *accountFixture {
 		User: &upstream.UserInfo{Sub: "acct-sub-123", Email: "acct@test.com", EmailVerified: true, Name: "Acct User"},
 	}
 
-	accountSvc := NewAccountService(store)
 	loginSvc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
 	return &accountFixture{
-		AccountSvc: accountSvc,
-		LoginSvc:   loginSvc,
-		Store:      store,
-		DB:         db,
-		Clock:      clk,
-		FakeUser:   fakeProvider.User,
+		LoginSvc: loginSvc,
+		Store:    store,
+		DB:       db,
+		Clock:    clk,
+		FakeUser: fakeProvider.User,
 	}
 }
 
@@ -67,11 +65,10 @@ func TestDeleteAccount_Success(t *testing.T) {
 	fx := setupAccountTest(t)
 	ctx := context.Background()
 
-	userID, sessionID := createUserWithSession(t, fx.Store, "delete@test.com", "del-sub")
+	userID, _ := createUserWithSession(t, fx.Store, "delete@test.com", "del-sub")
 
-	result := fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
-	if !result.Success {
-		t.Fatalf("expected success, got: %s", result.Message)
+	if _, err := fx.Store.RequestDeletion(ctx, userID); err != nil {
+		t.Fatalf("expected success, got: %v", err)
 	}
 
 	var status string
@@ -85,21 +82,15 @@ func TestDeleteAccount_Idempotent(t *testing.T) {
 	fx := setupAccountTest(t)
 	ctx := context.Background()
 
-	userID, sessionID := createUserWithSession(t, fx.Store, "idempotent@test.com", "idem-sub")
+	userID, _ := createUserWithSession(t, fx.Store, "idempotent@test.com", "idem-sub")
 
-	// First DELETE: sets user to pending_deletion and revokes the session.
-	fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
-
-	// After the first DELETE the original session is revoked.
-	// Create a fresh session so the second call can authenticate.
-	sessionID2, err := fx.Store.CreateSession(ctx, userID, 24*time.Hour)
-	if err != nil {
-		t.Fatalf("create second session: %v", err)
+	if _, err := fx.Store.RequestDeletion(ctx, userID); err != nil {
+		t.Fatalf("first request: %v", err)
 	}
 
-	result := fx.AccountSvc.RequestDeletion(ctx, sessionID2, "127.0.0.1", "test")
-	if !result.Success {
-		t.Errorf("expected idempotent success, got: %s", result.Message)
+	// 이미 pending_deletion 인 계정에 대한 재요청은 성공으로 수렴한다.
+	if _, err := fx.Store.RequestDeletion(ctx, userID); err != nil {
+		t.Errorf("expected idempotent success, got: %v", err)
 	}
 }
 
@@ -117,31 +108,17 @@ func TestDeleteAccount_InactiveUser_Rejected(t *testing.T) {
 			fx := setupAccountTest(t)
 			ctx := context.Background()
 
-			_, sessionID := createUserWithSession(t, fx.Store, tt.name+"-del@test.com", tt.name+"-del-sub")
-			user, _ := fx.Store.GetValidSession(ctx, sessionID)
-			_ = fx.Store.SetUserStatus(ctx, user.ID, tt.status)
+			userID, _ := createUserWithSession(t, fx.Store, tt.name+"-del@test.com", tt.name+"-del-sub")
+			_ = fx.Store.SetUserStatus(ctx, userID, tt.status)
 
-			result := fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
-			if result.Success {
-				t.Fatalf("expected failure for %s user", tt.status)
+			liveStatus, err := fx.Store.RequestDeletion(ctx, userID)
+			if !errors.Is(err, storage.ErrUserAccountClosed) {
+				t.Fatalf("err = %v, want ErrUserAccountClosed for %s user", err, tt.status)
 			}
-			if result.ErrorCode != 403 {
-				t.Fatalf("errorCode = %d, want 403", result.ErrorCode)
+			if liveStatus != tt.status {
+				t.Fatalf("liveStatus = %q, want %q", liveStatus, tt.status)
 			}
 		})
-	}
-}
-
-func TestDeleteAccount_NoSession(t *testing.T) {
-	fx := setupAccountTest(t)
-	ctx := context.Background()
-
-	result := fx.AccountSvc.RequestDeletion(ctx, "", "127.0.0.1", "test")
-	if result.Success {
-		t.Error("expected failure without session")
-	}
-	if result.ErrorCode != 401 {
-		t.Errorf("errorCode = %d, want 401", result.ErrorCode)
 	}
 }
 
@@ -150,13 +127,14 @@ func TestE2E_DeleteThenRecover(t *testing.T) {
 	fx := setupAccountTest(t)
 	ctx := context.Background()
 
-	_, sessionID := createUserWithSession(t, fx.Store, "e2e4@test.com", "acct-sub-123")
-	user, _ := fx.Store.GetValidSession(ctx, sessionID)
+	userID, _ := createUserWithSession(t, fx.Store, "e2e4@test.com", "acct-sub-123")
 
-	fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
+	if _, err := fx.Store.RequestDeletion(ctx, userID); err != nil {
+		t.Fatalf("request deletion: %v", err)
+	}
 
 	var status string
-	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, userID).Scan(&status)
 	if status != "pending_deletion" {
 		t.Fatalf("status = %q, want pending_deletion", status)
 	}
@@ -168,7 +146,7 @@ func TestE2E_DeleteThenRecover(t *testing.T) {
 		t.Errorf("action = %v, want AutoApprove (recovered)", result.Action)
 	}
 
-	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, user.ID).Scan(&status)
+	fx.DB.QueryRowContext(ctx, `SELECT status FROM users WHERE id = $1`, userID).Scan(&status)
 	if status != "active" {
 		t.Errorf("status after recovery = %q, want active", status)
 	}
@@ -179,9 +157,11 @@ func TestE2E_DeleteThenReregister(t *testing.T) {
 	fx := setupAccountTest(t)
 	ctx := context.Background()
 
-	userID, sessionID := createUserWithSession(t, fx.Store, "e2e5@test.com", "acct-sub-123")
+	userID, _ := createUserWithSession(t, fx.Store, "e2e5@test.com", "acct-sub-123")
 
-	fx.AccountSvc.RequestDeletion(ctx, sessionID, "127.0.0.1", "test")
+	if _, err := fx.Store.RequestDeletion(ctx, userID); err != nil {
+		t.Fatalf("request deletion: %v", err)
+	}
 
 	fx.DB.ExecContext(ctx, `UPDATE users SET deletion_scheduled_at = $1 WHERE id = $2`,
 		fx.Clock.Now().Add(-1*time.Hour), userID)

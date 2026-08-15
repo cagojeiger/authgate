@@ -50,12 +50,6 @@ func NewRoot(domain, keyID string, secret []byte) (*Root, error) {
 	return &Root{domain: domain, keyID: keyID, secret: secret}, nil
 }
 
-// Domain reports the root's domain ("enc" or "lookup").
-func (r *Root) Domain() string { return r.domain }
-
-// KeyID reports the root's permanent epoch identifier.
-func (r *Root) KeyID() string { return r.keyID }
-
 // subkey derives a 32-byte purpose subkey via HKDF-SHA256 for the given label.
 func (r *Root) subkey(label string) ([]byte, error) {
 	key, err := hkdf.Key(sha256.New, r.secret, nil, label, KeySize)

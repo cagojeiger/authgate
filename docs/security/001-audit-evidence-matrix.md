@@ -79,7 +79,7 @@ audit_log
 | KR-PIPA-LOG-003 | 규모/민감정보 조건에서 2년 보존으로 올릴 수 있는가 | env로 730일 이상 설정 가능 | `internal/config/config.go` | `internal/config/config_test.go` | DONE |
 | KR-PIPA-SEC-001 | 접속기록 위변조를 제한하는가 | audit_log append-only trigger, PII redaction 예외만 허용 | `migrations/003_audit_log_immutability.*.sql` | `internal/storage/audit_test.go` | DONE |
 | KR-PIPA-SEC-002 | 불필요한 PII/secret이 audit metadata에 저장되지 않는가 | event별 metadata allowlist | `internal/storage/audit.go` | `internal/storage/audit_unit_test.go` | DONE |
-| KR-PIPA-DEL-001 | 사용자 삭제/익명화 흐름을 추적할 수 있는가 | `auth.deletion_requested`, `auth.deletion_cancelled`, `auth.deletion_completed` | `internal/service/account.go`, `internal/service/login.go`, `internal/storage/cleanup_runner.go` | `internal/service/audit_test.go`, `internal/service/cleanup_test.go` | DONE |
+| KR-PIPA-DEL-001 | 사용자 삭제/익명화 흐름을 추적할 수 있는가 | `auth.deletion_cancelled`, `auth.deletion_completed` | `internal/service/login.go`, `internal/storage/cleanup_runner.go` | `internal/service/audit_test.go`, `internal/service/cleanup_test.go` | PARTIAL — `auth.deletion_requested` 방출자 없음 (관리면 미구현) |
 | KR-PIPA-INC-001 | 침해 의심 이벤트를 조사할 수 있는가 | refresh token reuse와 family revoke 이벤트 | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
 | KR-PIPA-INC-002 | audit log write 실패를 감지하는가 | `Storage.AuditLog` best-effort 실패 시 `slog.Error` 기록 | `internal/storage/audit.go`, `docs/spec/009-operations.md` | `internal/storage/audit_failure_unit_test.go` | DONE |
 | KR-COMM-001 | IP/UA 등 접속 메타데이터를 추적할 수 있는가 | `audit_log.ip_address`, `audit_log.user_agent` | `internal/storage/audit.go`, `internal/clientinfo/*` | `internal/clientinfo/clientinfo_test.go` | DONE |
@@ -96,11 +96,11 @@ audit_log
 | `auth.signup` | 신규 유저 가입 | user_id, IP, UA, created_at | `channel`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.login` | Browser/Device/MCP 로그인 성공 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name`, `reused_session`, `signup` | `internal/service/login.go`, `internal/service/device.go`, `internal/service/mcp_login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.channel_mismatch` | auth_request 채널 불일치 차단 | user_id, IP, UA, created_at | `expected_channel`, `actual_channel`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/login_unit_test.go` | DONE |
-| `auth.inactive_user` | disabled/pending_deletion/deleted 접근 차단 | user_id, IP, UA, created_at | `status`, `channel`, `phase` | `internal/service/account.go`, `internal/service/login.go`, `internal/service/device.go`, `internal/service/mcp_login.go` | `internal/service/audit_test.go` | DONE |
+| `auth.inactive_user` | disabled/pending_deletion/deleted 접근 차단 | user_id, IP, UA, created_at | `status`, `channel`, `phase` | `internal/service/login.go`, `internal/service/device.go`, `internal/service/mcp_login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.device_code_issued` | Device code 발급 | user_id(NULL), IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_oidc_device.go` | `internal/storage/audit_test.go` | DONE |
 | `auth.device_approved` | Device code 승인 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/service/device.go` | `internal/service/audit_test.go` | DONE |
 | `auth.device_denied` | Device code 거부 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/service/device.go` | `internal/service/audit_test.go` | DONE |
-| `auth.deletion_requested` | `DELETE /account` 성공 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name` | `internal/service/account.go` | `internal/service/audit_test.go` | DONE |
+| `auth.deletion_requested` | 삭제 요청 성공 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name` | — (방출자 없음) | — | GAP — 관리면(gRPC) 구현 시 복원 |
 | `auth.deletion_cancelled` | pending_deletion 유저 브라우저 재로그인 복구 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.deletion_completed` | cleanup PII scrub 완료 | user_id, created_at | `reason` | `internal/storage/cleanup_runner.go` | `internal/service/cleanup_test.go` | DONE |
 | `auth.token_refreshed` | refresh token rotation 성공 | user_id, IP, UA, created_at | `client_id`, `client_name`, `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
@@ -124,13 +124,13 @@ audit_log
 | `GET /device` | Device 코드 입력/승인 화면 | 없음 | auth limiter | DONE |
 | `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
 | `POST /device/approve` | Device 승인/거부 | `auth.device_approved`, `auth.device_denied`, `auth.inactive_user` | token limiter | DONE |
-| `DELETE /account` | 계정 삭제 요청 (`ENABLE_ACCOUNT_DELETION=true`에서만 활성) | `auth.deletion_requested`, inactive user block | auth limiter + default-disabled gate | DONE |
 
 ## 남은 GAP
 
 | GAP | 설명 | 다음 작업 후보 |
 |-----|------|----------------|
 | GAP-OPS-001 | SOC 2 운영 evidence(PR 리뷰, access review, backup restore test)는 GitHub/운영 시스템에 존재해야 하며 authgate DB에는 저장하지 않는다. | 운영 evidence export/checklist 문서 |
+| GAP-ADM-001 | 계정 관리 진입점이 없다. `Storage.RequestDeletion` / `SetUserStatus` / `DisableUser` 는 구현돼 있으나 호출자가 없어 삭제 요청·계정 정지를 수행할 수 없고, `auth.deletion_requested` 감사 이벤트도 방출되지 않는다. | gRPC 관리면(jelly-cloud)에서 재구축하며 감사 방출 복원 |
 
 ## 완료 기준
 

@@ -41,11 +41,6 @@ type options struct {
 	cookieSet    bool
 }
 
-// WithRPOptions passes options to the underlying rp.NewRelyingPartyOIDC.
-func WithRPOptions(opts ...rp.Option) Option {
-	return func(o *options) { o.rpOpts = append(o.rpOpts, opts...) }
-}
-
 // WithInternalURL rewrites outgoing HTTP requests from issuerURL host to internalURL host.
 // Used in Docker/K8s where the browser reaches the IdP at localhost:8082
 // but the server reaches it at mock-idp:8082 via internal DNS.
