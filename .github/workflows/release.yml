@@ -10,9 +10,6 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -62,9 +59,21 @@ jobs:
             VERSION=${{ steps.version.outputs.version }}
 
       - name: Delete old GHCR images
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: authgate
-          package-type: container
-          min-versions-to-keep: 20
-          ignore-versions: "^latest$"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mapfile -t version_ids < <(
+            gh api --paginate \
+              "/users/${{ github.repository_owner }}/packages/container/authgate/versions?per_page=100" \
+              --jq '.[] | select(((.metadata.container.tags // []) | index("latest")) | not) | .id'
+          )
+
+          versions_to_keep=20
+          if (( ${#version_ids[@]} <= versions_to_keep )); then
+            exit 0
+          fi
+
+          for version_id in "${version_ids[@]:versions_to_keep}"; do
+            gh api --method DELETE \
+              "/users/${{ github.repository_owner }}/packages/container/authgate/versions/${version_id}"
+          done
