@@ -248,6 +248,7 @@ authgate는 `/.well-known/oauth-authorization-server`에서 최소한 아래를 
   "token_endpoint_auth_methods_supported": ["none", "client_secret_basic", "client_secret_post"],
   "revocation_endpoint_auth_methods_supported": ["none", "client_secret_basic", "client_secret_post"],
   "introspection_endpoint_auth_methods_supported": ["client_secret_basic"],
+  "authorization_response_iss_parameter_supported": true,
   "client_id_metadata_document_supported": true
 }
 ```
@@ -255,6 +256,8 @@ authgate는 `/.well-known/oauth-authorization-server`에서 최소한 아래를 
 `client_id_metadata_document_supported` 값은 런타임 설정 `ENABLE_MCP`에 따라 결정된다.
 
 `token_endpoint_auth_methods_supported` / `revocation_endpoint_auth_methods_supported` / `introspection_endpoint_auth_methods_supported`는 zitadel/oidc OP가 실제로 받아들이는 인증 방식 집합과 일치해야 한다 (RFC 8414 §2). 컨피덴셜 클라이언트는 이 광고 값을 신뢰해 자격증명 위치를 고를 수 있으므로 누락된 항목이 있으면 디스커버리 기반 클라이언트가 silently 실패한다. `/oauth/introspect`는 zitadel이 기본 마운트하지만 `ClientIDFromRequest`가 Basic 자격증명만 `authenticated=true`로 표시하므로 introspection 광고 집합은 token/revocation보다 좁다.
+
+RFC 9207에 따라 성공 및 redirect 가능한 오류 authorization response에는 `iss`를 포함한다. 값은 metadata의 `issuer`와 정확히 같으며, 클라이언트는 저장해 둔 issuer와 단순 문자열 비교로 검증한다. 로그인 화면으로 향하는 AuthGate 내부 redirect에는 `iss`를 붙이지 않는다.
 
 ## Client ID Metadata Document (CIMD)
 

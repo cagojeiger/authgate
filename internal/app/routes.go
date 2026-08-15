@@ -72,11 +72,12 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 			// Auth methods must match zitadel/oidc behavior (RFC 8414 §2):
 			// token + revoke accept none/basic/post; introspection authenticates
 			// only via Basic. See docs/spec/004-mcp-login.md for the rationale.
-			"token_endpoint_auth_methods_supported":         []string{"none", "client_secret_basic", "client_secret_post"},
-			"revocation_endpoint_auth_methods_supported":    []string{"none", "client_secret_basic", "client_secret_post"},
-			"introspection_endpoint_auth_methods_supported": []string{"client_secret_basic"},
-			"scopes_supported":                              supportedScopes,
-			"client_id_metadata_document_supported":         cfg.EnableMCP,
+			"token_endpoint_auth_methods_supported":          []string{"none", "client_secret_basic", "client_secret_post"},
+			"revocation_endpoint_auth_methods_supported":     []string{"none", "client_secret_basic", "client_secret_post"},
+			"introspection_endpoint_auth_methods_supported":  []string{"client_secret_basic"},
+			"scopes_supported":                               supportedScopes,
+			"authorization_response_iss_parameter_supported": true,
+			"client_id_metadata_document_supported":          cfg.EnableMCP,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(metadata)
@@ -86,14 +87,16 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *storage.Storage, provider http.Handler, lim routeLimiters) {
 	tokenLimiter, authLimiter := lim.token, lim.auth
 
-	mux.Handle("/authorize", authLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	authorize := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource, err := storage.ResourceFromRequestStrict(r)
 		if err != nil {
 			writeInvalidTargetError(w, err)
 			return
 		}
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
-	})))
+	})
+	mux.Handle("/authorize", authLimiter(middleware.AuthorizationResponseIssuer(cfg.PublicURL, authorize)))
+	mux.Handle("/authorize/callback", middleware.AuthorizationResponseIssuer(cfg.PublicURL, provider))
 	tokenWithAtJWT := storage.WrapAccessTokenJWTType(provider, store)
 	mux.Handle("/oauth/token", tokenLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource, err := storage.ResourceFromRequestStrict(r)

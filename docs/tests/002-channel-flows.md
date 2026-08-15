@@ -46,6 +46,7 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 | `mcp-003` | `pending_deletion` | `/mcp/callback` | `account_inactive` | Browser 복구만 가능 |
 | `mcp-004` | `disabled` 또는 `deleted` | `/mcp/callback` | `account_inactive` | 차단 |
 | `mcp-005` | auth code 발급 후 `code_verifier` 없이 토큰 교환 | `POST /oauth/token` | 토큰 발급 실패 | PKCE 강제 |
+| `mcp-006` | 성공 또는 redirect 가능한 오류 authorization response | client callback redirect | `iss` = metadata issuer | RFC 9207 mix-up 방어 |
 | `mcp-token-001` | auth code 발급 후 `pending_deletion` 또는 `disabled/deleted`로 변경 | POST `/oauth/token` | `invalid_grant` | MCP 토큰 발급 시점 차단 |
 
 ## Refresh

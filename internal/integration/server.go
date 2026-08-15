@@ -209,23 +209,26 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 			// method the underlying op accepts (#189 / RFC 8414 §2).
 			// Introspection only authenticates via Basic (see comment in
 			// cmd/authgate/main.go), so its set is narrower.
-			"token_endpoint_auth_methods_supported":         []string{"none", "client_secret_basic", "client_secret_post"},
-			"revocation_endpoint_auth_methods_supported":    []string{"none", "client_secret_basic", "client_secret_post"},
-			"introspection_endpoint_auth_methods_supported": []string{"client_secret_basic"},
-			"scopes_supported":                              []string{"openid", "profile", "email", "offline_access"},
-			"client_id_metadata_document_supported":         opts.EnableMCP,
+			"token_endpoint_auth_methods_supported":          []string{"none", "client_secret_basic", "client_secret_post"},
+			"revocation_endpoint_auth_methods_supported":     []string{"none", "client_secret_basic", "client_secret_post"},
+			"introspection_endpoint_auth_methods_supported":  []string{"client_secret_basic"},
+			"scopes_supported":                               []string{"openid", "profile", "email", "offline_access"},
+			"authorization_response_iss_parameter_supported": true,
+			"client_id_metadata_document_supported":          opts.EnableMCP,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metadata)
 	})
-	mux.Handle("/authorize", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	authorize := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource, err := storage.ResourceFromRequestStrict(r)
 		if err != nil {
 			writeInvalidTargetError(w, err)
 			return
 		}
 		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
-	}))
+	})
+	mux.Handle("/authorize", middleware.AuthorizationResponseIssuer(srv.URL, authorize))
+	mux.Handle("/authorize/callback", middleware.AuthorizationResponseIssuer(srv.URL, provider))
 	tokenRateLimiter := middleware.NewRateLimiter(rate.Limit(5), 5)
 	tokenWithAtJWT := storage.WrapAccessTokenJWTType(provider, store)
 	mux.Handle("/oauth/token", tokenRateLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -34,6 +34,9 @@ func TestPKCEEnforcement(t *testing.T) {
 			if got := u.Query().Get("error"); got != "invalid_request" {
 				t.Fatalf("expected error=invalid_request in redirect, got %q (location=%s)", got, loc)
 			}
+			if got := u.Query().Get("iss"); got != ts.BaseURL {
+				t.Fatalf("authorization response iss = %q, want %q", got, ts.BaseURL)
+			}
 			return
 		}
 

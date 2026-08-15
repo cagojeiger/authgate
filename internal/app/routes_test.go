@@ -1,14 +1,89 @@
 package app
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 
 	"github.com/kangheeyong/authgate/internal/config"
 	"github.com/kangheeyong/authgate/internal/handler"
+	"github.com/kangheeyong/authgate/internal/middleware"
 )
+
+func TestRegisterOAuthMetadataRoute_AdvertisesAuthorizationResponseIssuer(t *testing.T) {
+	mux := http.NewServeMux()
+	registerOAuthMetadataRoute(mux, &config.Config{PublicURL: "https://auth.example.com"})
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.well-known/oauth-authorization-server", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metadata status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var metadata map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	if supported, ok := metadata["authorization_response_iss_parameter_supported"].(bool); !ok || !supported {
+		t.Fatalf("authorization_response_iss_parameter_supported = %v, want true", metadata["authorization_response_iss_parameter_supported"])
+	}
+}
+
+func TestAuthorizationResponseIssuer_AppendsIssuerOnlyToClientRedirects(t *testing.T) {
+	tests := []struct {
+		name       string
+		location   string
+		wantIssuer bool
+	}{
+		{
+			name:       "successful authorization response",
+			location:   "http://localhost/callback?code=code-1&state=state-1",
+			wantIssuer: true,
+		},
+		{
+			name:       "error authorization response",
+			location:   "http://localhost/callback?error=access_denied&state=state-1",
+			wantIssuer: true,
+		},
+		{
+			name:       "internal login redirect",
+			location:   "/mcp/login?authRequestID=request-1",
+			wantIssuer: false,
+		},
+		{
+			name:       "absolute internal login redirect",
+			location:   "https://auth.example.com/mcp/login?authRequestID=request-1",
+			wantIssuer: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Location", tt.location)
+				w.WriteHeader(http.StatusFound)
+			})
+			handler := middleware.AuthorizationResponseIssuer("https://auth.example.com", next)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/authorize", nil))
+
+			location, err := url.Parse(rec.Header().Get("Location"))
+			if err != nil {
+				t.Fatalf("parse Location: %v", err)
+			}
+			got := location.Query().Get("iss")
+			if tt.wantIssuer && got != "https://auth.example.com" {
+				t.Fatalf("iss = %q, want https://auth.example.com", got)
+			}
+			if !tt.wantIssuer && got != "" {
+				t.Fatalf("internal redirect iss = %q, want empty", got)
+			}
+		})
+	}
+}
 
 func rateLimitTestConfig() *config.Config {
 	return &config.Config{
