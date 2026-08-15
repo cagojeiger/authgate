@@ -52,7 +52,6 @@ type gapFixture struct {
 	LoginSvc    *LoginService
 	MCPLoginSvc *MCPLoginService
 	DeviceSvc   *DeviceService
-	AccountSvc  *AccountService
 	Store       *storage.Storage
 	DB          *sql.DB
 	Clock       *clock.FixedClock
@@ -89,18 +88,6 @@ func setupDeviceExtTest(t *testing.T, sub string) (*DeviceService, *storage.Stor
 	return svc, store, clk, fakeProvider.User
 }
 
-// setupAccountExtTest creates an AccountService for account extended tests.
-func setupAccountExtTest(t *testing.T) (*AccountService, *storage.Storage) {
-	t.Helper()
-	db := testutil.SetupPostgres(t)
-	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
-	gen := idgen.CryptoGenerator{}
-	noopChecker := func(user *storage.User) error { return nil }
-	store := newTestStore(t, db, clk, gen, noopChecker)
-	svc := NewAccountService(store)
-	return svc, store
-}
-
 // setupGapTest creates all services for cross-service gap tests.
 func setupGapTest(t *testing.T) *gapFixture {
 	t.Helper()
@@ -115,12 +102,10 @@ func setupGapTest(t *testing.T) *gapFixture {
 	loginSvc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
 	mcpLoginSvc := NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
 	deviceSvc := NewDeviceService(store, fakeProvider.Name(), "http://localhost:8080", 24*time.Hour, clk)
-	accountSvc := NewAccountService(store)
 	return &gapFixture{
 		LoginSvc:    loginSvc,
 		MCPLoginSvc: mcpLoginSvc,
 		DeviceSvc:   deviceSvc,
-		AccountSvc:  accountSvc,
 		Store:       store,
 		DB:          db,
 		Clock:       clk,

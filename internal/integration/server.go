@@ -178,12 +178,10 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	// Services
 	loginSvc := service.NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
 	deviceSvc := service.NewDeviceService(store, fakeProvider.Name(), srv.URL, 24*time.Hour, clk)
-	accountSvc := service.NewAccountService(store)
 
 	// Handlers
 	loginHandler := handler.NewLoginHandler(loginSvc, fakeProvider, true, "authgate")
 	deviceHandler := handler.NewDeviceHandler(deviceSvc, fakeProvider, true, "authgate")
-	accountHandler := handler.NewAccountHandler(accountSvc, srv.URL)
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if opts.EnableMCP {
 		mcpLoginSvc := service.NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
@@ -265,7 +263,6 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
 	mux.HandleFunc("/device/approve", deviceHandler.HandleDeviceApprove)
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
-	mux.HandleFunc("/account", accountHandler.HandleDeleteAccount)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"healthy"}`))

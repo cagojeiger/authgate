@@ -94,13 +94,12 @@ authgate를 처음 배포할 때 필요한 것:
 | `METRICS_ADDR` | X | — | 별도 metrics listener 주소. 비워두면 disabled. 설정 시 Go runtime/process Prometheus metrics만 노출. 운영에서는 `127.0.0.1:9090` 또는 private network address 사용. |
 | `DEV_MODE` | X | `false` | true 시: insecure 허용, cookie Secure=false |
 | `ENABLE_MCP` | X | `true` | MCP optional adapter 활성화 여부 (`/mcp/*`, CIMD/resource binding) |
-| `ENABLE_ACCOUNT_DELETION` | X | `false` | self-service 계정 삭제 API(`DELETE /account`) 활성화 여부. 연결된 서비스가 전체 authgate 계정 삭제를 유발하지 않도록 기본 비활성화. Authgate 소유 확인 UX/운영 정책이 준비된 경우에만 `true`로 설정 |
 | `CLIENT_CONFIG` | X | `/etc/authgate/clients.yaml` | 클라이언트 설정 YAML 파일 경로 (없으면 무시) |
 | `MIGRATIONS_PATH` | X | `/migrations` | golang-migrate 마이그레이션 디렉터리 경로 (Docker 이미지 기본, 로컬 개발은 `./migrations`) |
 | `BRAND_NAME` | X | `authgate` | 디바이스 플로우 및 에러 페이지 좌측 상단에 표시되는 브랜드 이름 |
 | `RATE_LIMIT_TOKEN_RPS` | X | `30` | 토큰성 엔드포인트 (`/oauth/token`, `/oauth/revoke`, `/oauth/introspect`, `/oauth/device/authorize`, `/device/approve`) 초당 허용 요청 수 |
 | `RATE_LIMIT_TOKEN_BURST` | X | `60` | 토큰 엔드포인트 버스트 허용 요청 수 (최솟값: 1) |
-| `RATE_LIMIT_AUTH_RPS` | X | `10` | 인증/계정 엔드포인트 (`/authorize`, `/login`, `/login/callback`, `/mcp/*`, `/account`, `/device`, `/device/auth/callback`) 초당 허용 요청 수 |
+| `RATE_LIMIT_AUTH_RPS` | X | `10` | 인증 엔드포인트 (`/authorize`, `/login`, `/login/callback`, `/mcp/*`, `/device`, `/device/auth/callback`) 초당 허용 요청 수 |
 | `RATE_LIMIT_AUTH_BURST` | X | `20` | 인증 엔드포인트 버스트 허용 요청 수 (최솟값: 1) |
 | `TRUSTED_PROXIES` | X | — | 프록시 hop으로 신뢰할 CIDR 목록 (콤마 구분). 직전 hop이 이 범위에 속할 때만 클라이언트 IP 추정에 (1) `X-Envoy-External-Address` 헤더 (envoy/istio 가 직접 계산하므로 spoof 불가), (2) `X-Forwarded-For` rightmost-untrusted walk 폴백을 사용한다. 비워두면 모든 프록시 헤더 무시. 예: `10.244.0.0/16,127.0.0.1/32`. istio ingressgateway 등 reverse proxy 뒤에서 운영할 때만 설정. |
 

@@ -63,12 +63,11 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 
 | ID | 초기 상태 | 입력 | 기대 결과 | 검증 포인트 |
 |----|----------|------|----------|-------------|
-| `account-000` | `active` | `DELETE /account` with `ENABLE_ACCOUNT_DELETION=false` | 404 `account deletion disabled` | 기본 비활성화 |
-| `account-001` | `active` | `DELETE /account` with `ENABLE_ACCOUNT_DELETION=true` | `pending_deletion` | 상태 전이 |
-| `account-002` | `pending_deletion` | `DELETE /account` | 200 멱등 | 재요청 무시 |
+| `account-001` | `active` | `Storage.RequestDeletion` | `pending_deletion` | 상태 전이 |
+| `account-002` | `pending_deletion` | `Storage.RequestDeletion` | 멱등 성공 | 재요청 무시 |
 | `account-003` | `pending_deletion` | Browser 로그인 | active 복구 | 복구 경로 |
 | `account-004` | `pending_deletion` | Device/MCP 로그인 | `account_inactive` | Browser만 복구 |
-| `account-005` | `disabled` 또는 `deleted` | `DELETE /account` | `account_inactive` | 비활성 계정 삭제 차단 |
+| `account-005` | `disabled` 또는 `deleted` | `Storage.RequestDeletion` | `ErrUserAccountClosed` | 비활성 계정 삭제 차단 |
 
 ## 검증 포인트
 

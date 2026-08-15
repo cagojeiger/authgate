@@ -53,13 +53,9 @@ func Run() {
 	// Device service
 	deviceService := service.NewDeviceService(store, deviceProvider.Name(), cfg.PublicURL, cfg.SessionTTL, clk)
 
-	// Account service
-	accountService := service.NewAccountService(store)
-
 	// Handler layer
 	loginHandler := handler.NewLoginHandler(loginService, browserProvider, cfg.DevMode, cfg.BrandName)
 	deviceHandler := handler.NewDeviceHandler(deviceService, deviceProvider, cfg.DevMode, cfg.BrandName)
-	accountHandler := handler.NewAccountHandler(accountService, cfg.PublicURL, cfg.EnableAccountDeletion)
 
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if cfg.EnableMCP {
@@ -73,7 +69,7 @@ func Run() {
 
 	var isShuttingDown atomic.Bool
 	mux := http.NewServeMux()
-	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, &isShuttingDown)
+	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, mcpLoginHandler, &isShuttingDown)
 
 	trustedProxies, err := clientinfo.ParseTrustedProxies(cfg.TrustedProxies)
 	if err != nil {

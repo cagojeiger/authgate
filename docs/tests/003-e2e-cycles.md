@@ -13,7 +13,7 @@ authgate의 핵심 철학인 "가입 → 사용 → 탈퇴 → 복구/삭제 →
    v
 [active]
    |
-   | DELETE /account (`ENABLE_ACCOUNT_DELETION=true`)
+   | 삭제 요청 (관리면)
    v
 [pending_deletion]
    |
@@ -51,7 +51,7 @@ authgate의 핵심 철학인 "가입 → 사용 → 탈퇴 → 복구/삭제 →
 
 | 단계 | 입력 | 기대 결과 | 검증 포인트 |
 |------|------|----------|-------------|
-| 1 | `active` 사용자 | `DELETE /account` (`ENABLE_ACCOUNT_DELETION=true`) | `pending_deletion` |
+| 1 | `active` 사용자 | `Storage.RequestDeletion` | `pending_deletion` |
 | 2 | Refresh 시도 | `invalid_grant` | 즉시 차단 |
 | 3 | Device/MCP 로그인 시도 | `account_inactive` | Browser만 복구 가능 |
 | 4 | Browser 로그인 | active 복구 + 새 세션 | 복구 성공 |
@@ -61,7 +61,7 @@ authgate의 핵심 철학인 "가입 → 사용 → 탈퇴 → 복구/삭제 →
 
 | 단계 | 입력 | 기대 결과 | 검증 포인트 |
 |------|------|----------|-------------|
-| 1 | `active` 사용자 | `DELETE /account` (`ENABLE_ACCOUNT_DELETION=true`) | `pending_deletion` |
+| 1 | `active` 사용자 | `Storage.RequestDeletion` | `pending_deletion` |
 | 2 | 30일 경과 + deletion cleanup | `user_identities/sessions/refresh_tokens` 삭제 + `users.status='deleted'` | 명시적 cleanup |
 | 3 | 같은 IdP 계정으로 Browser 로그인 | `GetUserByProviderIdentity -> ErrNotFound` | 기존 계정 아님 |
 | 4 | Spec 001 신규 가입 서브플로우 진입 | 새 `user_id` 발급 | deleted row와 분리 |

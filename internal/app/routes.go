@@ -23,7 +23,6 @@ func registerRoutes(
 	provider http.Handler,
 	loginHandler *handler.LoginHandler,
 	deviceHandler *handler.DeviceHandler,
-	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
 	isShuttingDown *atomic.Bool,
 ) {
@@ -36,7 +35,7 @@ func registerRoutes(
 
 	registerOAuthMetadataRoute(mux, cfg)
 	registerProviderRoutes(mux, cfg, store, provider, lim)
-	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, accountHandler, mcpLoginHandler, lim)
+	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, mcpLoginHandler, lim)
 	registerHealthRoutes(mux, db, isShuttingDown)
 }
 
@@ -132,7 +131,6 @@ func registerAuthgateRoutes(
 	cfg *config.Config,
 	loginHandler *handler.LoginHandler,
 	deviceHandler *handler.DeviceHandler,
-	accountHandler *handler.AccountHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
 	lim routeLimiters,
 ) {
@@ -144,7 +142,6 @@ func registerAuthgateRoutes(
 		mux.Handle("/mcp/login", authLimiter(http.HandlerFunc(mcpLoginHandler.HandleLogin)))
 		mux.Handle("/mcp/callback", authLimiter(http.HandlerFunc(mcpLoginHandler.HandleCallback)))
 	}
-	mux.Handle("/account", authLimiter(http.HandlerFunc(accountHandler.HandleDeleteAccount)))
 	mux.Handle("/device", authLimiter(http.HandlerFunc(deviceHandler.HandleDevicePage)))
 	mux.Handle("/device/approve", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
 	mux.Handle("/device/auth/callback", authLimiter(http.HandlerFunc(deviceHandler.HandleDeviceCallback)))

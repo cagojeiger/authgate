@@ -21,7 +21,6 @@
 | `audit-002` | Browser/MCP/Device 로그인 성공 | `auth.login` | `metadata.channel`이 `browser/device/mcp` 중 하나로 기록 |
 | `audit-003` | Device 승인 | `auth.device_approved` | 승인 시 1회 기록, `metadata.client_id` + `metadata.client_name` 포함 (#205) |
 | `audit-004` | Device 거부 | `auth.device_denied` | 거부 시 1회 기록, `metadata.client_id` + `metadata.client_name` 포함 (#205) |
-| `audit-005` | DELETE /account (`ENABLE_ACCOUNT_DELETION=true`) | `auth.deletion_requested` | 삭제 요청 시 즉시 기록. `metadata.channel`, `session_id`, `client_id`, `client_name` 포함 (#211) |
 | `audit-006` | pending_deletion Browser 복구 | `auth.deletion_cancelled` | 자동 복구 시 기록. `metadata.channel`, `session_id`, `client_id`, `client_name` 포함 (#211) |
 | `audit-007` | deletion cleanup 완료 | `auth.deletion_completed` | PII 스크러빙 완료 시 기록. `metadata.reason=pending_deletion_expired` 포함 (#211) |
 | `audit-008` | pending_deletion/disabled/deleted 로그인 시도 | `auth.inactive_user` | `metadata.status` 포함 |
