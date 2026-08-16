@@ -14,7 +14,8 @@ func clearEnv() {
 		"OIDC_ISSUER_URL", "OIDC_ISSUER_HOST_ALLOWLIST",
 		"OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"OIDC_HTTP_TIMEOUT_SEC",
-		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "AUDIT_LOG_PII_RETENTION_DAYS",
+		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL",
+		"AUDIT_LOG_PII_RETENTION_DAYS", "ADMIN_AUDIT_LOG_PII_RETENTION_DAYS",
 		"DEV_MODE", "ENABLE_MCP",
 		"PII_ENC_ROOT_KEY_ID", "PII_ENC_ROOT_SECRET",
 		"PII_LOOKUP_ROOT_KEY_ID", "PII_LOOKUP_ROOT_SECRET",
@@ -210,8 +211,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.RefreshTokenTTL.Seconds() != 2592000 {
 		t.Errorf("RefreshTokenTTL = %v, want 2592000s", cfg.RefreshTokenTTL)
 	}
-	if cfg.AuditLogPIIRetention.Hours() != 1095*24 {
-		t.Errorf("AuditLogPIIRetention = %v, want 1095 days", cfg.AuditLogPIIRetention)
+	if cfg.AuditLogPIIRetention.Hours() != 90*24 {
+		t.Errorf("AuditLogPIIRetention = %v, want 90 days", cfg.AuditLogPIIRetention)
+	}
+	if cfg.AdminAuditLogPIIRetention.Hours() != 730*24 {
+		t.Errorf("AdminAuditLogPIIRetention = %v, want 730 days", cfg.AdminAuditLogPIIRetention)
 	}
 	if cfg.SigningKeyPath != "signing_key.pem" {
 		t.Errorf("SigningKeyPath = %q, want signing_key.pem", cfg.SigningKeyPath)
@@ -314,7 +318,7 @@ func TestLoad_InvalidBoolEnvFails(t *testing.T) {
 func TestLoad_AuditLogPIIRetentionMinimum(t *testing.T) {
 	clearEnv()
 	setMinimal()
-	os.Setenv("AUDIT_LOG_PII_RETENTION_DAYS", "364")
+	os.Setenv("AUDIT_LOG_PII_RETENTION_DAYS", "29")
 
 	_, err := Load()
 	if err == nil {
@@ -322,6 +326,38 @@ func TestLoad_AuditLogPIIRetentionMinimum(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "AUDIT_LOG_PII_RETENTION_DAYS") {
 		t.Errorf("error = %v, want one mentioning AUDIT_LOG_PII_RETENTION_DAYS", err)
+	}
+}
+
+// Operator actions are the statutory access records, so their retention floor
+// stays at one year even though end-user activity may be anonymized sooner.
+func TestLoad_AdminAuditLogPIIRetentionMinimum(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("ADMIN_AUDIT_LOG_PII_RETENTION_DAYS", "364")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for short admin audit log PII retention")
+	}
+	if !strings.Contains(err.Error(), "ADMIN_AUDIT_LOG_PII_RETENTION_DAYS") {
+		t.Errorf("error = %v, want one mentioning ADMIN_AUDIT_LOG_PII_RETENTION_DAYS", err)
+	}
+}
+
+// End-user activity may be anonymized well below the statutory floor that
+// applies to operator records; 30 days is the accepted minimum.
+func TestLoad_AuditLogPIIRetentionAllowsShortUserWindow(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("AUDIT_LOG_PII_RETENTION_DAYS", "30")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.AuditLogPIIRetention.Hours() != 30*24 {
+		t.Errorf("AuditLogPIIRetention = %v, want 30 days", cfg.AuditLogPIIRetention)
 	}
 }
 

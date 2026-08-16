@@ -17,30 +17,85 @@ type cleanupRunner interface {
 	DeleteExpiredAuthRequestsBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	DeleteExpiredDeviceCodesBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff time.Time) ([]string, error)
-	AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	AnonymizeUserAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	AnonymizeAdminAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	DeleteStaleRefreshTokenFamiliesBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	DeleteUser(ctx context.Context, userID string, now time.Time, hook func(ctx context.Context, userID string) error) error
 }
 
+// Retention windows for data that has no statutory minimum. Each is the
+// shortest period that still serves a concrete purpose, so authgate holds as
+// little as the function allows.
+const (
+	// revokedRefreshRetention keeps a rotated-out refresh token around long
+	// enough to name the exact token in a replay investigation. Detection
+	// itself does not depend on it: refresh_token_families tombstones catch a
+	// replay after the row is gone.
+	revokedRefreshRetention = 7 * 24 * time.Hour
+
+	// expiredRefreshRetention is short because an expired token proves
+	// nothing — it can no longer be redeemed and its family tombstone, if any,
+	// outlives it.
+	expiredRefreshRetention = 24 * time.Hour
+
+	// familyTombstoneMargin is added to the refresh token TTL before a
+	// tombstone is dropped. Once every token that could belong to the family
+	// has expired the tombstone can never match again.
+	familyTombstoneMargin = 7 * 24 * time.Hour
+
+	// defaultUserAuditPIIRetention is the fallback window for end-user
+	// activity records. It is an incident-investigation horizon, not a
+	// statutory one — the access-record retention duty covers operators.
+	defaultUserAuditPIIRetention = 90 * 24 * time.Hour
+
+	// defaultAdminAuditPIIRetention covers operator actions, which are the
+	// statutory access records. Two years leaves headroom above the one-year
+	// baseline for when the data-subject count crosses the higher threshold.
+	defaultAdminAuditPIIRetention = 730 * 24 * time.Hour
+)
+
 type CleanupService struct {
-	runner            cleanupRunner
-	clock             clock.Clock
-	interval          time.Duration
-	auditPIIRetention time.Duration
-	deleteUserHook    func(ctx context.Context, userID string) error
+	runner                 cleanupRunner
+	clock                  clock.Clock
+	interval               time.Duration
+	auditPIIRetention      time.Duration
+	adminAuditPIIRetention time.Duration
+	refreshTokenTTL        time.Duration
+	deleteUserHook         func(ctx context.Context, userID string) error
 }
 
 func NewCleanupService(runner cleanupRunner, clk clock.Clock, interval time.Duration) *CleanupService {
 	return &CleanupService{
-		runner:            runner,
-		clock:             clk,
-		interval:          interval,
-		auditPIIRetention: 3 * 365 * 24 * time.Hour,
+		runner:                 runner,
+		clock:                  clk,
+		interval:               interval,
+		auditPIIRetention:      defaultUserAuditPIIRetention,
+		adminAuditPIIRetention: defaultAdminAuditPIIRetention,
+		refreshTokenTTL:        30 * 24 * time.Hour,
 	}
 }
 
+// SetAuditLogPIIRetention sets how long end-user activity records keep their
+// identifying columns.
 func (c *CleanupService) SetAuditLogPIIRetention(retention time.Duration) {
 	if retention > 0 {
 		c.auditPIIRetention = retention
+	}
+}
+
+// SetAdminAuditLogPIIRetention sets how long operator-action records keep their
+// identifying columns. These are the statutory access records.
+func (c *CleanupService) SetAdminAuditLogPIIRetention(retention time.Duration) {
+	if retention > 0 {
+		c.adminAuditPIIRetention = retention
+	}
+}
+
+// SetRefreshTokenTTL tells cleanup how long a refresh token can live, which
+// determines when a family tombstone stops being able to match anything.
+func (c *CleanupService) SetRefreshTokenTTL(ttl time.Duration) {
+	if ttl > 0 {
+		c.refreshTokenTTL = ttl
 	}
 }
 
@@ -79,15 +134,15 @@ func (c *CleanupService) runAllLocked(ctx context.Context) error {
 	now := c.clock.Now()
 	var runErr error
 
-	// 1. Token cleanup: revoked/expired refresh_tokens after 30 days
-	if n, err := c.runner.DeleteRevokedRefreshTokensBefore(ctx, now.Add(-30*24*time.Hour)); err != nil {
+	// 1. Token cleanup: revoked and expired refresh tokens.
+	if n, err := c.runner.DeleteRevokedRefreshTokensBefore(ctx, now.Add(-revokedRefreshRetention)); err != nil {
 		runErr = errors.Join(runErr, err)
 		slog.Error("token cleanup (revoked)", "error", err)
 	} else if n > 0 {
 		slog.Info("token cleanup (revoked)", "deleted", n)
 	}
 
-	if n, err := c.runner.DeleteExpiredRefreshTokensBefore(ctx, now.Add(-30*24*time.Hour)); err != nil {
+	if n, err := c.runner.DeleteExpiredRefreshTokensBefore(ctx, now.Add(-expiredRefreshRetention)); err != nil {
 		runErr = errors.Join(runErr, err)
 		slog.Error("token cleanup (expired)", "error", err)
 	} else if n > 0 {
@@ -134,12 +189,29 @@ func (c *CleanupService) runAllLocked(ctx context.Context) error {
 		}
 	}
 
-	// 6. Audit log PII anonymization: user_id/IP/User-Agent NULL after the configured retention.
-	if n, err := c.runner.AnonymizeAuditLogBefore(ctx, now.Add(-c.auditPIIRetention)); err != nil {
+	// 6. Refresh token family tombstones that can no longer match a live token.
+	if n, err := c.runner.DeleteStaleRefreshTokenFamiliesBefore(ctx, now.Add(-(c.refreshTokenTTL + familyTombstoneMargin))); err != nil {
 		runErr = errors.Join(runErr, err)
-		slog.Error("audit_log anonymization", "error", err)
+		slog.Error("refresh family tombstone cleanup", "error", err)
 	} else if n > 0 {
-		slog.Info("audit_log anonymization", "anonymized", n)
+		slog.Info("refresh family tombstone cleanup", "deleted", n)
+	}
+
+	// 7. Audit log PII anonymization, on two clocks: end-user activity is
+	// anonymized on the shorter investigation horizon, operator actions on the
+	// statutory access-record horizon.
+	if n, err := c.runner.AnonymizeUserAuditLogBefore(ctx, now.Add(-c.auditPIIRetention)); err != nil {
+		runErr = errors.Join(runErr, err)
+		slog.Error("audit_log anonymization (user)", "error", err)
+	} else if n > 0 {
+		slog.Info("audit_log anonymization (user)", "anonymized", n)
+	}
+
+	if n, err := c.runner.AnonymizeAdminAuditLogBefore(ctx, now.Add(-c.adminAuditPIIRetention)); err != nil {
+		runErr = errors.Join(runErr, err)
+		slog.Error("audit_log anonymization (admin)", "error", err)
+	} else if n > 0 {
+		slog.Info("audit_log anonymization (admin)", "anonymized", n)
 	}
 	return runErr
 }

@@ -47,8 +47,8 @@ audit_log
 | 기준 | authgate에서의 해석 |
 |------|------------------------|
 | 개인정보 보호법 §29, §34 | 안전조치, 침해사고 조사, 통지 판단에 필요한 로그 근거 |
-| 개인정보 보호법 시행령 §16 | 개인정보처리시스템 접속기록 보존기간의 하한선 |
-| 통신비밀보호법 시행령 §41 | IP/접속시각 등 통신 메타데이터 보존기간 검토 기준 |
+| 개인정보의 안전성 확보조치 기준 §8 | **개인정보취급자**(운영자)의 접속기록 보존 하한선. 정보주체 본인의 로그인·토큰갱신은 이 의무 대상이 아니다 |
+| ~~통신비밀보호법 시행령 §41~~ | **적용 대상 재검토 필요** — 해당 보관 의무는 전기통신사업자 대상이며 authgate는 이에 해당하지 않는 것으로 보인다 |
 | SOC 2 Trust Services Criteria | CC6(접근통제), CC7(시스템 운영/탐지), CC8(변경관리) 증거 |
 | ISMS-P 인증대상 기준 | 매출/이용자 임계 도달 시 별도 인증 범위 검토 기준 |
 
@@ -103,7 +103,6 @@ audit_log
 | `auth.deletion_requested` | 삭제 요청 성공 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name` | — (방출자 없음) | — | GAP — 관리면(gRPC) 구현 시 복원 |
 | `auth.deletion_cancelled` | pending_deletion 유저 브라우저 재로그인 복구 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.deletion_completed` | cleanup PII scrub 완료 | user_id, created_at | `reason` | `internal/storage/cleanup_runner.go` | `internal/service/cleanup_test.go` | DONE |
-| `auth.token_refreshed` | refresh token rotation 성공 | user_id, IP, UA, created_at | `client_id`, `client_name`, `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
 | `auth.logout` | RP-Initiated Logout | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/storage/storage_integration_test.go` | DONE |
 | `auth.token_revoked` | RFC 7009 revoke에서 refresh token 매칭 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
 | `auth.refresh_reuse_detected` | 폐기 refresh token 재사용 | user_id, IP, UA, created_at | `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
@@ -117,7 +116,7 @@ audit_log
 | `GET /login/callback` | 인증 완료/가입 | `auth.signup`, `auth.login`, `auth.inactive_user` | auth limiter | DONE |
 | `GET /mcp/login` | MCP 인증 시작 | `auth.inactive_user`, `auth.login` 일부 경로 | auth limiter | DONE |
 | `GET /mcp/callback` | MCP 인증 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
-| `POST /oauth/token` | 토큰 발급/갱신 | `auth.token_refreshed`, reuse events | token limiter | DONE |
+| `POST /oauth/token` | 토큰 발급/갱신 | reuse detection, family revoke (성공한 갱신은 기록하지 않음) | token limiter | DONE |
 | `POST /oauth/revoke` | 토큰 폐기 | `auth.token_revoked` when matching refresh token | token limiter | DONE |
 | `POST /oauth/introspect` | 토큰 상태 검증 | per-call audit 없음 (고빈도 token status check) | token limiter | GAP |
 | `POST /oauth/device/authorize` | Device code 발급 | `auth.device_code_issued` | token limiter | DONE |

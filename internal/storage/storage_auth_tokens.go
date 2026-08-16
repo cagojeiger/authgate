@@ -195,15 +195,12 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		return "", "", time.Time{}, err
 	}
 
-	// Audit token refresh only when this is a refresh-token grant (not the initial code exchange).
-	if currentRefreshToken != "" {
-		info := clientinfo.FromContext(ctx)
-		s.AuditLog(ctx, &derived.userID, EventAuthTokenRefreshed, info.IP, info.UserAgent, map[string]any{
-			"client_id":   derived.clientID,
-			"client_name": s.auditClientName(ctx, derived.clientID),
-			"family_id":   derived.familyID,
-		})
-	}
+	// A successful refresh grant is deliberately not audited. It is the highest
+	// volume event by far and records nothing the system does not already hold:
+	// refresh_tokens.used_at carries last-use per credential, auth.login carries
+	// the authentication event, and replay, revocation and status changes are
+	// each audited on their own. Logging every routine rotation would dominate
+	// the audit log while adding no detection capability.
 
 	return tokenID, newRefresh, expiration, nil
 }

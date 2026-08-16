@@ -11,17 +11,43 @@ import (
 	"time"
 )
 
-const anonymizeAuditLogBefore = `-- name: AnonymizeAuditLogBefore :execrows
+const anonymizeAdminAuditLogBefore = `-- name: AnonymizeAdminAuditLogBefore :execrows
 UPDATE audit_log
 SET user_id = NULL,
     ip_address = NULL,
     user_agent = NULL
 WHERE created_at < $1
+  AND event_type LIKE 'admin.%'
   AND (user_id IS NOT NULL OR ip_address IS NOT NULL OR user_agent IS NOT NULL)
 `
 
-func (q *Queries) AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	result, err := q.db.ExecContext(ctx, anonymizeAuditLogBefore, cutoff)
+// Operator actions. These are the statutory access records, so they keep their
+// actor and origin for the legally required period and are anonymized only
+// afterwards.
+func (q *Queries) AnonymizeAdminAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := q.db.ExecContext(ctx, anonymizeAdminAuditLogBefore, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const anonymizeUserAuditLogBefore = `-- name: AnonymizeUserAuditLogBefore :execrows
+UPDATE audit_log
+SET user_id = NULL,
+    ip_address = NULL,
+    user_agent = NULL
+WHERE created_at < $1
+  AND event_type NOT LIKE 'admin.%'
+  AND (user_id IS NOT NULL OR ip_address IS NOT NULL OR user_agent IS NOT NULL)
+`
+
+// End-user activity records. These are not the access records the safety-measures
+// notification requires (that obligation covers personal-information handlers,
+// i.e. operators), so they are anonymized on the shorter incident-investigation
+// horizon rather than a statutory one.
+func (q *Queries) AnonymizeUserAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := q.db.ExecContext(ctx, anonymizeUserAuditLogBefore, cutoff)
 	if err != nil {
 		return 0, err
 	}
@@ -161,6 +187,31 @@ WHERE user_id = $1
 func (q *Queries) DeleteSessionsByUserID(ctx context.Context, userID string) error {
 	_, err := q.db.ExecContext(ctx, deleteSessionsByUserID, userID)
 	return err
+}
+
+const deleteStaleRefreshTokenFamiliesBefore = `-- name: DeleteStaleRefreshTokenFamiliesBefore :execrows
+DELETE FROM refresh_token_families
+WHERE ctid IN (
+  SELECT t.ctid FROM refresh_token_families t
+  WHERE t.revoked_at < $1
+  LIMIT $2
+)
+`
+
+type DeleteStaleRefreshTokenFamiliesBeforeParams struct {
+	Cutoff    time.Time
+	BatchSize int32
+}
+
+// Family tombstones exist so a refresh token can be recognised as reused after
+// its own row is gone. Once every token that could belong to the family has
+// expired, the tombstone can never match anything again and is dead weight.
+func (q *Queries) DeleteStaleRefreshTokenFamiliesBefore(ctx context.Context, arg DeleteStaleRefreshTokenFamiliesBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteStaleRefreshTokenFamiliesBefore, arg.Cutoff, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteUserIdentitiesByUserID = `-- name: DeleteUserIdentitiesByUserID :exec

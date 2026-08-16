@@ -20,14 +20,16 @@ import (
 const (
 	EventAuthRefreshReuseDetected = "auth.refresh_reuse_detected"
 	EventAuthRefreshFamilyRevoked = "auth.refresh_family_revoked"
-	EventAuthTokenRefreshed       = "auth.token_refreshed"
-	EventAuthDeletionRequested    = "auth.deletion_requested"
-	EventAuthDeletionCancelled    = "auth.deletion_cancelled"
-	EventAuthDeletionCompleted    = "auth.deletion_completed"
-	EventAuthLogout               = "auth.logout"
-	EventAuthTokenRevoked         = "auth.token_revoked"
-	EventAuthChannelMismatch      = "auth.channel_mismatch"
-	EventAuthDeviceCodeIssued     = "auth.device_code_issued"
+	// EventAuthTokenRefreshed is no longer emitted; successful refresh grants
+	// are not audited. The constant remains because historical rows carry it.
+	EventAuthTokenRefreshed    = "auth.token_refreshed"
+	EventAuthDeletionRequested = "auth.deletion_requested"
+	EventAuthDeletionCancelled = "auth.deletion_cancelled"
+	EventAuthDeletionCompleted = "auth.deletion_completed"
+	EventAuthLogout            = "auth.logout"
+	EventAuthTokenRevoked      = "auth.token_revoked"
+	EventAuthChannelMismatch   = "auth.channel_mismatch"
+	EventAuthDeviceCodeIssued  = "auth.device_code_issued"
 )
 
 var auditMetadataAllowlist = map[string]map[string]struct{}{
@@ -81,11 +83,6 @@ var auditMetadataAllowlist = map[string]map[string]struct{}{
 	EventAuthDeviceCodeIssued: {
 		"client_id":   {},
 		"client_name": {},
-	},
-	EventAuthTokenRefreshed: {
-		"client_id":   {},
-		"client_name": {},
-		"family_id":   {},
 	},
 	EventAuthLogout: {
 		"client_id":   {},

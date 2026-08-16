@@ -147,7 +147,8 @@ go run ./cmd/authgate
 | `SESSION_TTL` | `86400` | session TTL in seconds |
 | `ACCESS_TOKEN_TTL` | `900` | access token TTL in seconds |
 | `REFRESH_TOKEN_TTL` | `2592000` | refresh token TTL in seconds |
-| `AUDIT_LOG_PII_RETENTION_DAYS` | `1095` | Days before audit log PII (`user_id`, IP, User-Agent) is anonymized. Minimum `365`; use `730+` when scale/data class requires 2-year access-record retention. |
+| `AUDIT_LOG_PII_RETENTION_DAYS` | `90` | Days before **end-user** activity PII (`user_id`, IP, User-Agent) is anonymized. Minimum `30`. |
+| `ADMIN_AUDIT_LOG_PII_RETENTION_DAYS` | `730` | Days before **operator action** (`admin.*`) PII is anonymized. Minimum `365`: these are the statutory access records. |
 | `SIGNING_KEY_PATH` | `signing_key.pem` | RSA signing key file path. Mount a persistent secret/volume in production. |
 | `HTTP_READ_HEADER_TIMEOUT_SEC` | `5` | HTTP server `ReadHeaderTimeout` in seconds |
 | `HTTP_READ_TIMEOUT_SEC` | `15` | HTTP server `ReadTimeout` in seconds |

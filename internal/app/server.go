@@ -46,10 +46,12 @@ func buildHTTPServer(cfg *config.Config, mux http.Handler, inflightRequests *int
 	}, addr
 }
 
-func startCleanupService(db *sql.DB, clk clock.Clock, auditLogPIIRetention time.Duration) context.CancelFunc {
+func startCleanupService(db *sql.DB, clk clock.Clock, cfg *config.Config) context.CancelFunc {
 	cleanupRunner := storage.NewCleanupRunner(db)
 	cleanupSvc := service.NewCleanupService(cleanupRunner, clk, 10*time.Minute)
-	cleanupSvc.SetAuditLogPIIRetention(auditLogPIIRetention)
+	cleanupSvc.SetAuditLogPIIRetention(cfg.AuditLogPIIRetention)
+	cleanupSvc.SetAdminAuditLogPIIRetention(cfg.AdminAuditLogPIIRetention)
+	cleanupSvc.SetRefreshTokenTTL(cfg.RefreshTokenTTL)
 	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go cleanupSvc.Start(cleanupCtx)
 	return cleanupCancel
