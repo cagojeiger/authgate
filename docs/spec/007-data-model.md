@@ -170,7 +170,7 @@ erDiagram
 
 | 테이블 | 목적 | 수명 | 삭제 정책 |
 |--------|------|------|----------|
-| **audit_log** | 운영 이벤트 | `AUDIT_LOG_PII_RETENTION_DAYS` 후 PII 익명화 | 기본 3년 후 user_id/IP/User-Agent = NULL, 최소 1년 |
+| **audit_log** | 운영 이벤트 | 이벤트별 차등 익명화 | 사용자 활동은 `AUDIT_LOG_PII_RETENTION_DAYS`(기본 90일), 운영자 조치(`admin.*`)는 `ADMIN_AUDIT_LOG_PII_RETENTION_DAYS`(기본 730일) 후 user_id/IP/User-Agent = NULL |
 
 #### event_type 목록
 
@@ -281,7 +281,7 @@ MCP
 | `auth.device_code_issued` | 디바이스 코드 발급 | `{client_id, client_name}` |
 | `auth.device_approved` | 디바이스 승인 | `{client_id, client_name}` |
 | `auth.device_denied` | 디바이스 거부 | `{client_id, client_name}` |
-| `auth.token_refreshed` | refresh token rotation 성공 | `{client_id, client_name, family_id}` |
+| ~~`auth.token_refreshed`~~ | 더 이상 방출하지 않음 (과거 데이터에만 존재) | — |
 | `auth.logout` | RP-Initiated Logout | `{client_id, client_name}` |
 | `auth.token_revoked` | refresh token revoke | `{client_id, client_name}` |
 | `auth.refresh_reuse_detected` | 폐기된 refresh_token 재사용 탐지 | `{family_id}` |

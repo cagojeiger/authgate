@@ -95,10 +95,38 @@ SET ip_address = NULL,
 WHERE user_id = NULLIF(sqlc.arg(user_id)::text, '')::uuid
   AND (ip_address IS NOT NULL OR user_agent IS NOT NULL);
 
--- name: AnonymizeAuditLogBefore :execrows
+-- name: AnonymizeUserAuditLogBefore :execrows
+-- End-user activity records. These are not the access records the safety-measures
+-- notification requires (that obligation covers personal-information handlers,
+-- i.e. operators), so they are anonymized on the shorter incident-investigation
+-- horizon rather than a statutory one.
 UPDATE audit_log
 SET user_id = NULL,
     ip_address = NULL,
     user_agent = NULL
 WHERE created_at < sqlc.arg(cutoff)
+  AND event_type NOT LIKE 'admin.%'
   AND (user_id IS NOT NULL OR ip_address IS NOT NULL OR user_agent IS NOT NULL);
+
+-- name: AnonymizeAdminAuditLogBefore :execrows
+-- Operator actions. These are the statutory access records, so they keep their
+-- actor and origin for the legally required period and are anonymized only
+-- afterwards.
+UPDATE audit_log
+SET user_id = NULL,
+    ip_address = NULL,
+    user_agent = NULL
+WHERE created_at < sqlc.arg(cutoff)
+  AND event_type LIKE 'admin.%'
+  AND (user_id IS NOT NULL OR ip_address IS NOT NULL OR user_agent IS NOT NULL);
+
+-- name: DeleteStaleRefreshTokenFamiliesBefore :execrows
+-- Family tombstones exist so a refresh token can be recognised as reused after
+-- its own row is gone. Once every token that could belong to the family has
+-- expired, the tombstone can never match anything again and is dead weight.
+DELETE FROM refresh_token_families
+WHERE ctid IN (
+  SELECT t.ctid FROM refresh_token_families t
+  WHERE t.revoked_at < sqlc.arg(cutoff)
+  LIMIT sqlc.arg(batch_size)
+);

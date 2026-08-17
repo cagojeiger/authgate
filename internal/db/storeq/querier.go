@@ -11,7 +11,15 @@ import (
 )
 
 type Querier interface {
-	AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	// Operator actions. These are the statutory access records, so they keep their
+	// actor and origin for the legally required period and are anonymized only
+	// afterwards.
+	AnonymizeAdminAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
+	// End-user activity records. These are not the access records the safety-measures
+	// notification requires (that obligation covers personal-information handlers,
+	// i.e. operators), so they are anonymized on the shorter incident-investigation
+	// horizon rather than a statutory one.
+	AnonymizeUserAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
@@ -26,6 +34,10 @@ type Querier interface {
 	// rows. ctid IN (...) is the standard Postgres batched-delete idiom.
 	DeleteRevokedRefreshTokensBefore(ctx context.Context, arg DeleteRevokedRefreshTokensBeforeParams) (int64, error)
 	DeleteSessionsByUserID(ctx context.Context, userID string) error
+	// Family tombstones exist so a refresh token can be recognised as reused after
+	// its own row is gone. Once every token that could belong to the family has
+	// expired, the tombstone can never match anything again and is dead weight.
+	DeleteStaleRefreshTokenFamiliesBefore(ctx context.Context, arg DeleteStaleRefreshTokenFamiliesBeforeParams) (int64, error)
 	DeleteUserIdentitiesByUserID(ctx context.Context, userID string) error
 	DenyDeviceCodeByUserCode(ctx context.Context, userCode string) error
 	GetActiveEpoch(ctx context.Context, domain string) (GetActiveEpochRow, error)

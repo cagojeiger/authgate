@@ -125,8 +125,21 @@ func (r *CleanupRunner) ListPendingDeletionUserIDsBefore(ctx context.Context, cu
 	return storeq.New(r.db).ListPendingDeletionUserIDsBefore(ctx, sql.NullTime{Time: cutoff, Valid: true})
 }
 
-func (r *CleanupRunner) AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
-	return storeq.New(r.db).AnonymizeAuditLogBefore(ctx, cutoff)
+func (r *CleanupRunner) AnonymizeUserAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	return storeq.New(r.db).AnonymizeUserAuditLogBefore(ctx, cutoff)
+}
+
+func (r *CleanupRunner) AnonymizeAdminAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	return storeq.New(r.db).AnonymizeAdminAuditLogBefore(ctx, cutoff)
+}
+
+func (r *CleanupRunner) DeleteStaleRefreshTokenFamiliesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	q := storeq.New(r.db)
+	return deleteInBatches(ctx, func(ctx context.Context, batch int32) (int64, error) {
+		return q.DeleteStaleRefreshTokenFamiliesBefore(ctx, storeq.DeleteStaleRefreshTokenFamiliesBeforeParams{
+			Cutoff: cutoff, BatchSize: batch,
+		})
+	})
 }
 
 func (r *CleanupRunner) RedactAuditLogPIIByUserID(ctx context.Context, userID string) (int64, error) {

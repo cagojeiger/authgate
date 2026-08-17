@@ -91,7 +91,7 @@ func Run() {
 	var inflightRequests int64
 	srv, addr := buildHTTPServer(cfg, securityHeadersHandler, &inflightRequests)
 
-	cleanupCancel := startCleanupService(db, clk, cfg.AuditLogPIIRetention)
+	cleanupCancel := startCleanupService(db, clk, cfg)
 	metricsCancel := startMetricsServer(cfg)
 	var stopOnce sync.Once
 	stopBackground := func() {

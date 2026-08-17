@@ -60,7 +60,17 @@ func (s *cleanupRunnerStub) ListPendingDeletionUserIDsBefore(ctx context.Context
 	return nil, nil
 }
 
-func (s *cleanupRunnerStub) AnonymizeAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+func (s *cleanupRunnerStub) AnonymizeUserAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	s.cleanupCallHits++
+	return 0, nil
+}
+
+func (s *cleanupRunnerStub) AnonymizeAdminAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error) {
+	s.cleanupCallHits++
+	return 0, nil
+}
+
+func (s *cleanupRunnerStub) DeleteStaleRefreshTokenFamiliesBefore(ctx context.Context, cutoff time.Time) (int64, error) {
 	s.cleanupCallHits++
 	return 0, nil
 }

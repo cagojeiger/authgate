@@ -40,30 +40,37 @@ type Config struct {
 	// PII at-rest encryption roots (ADR-002). Secrets are base64-encoded
 	// (>=32 bytes). Optional: all four empty = encryption inert. The first
 	// encrypting consumer (PR2) makes them required in production.
-	EncRootKeyID          string
-	EncRootSecret         string
-	LookupRootKeyID       string
-	LookupRootSecret      string
-	SessionTTL            time.Duration
-	AccessTokenTTL        time.Duration
-	RefreshTokenTTL       time.Duration
-	AuditLogPIIRetention  time.Duration
-	DevMode               bool
-	EnableMCP             bool
-	ClientConfigPath      string
-	MigrationsPath        string
-	SigningKeyPath        string
-	BrandName             string
-	HTTPReadHeaderTimeout time.Duration
-	HTTPReadTimeout       time.Duration
-	HTTPWriteTimeout      time.Duration
-	HTTPIdleTimeout       time.Duration
-	ShutdownTimeout       time.Duration
-	MetricsAddr           string
-	RateLimitTokenRPS     float64
-	RateLimitTokenBurst   int
-	RateLimitAuthRPS      float64
-	RateLimitAuthBurst    int
+	EncRootKeyID     string
+	EncRootSecret    string
+	LookupRootKeyID  string
+	LookupRootSecret string
+	SessionTTL       time.Duration
+	AccessTokenTTL   time.Duration
+	RefreshTokenTTL  time.Duration
+	// AuditLogPIIRetention is how long end-user activity records keep their
+	// identifying columns. This is an incident-investigation horizon: the
+	// statutory access-record duty covers personal-information handlers
+	// (operators), which AdminAuditLogPIIRetention governs instead.
+	AuditLogPIIRetention time.Duration
+	// AdminAuditLogPIIRetention is how long operator-action records keep their
+	// identifying columns. These are the statutory access records.
+	AdminAuditLogPIIRetention time.Duration
+	DevMode                   bool
+	EnableMCP                 bool
+	ClientConfigPath          string
+	MigrationsPath            string
+	SigningKeyPath            string
+	BrandName                 string
+	HTTPReadHeaderTimeout     time.Duration
+	HTTPReadTimeout           time.Duration
+	HTTPWriteTimeout          time.Duration
+	HTTPIdleTimeout           time.Duration
+	ShutdownTimeout           time.Duration
+	MetricsAddr               string
+	RateLimitTokenRPS         float64
+	RateLimitTokenBurst       int
+	RateLimitAuthRPS          float64
+	RateLimitAuthBurst        int
 	// TrustedProxies is a comma-separated list of CIDRs whose source addresses
 	// are allowed to set X-Forwarded-For. Empty means no proxy is trusted —
 	// the safe default for a deployment without an explicitly configured edge.
@@ -76,45 +83,46 @@ func Load() (*Config, error) {
 	}
 
 	c := &Config{
-		Port:                    envInt("PORT", 8080),
-		DatabaseURL:             os.Getenv("DATABASE_URL"),
-		DBMaxOpenConns:          envInt("DB_MAX_OPEN_CONNS", 25),
-		DBMaxIdleConns:          envInt("DB_MAX_IDLE_CONNS", 25),
-		DBConnMaxLifetime:       time.Duration(envInt("DB_CONN_MAX_LIFETIME_SEC", 300)) * time.Second,
-		DBConnMaxIdleTime:       time.Duration(envInt("DB_CONN_MAX_IDLE_TIME_SEC", 120)) * time.Second,
-		SessionSecret:           os.Getenv("SESSION_SECRET"),
-		PublicURL:               os.Getenv("PUBLIC_URL"),
-		OIDCIssuerURL:           envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
-		OIDCIssuerHostAllowlist: envCommaList("OIDC_ISSUER_HOST_ALLOWLIST"),
-		OIDCInternalURL:         os.Getenv("OIDC_INTERNAL_URL"),
-		OIDCHTTPTimeout:         time.Duration(envInt("OIDC_HTTP_TIMEOUT_SEC", 10)) * time.Second,
-		OIDCClientID:            envDefault("OIDC_CLIENT_ID", "authgate"),
-		OIDCClientSecret:        os.Getenv("OIDC_CLIENT_SECRET"),
-		EncRootKeyID:            os.Getenv("PII_ENC_ROOT_KEY_ID"),
-		EncRootSecret:           os.Getenv("PII_ENC_ROOT_SECRET"),
-		LookupRootKeyID:         os.Getenv("PII_LOOKUP_ROOT_KEY_ID"),
-		LookupRootSecret:        os.Getenv("PII_LOOKUP_ROOT_SECRET"),
-		SessionTTL:              time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
-		AccessTokenTTL:          time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
-		RefreshTokenTTL:         time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
-		AuditLogPIIRetention:    time.Duration(envInt("AUDIT_LOG_PII_RETENTION_DAYS", 1095)) * 24 * time.Hour,
-		DevMode:                 envBool("DEV_MODE", false),
-		EnableMCP:               envBool("ENABLE_MCP", true),
-		ClientConfigPath:        envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
-		MigrationsPath:          envDefault("MIGRATIONS_PATH", "/migrations"),
-		SigningKeyPath:          envDefault("SIGNING_KEY_PATH", "signing_key.pem"),
-		BrandName:               envDefault("BRAND_NAME", "authgate"),
-		HTTPReadHeaderTimeout:   time.Duration(envInt("HTTP_READ_HEADER_TIMEOUT_SEC", 5)) * time.Second,
-		HTTPReadTimeout:         time.Duration(envInt("HTTP_READ_TIMEOUT_SEC", 15)) * time.Second,
-		HTTPWriteTimeout:        time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,
-		HTTPIdleTimeout:         time.Duration(envInt("HTTP_IDLE_TIMEOUT_SEC", 60)) * time.Second,
-		ShutdownTimeout:         time.Duration(envInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second,
-		MetricsAddr:             os.Getenv("METRICS_ADDR"),
-		RateLimitTokenRPS:       envFloat("RATE_LIMIT_TOKEN_RPS", 30),
-		RateLimitTokenBurst:     envInt("RATE_LIMIT_TOKEN_BURST", 60),
-		RateLimitAuthRPS:        envFloat("RATE_LIMIT_AUTH_RPS", 10),
-		RateLimitAuthBurst:      envInt("RATE_LIMIT_AUTH_BURST", 20),
-		TrustedProxies:          os.Getenv("TRUSTED_PROXIES"),
+		Port:                      envInt("PORT", 8080),
+		DatabaseURL:               os.Getenv("DATABASE_URL"),
+		DBMaxOpenConns:            envInt("DB_MAX_OPEN_CONNS", 25),
+		DBMaxIdleConns:            envInt("DB_MAX_IDLE_CONNS", 25),
+		DBConnMaxLifetime:         time.Duration(envInt("DB_CONN_MAX_LIFETIME_SEC", 300)) * time.Second,
+		DBConnMaxIdleTime:         time.Duration(envInt("DB_CONN_MAX_IDLE_TIME_SEC", 120)) * time.Second,
+		SessionSecret:             os.Getenv("SESSION_SECRET"),
+		PublicURL:                 os.Getenv("PUBLIC_URL"),
+		OIDCIssuerURL:             envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
+		OIDCIssuerHostAllowlist:   envCommaList("OIDC_ISSUER_HOST_ALLOWLIST"),
+		OIDCInternalURL:           os.Getenv("OIDC_INTERNAL_URL"),
+		OIDCHTTPTimeout:           time.Duration(envInt("OIDC_HTTP_TIMEOUT_SEC", 10)) * time.Second,
+		OIDCClientID:              envDefault("OIDC_CLIENT_ID", "authgate"),
+		OIDCClientSecret:          os.Getenv("OIDC_CLIENT_SECRET"),
+		EncRootKeyID:              os.Getenv("PII_ENC_ROOT_KEY_ID"),
+		EncRootSecret:             os.Getenv("PII_ENC_ROOT_SECRET"),
+		LookupRootKeyID:           os.Getenv("PII_LOOKUP_ROOT_KEY_ID"),
+		LookupRootSecret:          os.Getenv("PII_LOOKUP_ROOT_SECRET"),
+		SessionTTL:                time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
+		AccessTokenTTL:            time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
+		RefreshTokenTTL:           time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
+		AuditLogPIIRetention:      time.Duration(envInt("AUDIT_LOG_PII_RETENTION_DAYS", 90)) * 24 * time.Hour,
+		AdminAuditLogPIIRetention: time.Duration(envInt("ADMIN_AUDIT_LOG_PII_RETENTION_DAYS", 730)) * 24 * time.Hour,
+		DevMode:                   envBool("DEV_MODE", false),
+		EnableMCP:                 envBool("ENABLE_MCP", true),
+		ClientConfigPath:          envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
+		MigrationsPath:            envDefault("MIGRATIONS_PATH", "/migrations"),
+		SigningKeyPath:            envDefault("SIGNING_KEY_PATH", "signing_key.pem"),
+		BrandName:                 envDefault("BRAND_NAME", "authgate"),
+		HTTPReadHeaderTimeout:     time.Duration(envInt("HTTP_READ_HEADER_TIMEOUT_SEC", 5)) * time.Second,
+		HTTPReadTimeout:           time.Duration(envInt("HTTP_READ_TIMEOUT_SEC", 15)) * time.Second,
+		HTTPWriteTimeout:          time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,
+		HTTPIdleTimeout:           time.Duration(envInt("HTTP_IDLE_TIMEOUT_SEC", 60)) * time.Second,
+		ShutdownTimeout:           time.Duration(envInt("SHUTDOWN_TIMEOUT_SEC", 10)) * time.Second,
+		MetricsAddr:               os.Getenv("METRICS_ADDR"),
+		RateLimitTokenRPS:         envFloat("RATE_LIMIT_TOKEN_RPS", 30),
+		RateLimitTokenBurst:       envInt("RATE_LIMIT_TOKEN_BURST", 60),
+		RateLimitAuthRPS:          envFloat("RATE_LIMIT_AUTH_RPS", 10),
+		RateLimitAuthBurst:        envInt("RATE_LIMIT_AUTH_BURST", 20),
+		TrustedProxies:            os.Getenv("TRUSTED_PROXIES"),
 	}
 
 	if c.DatabaseURL == "" {
@@ -132,8 +140,13 @@ func Load() (*Config, error) {
 	if c.ShutdownTimeout <= 0 {
 		return nil, fmt.Errorf("SHUTDOWN_TIMEOUT_SEC must be > 0")
 	}
-	if c.AuditLogPIIRetention < 365*24*time.Hour {
-		return nil, fmt.Errorf("AUDIT_LOG_PII_RETENTION_DAYS must be >= 365")
+	if c.AuditLogPIIRetention < 30*24*time.Hour {
+		return nil, fmt.Errorf("AUDIT_LOG_PII_RETENTION_DAYS must be >= 30")
+	}
+	// The statutory access-record baseline is one year, so refuse anything
+	// shorter for operator actions rather than silently under-retaining.
+	if c.AdminAuditLogPIIRetention < 365*24*time.Hour {
+		return nil, fmt.Errorf("ADMIN_AUDIT_LOG_PII_RETENTION_DAYS must be >= 365")
 	}
 	if c.RateLimitTokenRPS <= 0 {
 		return nil, fmt.Errorf("RATE_LIMIT_TOKEN_RPS must be > 0")
@@ -252,6 +265,7 @@ func validateParseableEnv() error {
 		"ACCESS_TOKEN_TTL",
 		"REFRESH_TOKEN_TTL",
 		"AUDIT_LOG_PII_RETENTION_DAYS",
+		"ADMIN_AUDIT_LOG_PII_RETENTION_DAYS",
 		"HTTP_READ_HEADER_TIMEOUT_SEC",
 		"HTTP_READ_TIMEOUT_SEC",
 		"HTTP_WRITE_TIMEOUT_SEC",

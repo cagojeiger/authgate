@@ -9,8 +9,10 @@ import (
 	"testing"
 )
 
-// TestAuditEvents verifies that auth.token_refreshed and auth.token_revoked events
-// are recorded in audit_log after the corresponding operations.
+// TestAuditEvents pins what the audit log does and does not record: an
+// explicit revocation is a state change and is recorded, while a routine
+// successful refresh is not — the rotated credential's used_at carries that
+// fact instead.
 func TestAuditEvents(t *testing.T) {
 	ts := SetupTestServer(t)
 	ctx := context.Background()
@@ -30,23 +32,35 @@ func TestAuditEvents(t *testing.T) {
 		t.Fatalf("get user: %v", err)
 	}
 
-	t.Run("auth.token_refreshed recorded after refresh grant", func(t *testing.T) {
+	t.Run("successful refresh grant is not audited but is recorded on the credential", func(t *testing.T) {
 		client := NewOAuthClient(t, ts.BaseURL)
 		refreshed := client.RefreshToken(tokens.RefreshToken)
 		if refreshed.StatusCode != 200 {
 			t.Fatalf("refresh failed: status=%d body=%s", refreshed.StatusCode, refreshed.RawBody)
 		}
 
-		var count int
-		err := ts.DB.QueryRowContext(ctx,
+		var audited int
+		if err := ts.DB.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM audit_log WHERE user_id = $1::uuid AND event_type = 'auth.token_refreshed'`,
 			user.ID,
-		).Scan(&count)
-		if err != nil {
-			t.Fatalf("query audit_log for auth.token_refreshed: %v", err)
+		).Scan(&audited); err != nil {
+			t.Fatalf("query audit_log: %v", err)
 		}
-		if count == 0 {
-			t.Error("expected at least one auth.token_refreshed audit_log row, got 0")
+		if audited != 0 {
+			t.Errorf("successful refresh wrote %d audit rows, want 0 — routine rotations must not fill the audit log", audited)
+		}
+
+		// The information that matters is still available: the rotated-out
+		// credential records when it was exchanged.
+		var used int
+		if err := ts.DB.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM refresh_tokens WHERE user_id = $1::uuid AND used_at IS NOT NULL`,
+			user.ID,
+		).Scan(&used); err != nil {
+			t.Fatalf("query refresh_tokens: %v", err)
+		}
+		if used == 0 {
+			t.Error("expected the exchanged refresh token to carry used_at")
 		}
 	})
 
