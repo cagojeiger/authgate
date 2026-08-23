@@ -24,6 +24,8 @@ authgate를 처음 배포할 때 필요한 것:
      인덱스 추가 (refresh_tokens/sessions/auth_requests/device_codes). 012와
      마찬가지로 시작 시 해당 테이블을 잠깐 잠그며(CONCURRENTLY 아님), 배포
      점검창 안에서 적용된다
+   → 016_device_codes_resource: MCP Device grant를 audience에 바인딩하기 위한
+     nullable resource 컬럼 추가. 기존 Device grant는 NULL로 유지된다
 
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성
@@ -233,13 +235,15 @@ clients:
 
   - client_id: my-cli
     client_type: public
-    login_channel: browser
-    name: My CLI Tool
-    redirect_uris:
-      - http://localhost:8080/callback
+    login_channel: mcp
+    name: MCP CLI Tool
     allowed_scopes: [openid, profile, email, offline_access]
-    allowed_grant_types: [authorization_code, "urn:ietf:params:oauth:grant-type:device_code", refresh_token]
+    allowed_grant_types: ["urn:ietf:params:oauth:grant-type:device_code", refresh_token]
 ```
+
+Device-only client는 authorization_code callback을 사용하지 않으므로 `redirect_uris`를
+생략한다. MCP CLI는 Device Code 발급과 token polling 모두에 동일한 단일 `resource`
+URI를 포함해야 한다.
 
 배포 환경별 마운트:
 - Docker Compose: `volumes: ["./clients.yaml:/etc/authgate/clients.yaml:ro"]`

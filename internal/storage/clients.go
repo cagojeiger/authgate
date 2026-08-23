@@ -99,8 +99,8 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		if len(c.Name) > maxYAMLClientNameLength {
 			return nil, fmt.Errorf("client[%d] %q: name exceeds %d chars", i, c.ClientID, maxYAMLClientNameLength)
 		}
-		if len(c.RedirectURIs) == 0 {
-			return nil, fmt.Errorf("client[%d] %q: at least one redirect_uri is required", i, c.ClientID)
+		if len(c.RedirectURIs) == 0 && containsString(c.AllowedGrantTypes, "authorization_code") {
+			return nil, fmt.Errorf("client[%d] %q: authorization_code grant requires at least one redirect_uri", i, c.ClientID)
 		}
 		if len(c.RedirectURIs) > maxYAMLRedirectURICount {
 			return nil, fmt.Errorf("client[%d] %q: redirect_uris exceeds %d entries", i, c.ClientID, maxYAMLRedirectURICount)
@@ -130,6 +130,15 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 	}
 
 	return &cfg, nil
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateClientChannels enforces runtime channel constraints against loaded clients.

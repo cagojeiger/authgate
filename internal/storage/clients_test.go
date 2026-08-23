@@ -151,6 +151,43 @@ clients:
 	}
 }
 
+func TestLoadClientConfig_DeviceOnlyClientAllowsNoRedirectURI(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: notegate-cli
+    client_type: public
+    login_channel: mcp
+    name: NoteGate CLI
+    allowed_scopes: [openid, offline_access]
+    allowed_grant_types: ["urn:ietf:params:oauth:grant-type:device_code", refresh_token]
+`)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("device-only client should not require redirect_uri: %v", err)
+	}
+	if got := len(cfg.Clients[0].RedirectURIs); got != 0 {
+		t.Fatalf("redirect URI count = %d, want 0", got)
+	}
+}
+
+func TestLoadClientConfig_AuthorizationCodeStillRequiresRedirectURI(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: browser-client
+    client_type: public
+    login_channel: browser
+    name: Browser Client
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+
+	_, err := LoadClientConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "authorization_code grant requires") {
+		t.Fatalf("expected authorization_code redirect_uri error, got: %v", err)
+	}
+}
+
 func TestLoadClientConfig_NameTooLong(t *testing.T) {
 	path := writeClientConfigFile(t, `
 clients:

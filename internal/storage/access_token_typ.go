@@ -24,8 +24,9 @@ import (
 // tokens and id_tokens (pkg/op/signer.go SignerFromKey), and the library
 // exposes no public hook to override this for a single token type. This
 // middleware captures the JSON response on the way out, re-signs the
-// access_token JWT with our same key but the correct profile typ, and
-// passes the response on. The id_token keeps `typ=JWT` per OIDC Core 1.0
+// access_token JWT with our same key, the correct profile typ, and the
+// request's single RFC 8707 resource audience when present. The id_token
+// keeps `typ=JWT` per OIDC Core 1.0
 // (§2), but because re-signing the access_token changes its string and the
 // id_token's `at_hash` is bound to that string (§3.1.3.6), the id_token is
 // re-signed with a recomputed `at_hash` so strict OIDC clients don't reject
@@ -105,7 +106,7 @@ func upgradeAccessTokenTyp(ctx context.Context, store *Storage, body []byte) ([]
 	if err := json.Unmarshal(headerJSON, &header); err != nil {
 		return nil, err
 	}
-	if typ, _ := header["typ"].(string); typ == "at+jwt" {
+	if typ, _ := header["typ"].(string); typ == "at+jwt" && ResourceFromContext(ctx) == "" {
 		return body, nil
 	}
 
@@ -114,6 +115,10 @@ func upgradeAccessTokenTyp(ctx context.Context, store *Storage, body []byte) ([]
 		return nil, err
 	}
 	payload, err = withScopeClaim(payload, resp)
+	if err != nil {
+		return nil, err
+	}
+	payload, err = withResourceAudience(payload, ResourceFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +147,18 @@ func upgradeAccessTokenTyp(ctx context.Context, store *Storage, body []byte) ([]
 	}
 
 	return json.Marshal(resp)
+}
+
+func withResourceAudience(payload []byte, resource string) ([]byte, error) {
+	if resource == "" {
+		return payload, nil
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, err
+	}
+	claims["aud"] = resource
+	return json.Marshal(claims)
 }
 
 // rebindIDTokenAtHash recomputes the id_token's at_hash claim against the

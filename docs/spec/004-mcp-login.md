@@ -148,7 +148,7 @@ MCP Authorization
 | 사용자 상호작용 | 브라우저 직접 | 브라우저 승인 | 브라우저 로그인 + 도구 자동 호출 |
 | grant | auth code + PKCE | device_code | auth code + PKCE |
 | discovery 시작점 | auth server | auth server | protected resource → auth server |
-| 추가 파라미터 | 없음 | 없음 | `resource` |
+| 추가 파라미터 | 없음 | MCP channel이면 `resource` | `resource` |
 | client 유형 | public/confidential | 보통 public | 보통 public |
 | 로그인 경로 | `/login` | `/device` | `/mcp/login` |
 | callback 경로 | `/login/callback` | `/device/auth/callback` | `/mcp/callback` |
@@ -513,7 +513,8 @@ authgate는 authorize 단계와 token 단계 모두에서 같은 `resource`를 �
 |---------------|--------------|
 | `mcp`         | **필수** — 누락 시 `invalid_target` |
 | `browser`     | **금지** — 포함 시 `invalid_target` |
-| `device`      | **금지** — 포함 시 `invalid_target` |
+| Device grant + `browser` | **금지** — 포함 시 `invalid_target` |
+| Device grant + `mcp` | **필수** — 발급/polling 값이 달라지면 거부 |
 
 또한 단일 audience 정책: `resource=` 파라미터가 두 번 이상 나타나면 HTTP 400 `invalid_target`. 이는 `aud=[A,B]` 같은 다중 청자 토큰을 통한 audience smuggling을 차단한다.
 
@@ -590,8 +591,9 @@ code exchange가 끝나면 auth_request와 함께 정리된다.
 - CIMD redirect_uri는 메타데이터 문서의 redirect_uris와 정확히 일치해야 함
 - CIMD fetch 시 SSRF 방어: private/loopback IP 거부, 타임아웃 3초, 크기 10KB 제한
 - `user.Status = active`일 때만 MCP 토큰 발급
-- `/authorize`와 `/oauth/token` 모두에 동일한 `resource` 파라미터를 포함
-- authgate는 `auth_requests.resource`를 저장하고 token 교환 시 대조
+- authorization_code는 `/authorize`와 `/oauth/token` 모두에 동일한 `resource` 파라미터를 포함
+- Device grant는 `/oauth/device/authorize`와 `/oauth/token` 모두에 동일한 `resource` 파라미터를 포함
+- authgate는 grant 종류에 따라 `auth_requests.resource` 또는 `device_codes.resource`를 저장하고 token 교환 시 대조
 - MCP access_token의 `aud`는 canonical resource로 발급
 - refresh_token은 해시 저장 + rotation
 - MCP 서버는 access_token을 모든 요청마다 검증
