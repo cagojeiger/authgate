@@ -64,6 +64,7 @@ type DeviceCode struct {
 	AuthTime     sql.NullTime
 	CreatedAt    time.Time
 	LastPolledAt sql.NullTime
+	Resource     sql.NullString
 }
 
 type RefreshToken struct {

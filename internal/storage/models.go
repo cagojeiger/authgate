@@ -187,6 +187,7 @@ type DeviceCodeModel struct {
 	DeviceCode string
 	UserCode   string
 	ClientID   string
+	Resource   string
 	Scopes     StringArray
 	State      string
 	Subject    *string
