@@ -406,7 +406,6 @@ func (s *Storage) deriveRefreshTokenAttributes(ctx context.Context, qtx *storeq.
 
 	if das, ok := request.(*op.DeviceAuthorizationState); ok {
 		derived.clientID = das.ClientID
-		derived.resource = ResourceFromContext(ctx)
 		derived.scopes = das.Scopes
 	}
 	return derived, nil

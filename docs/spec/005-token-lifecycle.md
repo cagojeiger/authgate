@@ -194,7 +194,7 @@ sequenceDiagram
 |------|------|------|
 | 서명 검증 | **필수** | JWKS 공개키로 RS256, `kid`로 키 매칭 |
 | `iss` 확인 | **필수** | authgate의 issuer URL과 일치 |
-| `aud` 확인 | **필수** | Browser 및 browser-channel Device는 `client_id`, MCP auth-code/Device는 canonical `resource`와 일치 |
+| `aud` 확인 | **필수** | Browser/Device는 자신의 `client_id`, MCP는 자신의 canonical `resource`와 일치 |
 | `exp` 확인 | **필수** | 현재 시각보다 미래 |
 | `iat` 확인 | **필수** | 현재 시각보다 과거 (미래면 거부) |
 | JWKS 캐시 | **권장** | HTTP Cache-Control 준수, kid miss 시 1회 재fetch |
@@ -204,10 +204,10 @@ sequenceDiagram
 ### 채널별 audience 규칙
 
 ```text
-Browser / browser-channel Device
+Browser / Device
   -> aud = OAuth client_id
 
-MCP authorization_code / mcp-channel Device
+MCP
   -> aud = canonical resource
 ```
 

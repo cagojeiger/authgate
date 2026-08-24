@@ -36,8 +36,6 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 | `device-006` | consumed state | 다시 polling | `invalid_grant` | 재사용 불가 |
 | `device-007` | callback 시점 `active` | approve | 토큰 발급 성공 | approve 시점 재검사 통과 |
 | `device-008` | callback 시점 `active`, approve 직전 `pending_deletion` 또는 `disabled/deleted`로 변경 | approve | `account_inactive` | approve 시점 차단 |
-| `device-009` | MCP Device grant | 발급/polling에 동일한 `resource` | resource audience 토큰 발급 | grant/refresh resource 바인딩 |
-| `device-010` | MCP Device grant | resource 누락·불일치·중복 | 토큰 발급 실패, grant 미소비 | 단일 audience 및 재시도 안전성 |
 
 ## MCP
 

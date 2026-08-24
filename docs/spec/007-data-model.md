@@ -115,7 +115,7 @@ erDiagram
         text device_code UK "NOT NULL, 128bit+ 엔트로피"
         text user_code UK "NOT NULL, XXXX-XXXX"
         text client_id "NOT NULL"
-        text resource "nullable, MCP protected resource URI"
+        text resource "nullable, v0.10.0 legacy reserved column"
         text[] scopes "NOT NULL, DEFAULT '{}'"
         text state "NOT NULL, DEFAULT 'pending', CHECK (pending/approved/denied/consumed)"
         text subject "nullable, approve 시 설정"
@@ -237,23 +237,26 @@ BEFORE UPDATE OR DELETE trigger: core event facts append-only, user_id/ip_addres
 - auth_requests, device_codes: 임시 데이터 (10분/5분) → 자연 만료 후 cleanup 삭제
 - refresh_tokens: 클라이언트가 메모리에서 사라져도 만료까지 DB에 남음. 갱신 시도 시 클라이언트 조회 실패로 거부 → 만료 후 cleanup 삭제
 
-## grant resource 규칙
+## auth_requests.resource 규칙
 
-`auth_requests.resource`와 `device_codes.resource`는 MCP authorization에서 사용하는 protected resource 식별자다.
+`auth_requests.resource`는 MCP authorization에서 사용하는 protected resource 식별자다.
+
+`device_codes.resource`는 migration 016으로 추가됐지만 MCP Device resource 바인딩을
+되돌린 v0.10.1부터 사용하지 않는 nullable 예약 컬럼이다. 이미 운영 DB에 적용된
+migration 이력을 보존하기 위해 컬럼과 migration 번호를 삭제하거나 재사용하지 않는다.
 
 ```text
-Browser 및 browser-channel Device grant
+Browser / Device
   -> NULL
 
-MCP authorization_code 및 mcp-channel Device grant
+MCP
   -> canonical resource URI 저장
 ```
 
 규칙:
-1. authorization_code는 `/authorize` 값을 `auth_requests.resource`에 저장한다
-2. Device grant는 `/oauth/device/authorize` 값을 `device_codes.resource`에 저장한다
-3. `/oauth/token`의 `resource`는 각 grant에 저장된 값과 일치해야 한다
-4. refresh token에도 같은 resource를 저장해 rotation 전체를 바인딩한다
+1. `/authorize` 요청의 `resource`를 `auth_requests.resource`에 저장
+2. `/oauth/token` 요청의 `resource`와 일치해야 한다
+3. 성공적인 code exchange가 끝나면 auth_request와 함께 정리된다
 
 ## 보안 규칙
 

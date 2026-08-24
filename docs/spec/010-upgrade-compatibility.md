@@ -9,27 +9,11 @@
 마이그레이션 자체는 authgate 시작 시 자동 적용된다 ([009 운영](009-operations.md) 참조).
 이 문서는 "어떤 순서로, 어떤 주의로 버전을 올리는가"를 다룬다.
 
-## MCP Device resource 바인딩 도입 (2단계, 순서 필수)
+## Migration 016 유지
 
-MCP Device Flow는 `device_codes.resource`를 저장하고 token polling 때 같은 값을 검증한다.
-구버전 바이너리는 이 값을 알지 못하므로 신·구 파드가 섞인 상태에서 MCP Device client를
-먼저 활성화하면 구버전 파드가 resource 없는 토큰을 발급하거나 grant를 소비할 수 있다.
-
-```text
-[1단계] resource 바인딩 지원 AuthGate 배포
-   · migration 016 적용
-   · 모든 AuthGate 파드가 신버전이고 ready인지 확인
-            ↓
-[2단계] MCP Device client 등록
-   · login_channel=mcp
-   · device_code + refresh_token grant 활성화
-```
-
-- 두 단계를 같은 롤링 배포에 묶지 않는다.
-- 1단계가 완료되기 전에는 MCP Device client를 `clients.yaml`에 추가하지 않는다.
-- nullable 컬럼 추가 자체는 기존 Browser Device Flow와 호환되므로 AuthGate 바이너리는
-  정상적인 롤링 배포가 가능하다.
-- 2단계 이후 CLI는 Device Code 발급과 token polling 모두에 동일한 단일 `resource`를 보낸다.
+v0.10.1은 v0.10.0의 MCP Device resource 바인딩을 되돌리지만 이미 적용된
+`016_device_codes_resource` migration과 nullable 컬럼은 삭제하지 않는다. 기존 DB와
+신규 설치의 migration 이력을 일치시키기 위한 것이며, 해당 컬럼과 번호를 재사용하지 않는다.
 
 ## PII 암호화 → 평문 제거 (2단계, 순서 필수)
 
