@@ -3,7 +3,6 @@ package app
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -123,26 +122,7 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 		provider.ServeHTTP(w, r)
 	})))
 	mux.Handle("/oauth/introspect", tokenLimiter(provider))
-	deviceAuthorize := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resource, err := storage.ResourceFromRequestStrict(r)
-		if err != nil {
-			writeInvalidTargetError(w, err)
-			return
-		}
-		clientID := strings.TrimSpace(r.Form.Get("client_id"))
-		if clientID != "" {
-			if err := store.ValidateAuthorizationResource(r.Context(), clientID, resource); err != nil {
-				// Preserve the provider's canonical invalid_client response for
-				// unknown clients; this adapter only owns resource errors.
-				if !errors.Is(err, storage.ErrNotFound) {
-					writeInvalidTargetError(w, err)
-					return
-				}
-			}
-		}
-		provider.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
-	})
-	mux.Handle("/oauth/device/authorize", tokenLimiter(deviceAuthorize))
+	mux.Handle("/oauth/device/authorize", tokenLimiter(provider))
 	mux.Handle("/", provider)
 }
 

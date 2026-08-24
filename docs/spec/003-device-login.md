@@ -5,16 +5,10 @@
 CLI 도구나 입력 제한 장치에서 브라우저를 통해 인증하고 access_token + refresh_token을 받는 플로우.
 **사용자는 브라우저 가입(Spec 001)이 완료된 상태여야 한다.** Device 플로우에서 신규 가입은 발생하지 않는다.
 
-Device grant는 일반 CLI 로그인뿐 아니라 MCP protected resource에 접근하는 CLI에도 사용한다.
-`login_channel=mcp` 클라이언트는 RFC 8707 `resource`를 Device Code 발급과 token polling에
-동일하게 보내며, authgate는 이를 grant와 refresh token에 바인딩한다.
-
 ## 전제
 
 - authgate에서 zitadel/oidc는 **내장 라이브러리**다. 별도 서버가 아니다.
 - 앱이 `clients.yaml`에 등록되어 있어야 함 (grant_type에 device_code 포함)
-- authorization_code를 사용하지 않는 Device 전용 클라이언트는 redirect_uri가 필요 없다
-- `login_channel=mcp`이면 `resource`가 필수이고, `login_channel=browser`이면 `resource`가 금지된다
 - **성공적으로 Device 토큰을 발급받으려면** `user.Status = 'active'`여야 함 (Spec 001 경유, [ADR-000](../adr/000-authgate-identity.md) 정의)
 - 사용자가 브라우저 접근 가능해야 함
 
@@ -37,7 +31,6 @@ Device grant는 일반 CLI 로그인뿐 아니라 MCP protected resource에 접�
 ## 표준
 
 - RFC 8628 (OAuth 2.0 Device Authorization Grant)
-- RFC 8707 (MCP resource-bound Device grant에 적용)
 - 5분 만료, 5초 polling 간격
 
 ## 플로우
@@ -50,9 +43,9 @@ sequenceDiagram
     participant IdP as IdP
 
     Note over CLI,IdP: 1. Device Code 발급
-    CLI->>AG: POST /oauth/device/authorize (client_id, scope, resource*)
+    CLI->>AG: POST /oauth/device/authorize (client_id, scope)
     AG->>AG: [zitadel] device_code (128bit+ 엔트로피) + user_code (XXXX-XXXX) 생성
-    AG->>AG: [zitadel] StoreDeviceAuthorization (DB: state=pending, resource*)
+    AG->>AG: [zitadel] StoreDeviceAuthorization (DB: state=pending)
     AG-->>CLI: {device_code, user_code, verification_uri, expires_in: 300, interval: 5}
 
     Note over CLI,IdP: 2. CLI가 사용자에게 안내
@@ -92,7 +85,7 @@ sequenceDiagram
 
     Note over CLI,IdP: 5. CLI Polling → 토큰 발급
     loop 5초마다 polling
-        CLI->>AG: POST /oauth/token (grant_type=urn:ietf:params:oauth:grant-type:device_code, device_code, client_id, resource*)
+        CLI->>AG: POST /oauth/token (grant_type=urn:ietf:params:oauth:grant-type:device_code, device_code=...)
         AG->>AG: [zitadel] GetDeviceAuthorizatonState(deviceCode)
         alt 승인 완료 (Done=true)
             AG->>AG: [zitadel] JWT 서명 (RSA), state → consumed
@@ -112,9 +105,6 @@ sequenceDiagram
     Note over CLI,IdP: ✅ CLI 로그인 완료
     CLI->>CLI: 토큰 저장 (OS keychain 또는 ~/.config/myapp/token.json)
 ```
-
-`resource*`는 MCP channel에서 필수이고 일반 browser channel Device client에서는 생략한다.
-토큰 요청의 값이 Device Code 발급 시 저장한 값과 다르면 grant를 소비하지 않고 거부한다.
 
 ## 상태 전이
 
@@ -170,8 +160,6 @@ Device 플로우의 주요 사용자(CLI 첫 사용자)는 브라우저 세션�
 | device_code 만료 | CLI | `expired_token` | 400 | 재시작 필요 |
 | polling 너무 빠름 | CLI | `slow_down` | 400 | interval + 5초 |
 | 이미 토큰 발급됨 (consumed) | CLI | `invalid_grant` | 400 | 재사용 불가 |
-| MCP Device Code 발급 시 resource 누락/중복 | CLI | `invalid_target` | 400 | 단일 MCP resource 지정 필요 |
-| token polling의 resource 누락/불일치 | CLI | `access_denied` | 400 | 최초 요청과 같은 resource로 다시 요청 |
 | 잘못된/만료된 user_code | 브라우저 | — | 200 | 에러 메시지 포함 HTML |
 | 세션 없이 승인 시도 | 브라우저 | — | 302 | IdP 로그인으로 redirect |
 | 미가입 사용자 | 브라우저 | `account_not_found: please sign up via browser first` | 403 | 브라우저 가입 먼저 필요 |
@@ -202,9 +190,6 @@ SELECT ... FOR UPDATE → state 확인 → UPDATE
 - 만료된 device_code는 승인 불가 (`WHERE expires_at > NOW()`)
 - polling 간격 5초 강제 (`slow_down` 응답 시 +5초)
 - `consumed` 상태의 device_code는 재사용 불가
-- MCP Device grant의 resource는 발급부터 polling, refresh까지 동일하게 바인딩
-- resource 검증 실패는 `approved → consumed` 전이 전에 처리
-- access token `aud`는 요청한 단일 resource로 제한
 
 ## 다른 스펙 참조
 
@@ -214,4 +199,3 @@ SELECT ... FOR UPDATE → state 확인 → UPDATE
 | [Spec 005](005-token-lifecycle.md) | CLI가 받은 토큰의 갱신/폐기 |
 | [Spec 007](007-data-model.md) | device_codes 테이블 스키마 |
 | [Spec 008](008-pages.md) | device_entry.html, device_approve.html, result.html |
-| [Spec 004](004-mcp-login.md) | MCP protected resource와 audience 계약 |
