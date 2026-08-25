@@ -19,18 +19,25 @@ CORS preflight 응답에도 헤더가 포함된다.
 
 ```
 default-src 'none';
-style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-font-src https://fonts.gstatic.com;
+style-src 'self' 'unsafe-inline';
 img-src 'self' data:;
+form-action 'self';
 frame-ancestors 'none';
 base-uri 'none'
 ```
 
-`internal/pages/templates/*.html`(device-entry, device-approve, result, error)는
-인라인 `<style>` 하나와 Google Fonts만 사용하고 스크립트가 전혀 없다. 따라서
-`default-src 'none'`로 스크립트 출처를 상속 차단(script-src 미지정 → 어떤 JS도
-실행 불가)하면서, 필요한 스타일/폰트만 허용한다. JSON API 응답에도 동일 헤더가
-붙지만 브라우저가 JSON 본문에서 하위 리소스를 로드하지 않으므로 무해하다.
+`internal/pages/templates/*.html`은 공유 레이아웃의 인라인 `<style>` 하나만
+사용하고 스크립트도, 외부에서 가져오는 리소스도 없다. `default-src 'none'`로
+스크립트 출처를 상속 차단(script-src 미지정 → 어떤 JS도 실행 불가)하고, 허용
+목록에는 실제로 쓰는 것만 남긴다. JSON API 응답에도 동일 헤더가 붙지만 브라우저가
+JSON 본문에서 하위 리소스를 로드하지 않으므로 무해하다.
+
+**외부 오리진을 하나도 허용하지 않는다.** 이전에는 Google Fonts를 위해
+`fonts.googleapis.com`과 `fonts.gstatic.com`을 열어두었는데, 이 페이지들은 로그인
+플로우의 일부이므로 렌더링할 때마다 방문자 IP가 제3자에게 전달됐다. 시스템 폰트로
+전환하면서 그 허용을 제거했다. `security_headers_test.go`는 정책에 `https://`가
+다시 나타나면 실패하고, `internal/pages/renderer_test.go`는 렌더링된 HTML에 외부
+URL이 없는지 검사한다.
 
 ## 비고
 

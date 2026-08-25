@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/kangheeyong/authgate/internal/pages"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,7 +19,7 @@ func newTestDeviceHandler() *DeviceHandler {
 	// FakeProvider.Callback delivers the (empty) state to CompleteDeviceLogin,
 	// which returns the 400 "invalid_request" the callback test asserts.
 	provider := &upstream.FakeProvider{User: &upstream.UserInfo{Sub: "sub"}}
-	return NewDeviceHandler(svc, provider, true, "authgate") // devMode=true
+	return NewDeviceHandler(svc, provider, true, pages.Brand{Name: "authgate"}) // devMode=true
 }
 
 // ── Method guard ──────────────────────────────────────────────────────────────

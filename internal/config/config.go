@@ -61,16 +61,21 @@ type Config struct {
 	MigrationsPath            string
 	SigningKeyPath            string
 	BrandName                 string
-	HTTPReadHeaderTimeout     time.Duration
-	HTTPReadTimeout           time.Duration
-	HTTPWriteTimeout          time.Duration
-	HTTPIdleTimeout           time.Duration
-	ShutdownTimeout           time.Duration
-	MetricsAddr               string
-	RateLimitTokenRPS         float64
-	RateLimitTokenBurst       int
-	RateLimitAuthRPS          float64
-	RateLimitAuthBurst        int
+	// BrandLogoPath points at an SVG inlined into the device-flow pages. Empty
+	// renders the brand name alone, which is the neutral default.
+	BrandLogoPath string
+	// BrandPrimaryColor overrides the accent colour on those pages. Hex only.
+	BrandPrimaryColor     string
+	HTTPReadHeaderTimeout time.Duration
+	HTTPReadTimeout       time.Duration
+	HTTPWriteTimeout      time.Duration
+	HTTPIdleTimeout       time.Duration
+	ShutdownTimeout       time.Duration
+	MetricsAddr           string
+	RateLimitTokenRPS     float64
+	RateLimitTokenBurst   int
+	RateLimitAuthRPS      float64
+	RateLimitAuthBurst    int
 	// TrustedProxies is a comma-separated list of CIDRs whose source addresses
 	// are allowed to set X-Forwarded-For. Empty means no proxy is trusted —
 	// the safe default for a deployment without an explicitly configured edge.
@@ -112,6 +117,8 @@ func Load() (*Config, error) {
 		MigrationsPath:            envDefault("MIGRATIONS_PATH", "/migrations"),
 		SigningKeyPath:            envDefault("SIGNING_KEY_PATH", "signing_key.pem"),
 		BrandName:                 envDefault("BRAND_NAME", "authgate"),
+		BrandLogoPath:             os.Getenv("BRAND_LOGO_PATH"),
+		BrandPrimaryColor:         os.Getenv("BRAND_PRIMARY_COLOR"),
 		HTTPReadHeaderTimeout:     time.Duration(envInt("HTTP_READ_HEADER_TIMEOUT_SEC", 5)) * time.Second,
 		HTTPReadTimeout:           time.Duration(envInt("HTTP_READ_TIMEOUT_SEC", 15)) * time.Second,
 		HTTPWriteTimeout:          time.Duration(envInt("HTTP_WRITE_TIMEOUT_SEC", 30)) * time.Second,

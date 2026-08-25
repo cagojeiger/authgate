@@ -44,14 +44,16 @@ func TestSecurityHeaders_NoHSTSInDevMode(t *testing.T) {
 	}
 }
 
-func TestSecurityHeaders_CSPBlocksScriptsAllowsFonts(t *testing.T) {
-	// Guard the CSP contract the served HTML pages depend on: no script source
-	// (scripts inherit default-src 'none'), but Google Fonts styles/fonts allowed.
+func TestSecurityHeaders_CSPAllowsNoExternalOrigin(t *testing.T) {
+	// Guard the CSP contract the served HTML pages depend on: one inline
+	// <style> block and nothing else. Scripts inherit default-src 'none'.
 	for _, must := range []string{
 		"default-src 'none'",
-		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-		"font-src https://fonts.gstatic.com",
+		"style-src 'self' 'unsafe-inline'",
+		"img-src 'self' data:",
+		"form-action 'self'",
 		"frame-ancestors 'none'",
+		"base-uri 'none'",
 	} {
 		if !strings.Contains(contentSecurityPolicy, must) {
 			t.Errorf("CSP missing %q; full policy: %q", must, contentSecurityPolicy)
@@ -59,5 +61,10 @@ func TestSecurityHeaders_CSPBlocksScriptsAllowsFonts(t *testing.T) {
 	}
 	if strings.Contains(contentSecurityPolicy, "script-src") {
 		t.Errorf("CSP should not grant any script-src; full policy: %q", contentSecurityPolicy)
+	}
+	// The sign-in pages must not reach any third party: fetching a webfont
+	// would disclose the visitor's IP on every render.
+	if strings.Contains(contentSecurityPolicy, "https://") {
+		t.Errorf("CSP grants an external origin; full policy: %q", contentSecurityPolicy)
 	}
 }

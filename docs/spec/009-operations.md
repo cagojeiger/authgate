@@ -101,6 +101,8 @@ authgate를 처음 배포할 때 필요한 것:
 | `CLIENT_CONFIG` | X | `/etc/authgate/clients.yaml` | 클라이언트 설정 YAML 파일 경로 (없으면 무시) |
 | `MIGRATIONS_PATH` | X | `/migrations` | golang-migrate 마이그레이션 디렉터리 경로 (Docker 이미지 기본, 로컬 개발은 `./migrations`) |
 | `BRAND_NAME` | X | `authgate` | 디바이스 플로우 및 에러 페이지 좌측 상단에 표시되는 브랜드 이름 |
+| `BRAND_LOGO_PATH` | X | (없음) | 페이지에 인라인 삽입할 SVG 마크 파일 경로. 미설정 시 이름만 표시. SVG가 아니거나 32KB 초과 시 기동 실패 |
+| `BRAND_PRIMARY_COLOR` | X | (없음) | 버튼·포커스 강조색. `#185fc4` 같은 hex만 허용하며 그 외 값은 기동 실패 |
 | `RATE_LIMIT_TOKEN_RPS` | X | `30` | 토큰성 엔드포인트 (`/oauth/token`, `/oauth/revoke`, `/oauth/introspect`, `/oauth/device/authorize`, `/device/approve`) 초당 허용 요청 수 |
 | `RATE_LIMIT_TOKEN_BURST` | X | `60` | 토큰 엔드포인트 버스트 허용 요청 수 (최솟값: 1) |
 | `RATE_LIMIT_AUTH_RPS` | X | `10` | 인증 엔드포인트 (`/authorize`, `/login`, `/login/callback`, `/mcp/*`, `/device`, `/device/auth/callback`) 초당 허용 요청 수 |

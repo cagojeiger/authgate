@@ -22,6 +22,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/kangheeyong/authgate/internal/middleware"
+	"github.com/kangheeyong/authgate/internal/pages"
 	"github.com/kangheeyong/authgate/internal/service"
 	"github.com/kangheeyong/authgate/internal/storage"
 	"github.com/kangheeyong/authgate/internal/testutil"
@@ -180,12 +181,12 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	deviceSvc := service.NewDeviceService(store, fakeProvider.Name(), srv.URL, 24*time.Hour, clk)
 
 	// Handlers
-	loginHandler := handler.NewLoginHandler(loginSvc, fakeProvider, true, "authgate")
-	deviceHandler := handler.NewDeviceHandler(deviceSvc, fakeProvider, true, "authgate")
+	loginHandler := handler.NewLoginHandler(loginSvc, fakeProvider, true, pages.Brand{Name: "authgate"})
+	deviceHandler := handler.NewDeviceHandler(deviceSvc, fakeProvider, true, pages.Brand{Name: "authgate"})
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if opts.EnableMCP {
 		mcpLoginSvc := service.NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
-		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginSvc, fakeProvider, true, "authgate")
+		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginSvc, fakeProvider, true, pages.Brand{Name: "authgate"})
 	}
 
 	// Routes

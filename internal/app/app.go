@@ -15,6 +15,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/middleware"
+	"github.com/kangheeyong/authgate/internal/pages"
 	"github.com/kangheeyong/authgate/internal/service"
 )
 
@@ -54,14 +55,19 @@ func Run() {
 	deviceService := service.NewDeviceService(store, deviceProvider.Name(), cfg.PublicURL, cfg.SessionTTL, clk)
 
 	// Handler layer
-	loginHandler := handler.NewLoginHandler(loginService, browserProvider, cfg.DevMode, cfg.BrandName)
-	deviceHandler := handler.NewDeviceHandler(deviceService, deviceProvider, cfg.DevMode, cfg.BrandName)
+	brand, err := pages.LoadBrand(cfg.BrandName, cfg.BrandLogoPath, cfg.BrandPrimaryColor)
+	if err != nil {
+		log.Fatalf("brand: %v", err)
+	}
+
+	loginHandler := handler.NewLoginHandler(loginService, browserProvider, cfg.DevMode, brand)
+	deviceHandler := handler.NewDeviceHandler(deviceService, deviceProvider, cfg.DevMode, brand)
 
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if cfg.EnableMCP {
 		mcpProvider := mustBuildUpstreamProvider(ctx, cfg, "/mcp/callback", upstreamOpts)
 		mcpLoginService := service.NewMCPLoginService(store, mcpProvider.Name(), cfg.SessionTTL)
-		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, mcpProvider, cfg.DevMode, cfg.BrandName)
+		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, mcpProvider, cfg.DevMode, brand)
 	}
 
 	// Load client config and derive CORS allowed origins.
