@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/kangheeyong/authgate/internal/pages"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,7 @@ func newTestLoginHandler(devMode bool) *LoginHandler {
 	// FakeProvider.Callback delivers the (empty) state to CompleteBrowserLogin,
 	// which returns the 400 "missing code or state" the callback test asserts.
 	provider := &upstream.FakeProvider{User: &upstream.UserInfo{Sub: "sub"}}
-	return NewLoginHandler(svc, provider, devMode, "authgate")
+	return NewLoginHandler(svc, provider, devMode, pages.Brand{Name: "authgate"})
 }
 
 func TestLogin_MissingAuthRequestID_ReturnsBadRequest(t *testing.T) {

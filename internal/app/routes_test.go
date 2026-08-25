@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"github.com/kangheeyong/authgate/internal/pages"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -191,9 +192,9 @@ func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.
 			registerAuthgateRoutes(
 				mux,
 				cfg,
-				handler.NewLoginHandler(nil, nil, true, "authgate"),
-				handler.NewDeviceHandler(nil, nil, true, "authgate"),
-				handler.NewMCPLoginHandler(nil, nil, true, "authgate"),
+				handler.NewLoginHandler(nil, nil, true, pages.Brand{Name: "authgate"}),
+				handler.NewDeviceHandler(nil, nil, true, pages.Brand{Name: "authgate"}),
+				handler.NewMCPLoginHandler(nil, nil, true, pages.Brand{Name: "authgate"}),
 				newRouteLimiters(cfg),
 			)
 

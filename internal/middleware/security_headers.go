@@ -3,12 +3,17 @@ package middleware
 import "net/http"
 
 // contentSecurityPolicy matches authgate's static HTML (internal/pages/templates):
-// no scripts, one inline <style> block, Google Fonts only. See
+// no scripts, one inline <style> block, and nothing fetched from anywhere.
+//
+// The pages previously loaded Google Fonts, which meant every render of a
+// sign-in page disclosed the visitor's IP address to a third party. They now
+// use platform fonts, so no external origin is allowed at all and the policy
+// says so rather than carrying permissions nothing uses. See
 // docs/security/002-http-security-headers.md for the full rationale.
 const contentSecurityPolicy = "default-src 'none'; " +
-	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-	"font-src https://fonts.gstatic.com; " +
+	"style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data:; " +
+	"form-action 'self'; " +
 	"frame-ancestors 'none'; " +
 	"base-uri 'none'"
 

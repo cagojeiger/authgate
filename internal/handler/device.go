@@ -16,15 +16,15 @@ type DeviceHandler struct {
 	deviceService *service.DeviceService
 	provider      upstream.Provider
 	devMode       bool
-	brandName     string
+	brand         pages.Brand
 }
 
-func NewDeviceHandler(deviceService *service.DeviceService, provider upstream.Provider, devMode bool, brandName string) *DeviceHandler {
+func NewDeviceHandler(deviceService *service.DeviceService, provider upstream.Provider, devMode bool, brand pages.Brand) *DeviceHandler {
 	return &DeviceHandler{
 		deviceService: deviceService,
 		provider:      provider,
 		devMode:       devMode,
-		brandName:     brandName,
+		brand:         brand,
 	}
 }
 
@@ -39,9 +39,9 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 	case service.DeviceShowEntry:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = pages.RenderDeviceEntry(w, pages.DeviceEntryData{
-			BrandName: h.brandName,
-			UserCode:  userCode,
-			Error:     result.Error,
+			Brand:    h.brand,
+			UserCode: userCode,
+			Error:    result.Error,
 		})
 
 	case service.DeviceShowApprove:
@@ -49,7 +49,7 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusInternalServerError)
-			_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: http.StatusInternalServerError, Message: "internal error"})
+			_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: http.StatusInternalServerError, Message: "internal error"})
 			return
 		}
 		//nolint:gosec // Secure=false is allowed only in explicit DEV_MODE for localhost device flow.
@@ -63,7 +63,7 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 		})
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = pages.RenderDeviceApprove(w, pages.DeviceApproveData{
-			BrandName: h.brandName,
+			Brand:     h.brand,
 			UserCode:  result.UserCode,
 			CSRFToken: csrfToken,
 		})
@@ -74,7 +74,7 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 	case service.DeviceError:
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(result.ErrorCode)
-		_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: result.ErrorCode, Message: result.Error})
+		_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: result.ErrorCode, Message: result.Error})
 	}
 }
 
@@ -96,7 +96,7 @@ func (h *DeviceHandler) HandleDeviceCallback(w http.ResponseWriter, r *http.Requ
 		case service.DeviceError:
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(result.ErrorCode)
-			_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: result.ErrorCode, Message: result.Error})
+			_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: result.ErrorCode, Message: result.Error})
 		}
 	})
 }
@@ -109,7 +109,7 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	}
 	if err := r.ParseForm(); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: 400, Message: "invalid form"})
+		_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: 400, Message: "invalid form"})
 		return
 	}
 
@@ -121,7 +121,7 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 	}
 	if formToken == "" || subtle.ConstantTimeCompare([]byte(formToken), []byte(cookieToken)) != 1 {
 		w.WriteHeader(http.StatusForbidden)
-		_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: 403, Message: "CSRF validation failed"})
+		_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: 403, Message: "CSRF validation failed"})
 		return
 	}
 
@@ -137,9 +137,9 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 		w.WriteHeader(result.ErrorCode)
 	}
 	_ = pages.RenderResult(w, pages.ResultData{
-		BrandName: h.brandName,
-		Success:   result.Success,
-		Message:   result.Message,
+		Brand:   h.brand,
+		Success: result.Success,
+		Message: result.Message,
 	})
 }
 

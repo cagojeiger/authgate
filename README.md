@@ -147,6 +147,8 @@ go run ./cmd/authgate
 | `SESSION_TTL` | `86400` | session TTL in seconds |
 | `ACCESS_TOKEN_TTL` | `900` | access token TTL in seconds |
 | `REFRESH_TOKEN_TTL` | `2592000` | refresh token TTL in seconds |
+| `BRAND_LOGO_PATH` | – | Path to an SVG mark inlined into the device-flow pages. Unset renders the name alone. |
+| `BRAND_PRIMARY_COLOR` | – | Accent colour for buttons and focus. Hex only; anything else refuses to start. |
 | `AUDIT_LOG_PII_RETENTION_DAYS` | `90` | Days before **end-user** activity PII (`user_id`, IP, User-Agent) is anonymized. Minimum `30`. |
 | `ADMIN_AUDIT_LOG_PII_RETENTION_DAYS` | `730` | Days before **operator action** (`admin.*`) PII is anonymized. Minimum `365`: these are the statutory access records. |
 | `SIGNING_KEY_PATH` | `signing_key.pem` | RSA signing key file path. Mount a persistent secret/volume in production. |

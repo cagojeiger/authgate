@@ -1,0 +1,356 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{.Brand.Name}} · {{.PageTitle}}</title>
+<style>
+  /* Design tokens.
+
+     Values and switching mechanism both mirror the house theme used across
+     the other services (notegate's theme.css). Light is the default and dark
+     is opt-in via data-theme, rather than following the operating system —
+     the same page must not render dark here while the rest of the fleet
+     renders light.
+
+     Only --ag-primary is operator-overridable (BRAND_PRIMARY_COLOR); every
+     other value is neutral, so a brand change cannot break contrast on text
+     and borders.
+
+     Fonts are the platform's own. authgate deliberately loads nothing from a
+     third party: these pages are part of a login flow, and fetching a webfont
+     would disclose the visitor's IP address to another party on every render. */
+  :root {
+    color-scheme: light;
+
+    --ag-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+    --ag-font-mono: "SF Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    --ag-bg: #f3f5f7;
+    --ag-surface: #ffffff;
+    --ag-panel: #f7f9fb;
+    --ag-panel-strong: #e8edf2;
+    --ag-border: #c3ccd5;
+    --ag-border-strong: #82909d;
+    --ag-seam: #dbe1e7;
+    --ag-hover: rgba(23, 33, 43, 0.06);
+
+    --ag-text: #17212b;
+    --ag-muted: #56616d;
+    --ag-faint: #5a6672;
+
+    --ag-primary: #185fc4;
+    --ag-primary-hover: #124c9d;
+    --ag-primary-contrast: #ffffff;
+    --ag-success: #18794e;
+    --ag-warning: #8a4b08;
+    --ag-danger: #b42318;
+    --ag-focus-ring: #185fc4;
+    --ag-focus-ring-soft: rgba(24, 95, 196, 0.45);
+    --ag-inset-shadow: rgba(255, 255, 255, 0.34) 0 1px 0 inset, rgba(23, 33, 43, 0.10) 0 1px 2px;
+
+    --ag-radius-control: 10px;
+    --ag-radius-panel: 14px;
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --ag-bg: #111820;
+    --ag-surface: #18222c;
+    --ag-panel: #1c2732;
+    --ag-panel-strong: #263441;
+    --ag-border: #384756;
+    --ag-border-strong: #687786;
+    --ag-seam: #2e3b47;
+    --ag-hover: rgba(247, 249, 251, 0.07);
+
+    --ag-text: #f7f9fb;
+    --ag-muted: #bcc6d0;
+    --ag-faint: #9ba9b6;
+
+    --ag-primary: #8bb8ff;
+    --ag-primary-hover: #a8c9ff;
+    --ag-primary-contrast: #10243e;
+    --ag-success: #78d5a7;
+    --ag-warning: #f2c66d;
+    --ag-danger: #ff8d85;
+    --ag-focus-ring: #8bb8ff;
+    --ag-focus-ring-soft: rgba(139, 184, 255, 0.45);
+    --ag-inset-shadow: rgba(255, 255, 255, 0.12) 0 1px 0 inset, rgba(0, 0, 0, 0.28) 0 1px 2px;
+  }
+
+  {{if .Brand.PrimaryColor}}
+  /* Operator override. Declared after both schemes so it wins in each; the
+     operator owns the contrast decision for their own colour. */
+  :root { --ag-primary: {{.Brand.PrimaryColor}}; --ag-primary-hover: {{.Brand.PrimaryColor}}; --ag-focus-ring: {{.Brand.PrimaryColor}}; --ag-primary-contrast: #ffffff; }
+  {{end}}
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--ag-font-ui);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    background: var(--ag-bg);
+    color: var(--ag-text);
+    line-height: 1.5;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--ag-surface);
+    border: 1px solid var(--ag-border);
+    border-radius: var(--ag-radius-panel);
+    overflow: hidden;
+  }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 20px;
+    background: var(--ag-panel);
+    border-bottom: 1px solid var(--ag-seam);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ag-text);
+  }
+
+  /* The mark is decorative: the brand name beside it already carries the
+     meaning, so screen readers should not announce it twice. */
+  .brand-mark {
+    display: block;
+    width: 20px;
+    height: 20px;
+    flex: none;
+  }
+  .brand-mark svg, .brand-mark img { width: 100%; height: 100%; display: block; }
+
+  .brand-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .context {
+    flex: none;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ag-faint);
+  }
+
+  .card-body { padding: 24px 20px; display: grid; gap: 16px; }
+
+  .step {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ag-muted);
+  }
+
+  h1 { font-size: 20px; font-weight: 600; line-height: 1.3; letter-spacing: -0.2px; }
+
+  p { font-size: 14px; color: var(--ag-muted); }
+
+  /* Secondary guidance is text, not another box. The card already draws one
+     boundary; nesting a second filled panel inside it is the "nested card"
+     the design language warns against. */
+  .note {
+    color: var(--ag-faint);
+    font-size: 13px;
+  }
+
+  .note code {
+    font-family: var(--ag-font-mono);
+    font-size: 12px;
+    color: var(--ag-text);
+  }
+
+  /* Status is never carried by colour alone: each of these pairs its colour
+     with an icon and a text label. */
+  .alert {
+    padding: 10px 12px;
+    border-radius: var(--ag-radius-control);
+    border: 1px solid color-mix(in srgb, var(--ag-danger) 30%, transparent);
+    color: var(--ag-danger);
+    background: transparent;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  form { display: grid; gap: 12px; }
+
+  label { font-size: 12px; font-weight: 600; color: var(--ag-text); }
+
+  input[type="text"] {
+    width: 100%;
+    height: 52px;
+    padding: 0 16px;
+    border: 1px solid var(--ag-border);
+    border-radius: var(--ag-radius-control);
+    background: var(--ag-surface);
+    color: var(--ag-text);
+    font-family: var(--ag-font-mono);
+    font-size: 20px;
+    font-weight: 600;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+  }
+
+  input[type="text"]::placeholder {
+    color: var(--ag-faint);
+    font-weight: 400;
+    letter-spacing: 0.1em;
+  }
+
+  /* Control treatment follows the house Button primitive: modest padding, a
+     10px radius and an inset highlight that keeps a filled accent from
+     reading as a solid slab. Secondary and danger are outlines at reduced
+     opacity, so the accent stays reserved for the one primary action. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 9px 14px;
+    border: 1px solid transparent;
+    border-radius: var(--ag-radius-control);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    background: var(--ag-primary);
+    color: var(--ag-primary-contrast);
+    box-shadow: var(--ag-inset-shadow);
+    transition: background 120ms ease;
+  }
+
+  .btn:hover { background: var(--ag-primary-hover); }
+
+  .btn-secondary {
+    background: var(--ag-surface);
+    color: var(--ag-muted);
+    border-color: var(--ag-border-strong);
+    box-shadow: none;
+  }
+
+  .btn-secondary:hover { background: var(--ag-hover); color: var(--ag-text); }
+
+  .btn-danger {
+    background: transparent;
+    color: var(--ag-danger);
+    border-color: color-mix(in srgb, var(--ag-danger) 30%, transparent);
+    box-shadow: none;
+  }
+
+  .btn-danger:hover { background: color-mix(in srgb, var(--ag-danger) 10%, transparent); }
+
+  .btn-row { display: grid; gap: 8px; }
+
+  /* Focus is always visible. Removing it would make the device flow
+     unusable by keyboard, which is how a terminal user arrives here. */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ag-focus-ring-soft);
+  }
+
+  input[type="text"]:focus { border-color: var(--ag-focus-ring); }
+
+  /* The code is the one thing a person must actually compare against their
+     terminal, so it keeps a surface of its own. It is the only nested panel
+     on any screen. */
+  .code-panel {
+    padding: 16px;
+    border: 1px solid var(--ag-seam);
+    border-radius: var(--ag-radius-control);
+    background: var(--ag-panel);
+    text-align: center;
+  }
+
+  .code-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ag-muted);
+    margin-bottom: 6px;
+  }
+
+  .code-value {
+    font-family: var(--ag-font-mono);
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    color: var(--ag-text);
+  }
+
+  .status-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid currentColor;
+    margin: 0 auto;
+  }
+  .status-icon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .status-icon.is-success { color: var(--ag-success); }
+  .status-icon.is-danger { color: var(--ag-danger); }
+
+  .centered { text-align: center; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border: 1px solid var(--ag-border);
+    border-radius: 999px;
+    font-family: var(--ag-font-mono);
+    font-size: 12px;
+    color: var(--ag-muted);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+
+  @media (max-width: 420px) {
+    .card-body { padding: 20px 16px; }
+    h1 { font-size: 18px; }
+    .code-value { font-size: 22px; letter-spacing: 0.12em; }
+    input[type="text"] { font-size: 18px; letter-spacing: 0.1em; }
+  }
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="card-head">
+    <div class="brand">
+      {{if .Brand.LogoSVG}}<span class="brand-mark" aria-hidden="true">{{.Brand.LogoSVG}}</span>{{end}}
+      <span class="brand-name">{{.Brand.Name}}</span>
+    </div>
+    <div class="context">{{.PageTitle}}</div>
+  </div>
+  <div class="card-body">
+    {{template "content" .}}
+  </div>
+</main>
+</body>
+</html>
+{{end}}

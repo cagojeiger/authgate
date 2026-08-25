@@ -13,15 +13,15 @@ type LoginHandler struct {
 	loginService *service.LoginService
 	provider     upstream.Provider
 	devMode      bool
-	brandName    string
+	brand        pages.Brand
 }
 
-func NewLoginHandler(loginService *service.LoginService, provider upstream.Provider, devMode bool, brandName string) *LoginHandler {
+func NewLoginHandler(loginService *service.LoginService, provider upstream.Provider, devMode bool, brand pages.Brand) *LoginHandler {
 	return &LoginHandler{
 		loginService: loginService,
 		provider:     provider,
 		devMode:      devMode,
-		brandName:    brandName,
+		brand:        brand,
 	}
 }
 
@@ -71,5 +71,5 @@ func (h *LoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 func (h *LoginHandler) renderError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
-	_ = pages.RenderError(w, pages.ErrorData{BrandName: h.brandName, Code: code, Message: message})
+	_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: code, Message: message})
 }
