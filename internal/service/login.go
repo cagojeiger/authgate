@@ -15,6 +15,7 @@ type LoginService struct {
 	store        LoginStore
 	providerName string
 	sessionTTL   time.Duration
+	signupDomain signupDomainPolicy
 }
 
 type LoginStore interface {
@@ -62,6 +63,13 @@ func NewLoginService(store LoginStore, providerName string, sessionTTL time.Dura
 		providerName: providerName,
 		sessionTTL:   sessionTTL,
 	}
+}
+
+// SetSignupEmailDomains restricts account creation to the given email domains.
+// The list must already be normalized by NormalizeSignupDomains. An empty list
+// (the default) admits every address the upstream IdP authenticates.
+func (s *LoginService) SetSignupEmailDomains(domains []string) {
+	s.signupDomain = signupDomainPolicy{domains: domains}
 }
 
 // LoginResult describes what the handler should do after HandleLogin.
@@ -280,6 +288,25 @@ func (s *LoginService) recoverUser(ctx context.Context, userID string) error {
 }
 
 func (s *LoginService) signupBrowserUser(ctx context.Context, providerName string, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
+	// The domain gate runs before the account exists, so there is no user_id to
+	// attribute the refusal to — the audit row carries the domain and the
+	// client that sent them, which is what an operator needs to answer "why
+	// can't this person sign up".
+	if ok, reason := s.signupDomain.allows(userInfo.Email, userInfo.EmailVerified); !ok {
+		clientName := ""
+		if client, err := s.store.ResolveClient(ctx, authReq.ClientID); err == nil && client != nil {
+			clientName = client.Name
+		}
+		s.store.AuditLog(ctx, nil, storage.EventAuthSignupDenied, ipAddress, userAgent, map[string]any{
+			"reason":      reason,
+			"domain":      emailDomain(userInfo.Email),
+			"channel":     "browser",
+			"client_id":   authReq.ClientID,
+			"client_name": clientName,
+		})
+		return nil, &CallbackResult{Action: ActionError, Error: "signup_not_allowed", ErrorCode: http.StatusForbidden}
+	}
+
 	user, err := s.store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 		Email:          userInfo.Email,
 		EmailVerified:  userInfo.EmailVerified,

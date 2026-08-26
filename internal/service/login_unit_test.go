@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -342,4 +343,140 @@ func (f *fakeLoginStore) ResolveClient(ctx context.Context, clientID string) (*s
 	// removed getClientLoginChannelFn used to provide. Tests exercising the
 	// mcp channel or a specific client name set resolveClientFn explicitly.
 	return &storage.ClientModel{ID: clientID, Name: "Test Client", LoginChannel: "browser"}, nil
+}
+
+// signup-domain-100: with SIGNUP_EMAIL_DOMAINS set, an address outside the list
+// never reaches CreateUserWithIdentity. The refusal has to happen before the
+// account exists — creating it and then rejecting the login would leave a row
+// the operator never agreed to store.
+func TestLogin_Signup_OutsideDomain_IsRefusedBeforeCreate(t *testing.T) {
+	created := false
+	var auditedEvent string
+	var auditedMeta map[string]any
+	var auditedUserID *string
+
+	store := &fakeLoginStore{
+		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
+			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "client-a"}, nil
+		},
+		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
+			return nil, storage.ErrNotFound
+		},
+		createUserWithIdentityFn: func(context.Context, storage.CreateUserWithIdentityInput) (*storage.User, error) {
+			created = true
+			return nil, nil
+		},
+		resolveClientFn: func(context.Context, string) (*storage.ClientModel, error) {
+			return &storage.ClientModel{ID: "client-a", Name: "Client A", LoginChannel: "browser"}, nil
+		},
+		auditLogFn: func(_ context.Context, userID *string, eventType, _, _ string, metadata map[string]any) {
+			if eventType == storage.EventAuthSignupDenied {
+				auditedEvent, auditedMeta, auditedUserID = eventType, metadata, userID
+			}
+		},
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{
+		Sub: "sub-1", Email: "outsider@other.com", EmailVerified: true, Name: "Outsider",
+	}}
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
+	svc.SetSignupEmailDomains([]string{"example.com"})
+
+	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
+
+	if created {
+		t.Error("CreateUserWithIdentity was called for a refused domain")
+	}
+	if result.Action != ActionError || result.ErrorCode != http.StatusForbidden {
+		t.Errorf("action=%v code=%d, want ActionError/403", result.Action, result.ErrorCode)
+	}
+	if auditedEvent != storage.EventAuthSignupDenied {
+		t.Fatalf("no %s audit event was emitted", storage.EventAuthSignupDenied)
+	}
+	// No account exists yet, so there is nothing to attribute the row to.
+	if auditedUserID != nil {
+		t.Errorf("audit user_id = %v, want nil", *auditedUserID)
+	}
+	if auditedMeta["reason"] != "domain_not_allowed" {
+		t.Errorf("reason = %v, want domain_not_allowed", auditedMeta["reason"])
+	}
+	if auditedMeta["domain"] != "other.com" {
+		t.Errorf("domain = %v, want other.com", auditedMeta["domain"])
+	}
+	if auditedMeta["client_id"] != "client-a" {
+		t.Errorf("client_id = %v, want client-a", auditedMeta["client_id"])
+	}
+}
+
+// signup-domain-101: an address inside the list still signs up normally.
+func TestLogin_Signup_InsideDomain_Proceeds(t *testing.T) {
+	created := false
+	store := &fakeLoginStore{
+		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
+			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "client-a"}, nil
+		},
+		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
+			return nil, storage.ErrNotFound
+		},
+		createUserWithIdentityFn: func(context.Context, storage.CreateUserWithIdentityInput) (*storage.User, error) {
+			created = true
+			return &storage.User{ID: "u-1", Status: "active"}, nil
+		},
+		resolveClientFn: func(context.Context, string) (*storage.ClientModel, error) {
+			return &storage.ClientModel{ID: "client-a", Name: "Client A", LoginChannel: "browser"}, nil
+		},
+		createSessionFn: func(context.Context, string, time.Duration) (string, error) {
+			return "sess-1", nil
+		},
+		completeAuthRequestFn: func(context.Context, string, string) error { return nil },
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{
+		Sub: "sub-1", Email: "insider@example.com", EmailVerified: true, Name: "Insider",
+	}}
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
+	svc.SetSignupEmailDomains([]string{"example.com"})
+
+	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
+
+	if !created {
+		t.Error("CreateUserWithIdentity was not called for an admitted domain")
+	}
+	if result.Action == ActionError {
+		t.Errorf("admitted signup errored: %s", result.Error)
+	}
+}
+
+// signup-domain-102: the gate covers signup only. A user who already exists
+// keeps logging in even when their domain is not on the list — removing a
+// domain must not lock out live accounts.
+func TestLogin_ExistingUser_OutsideDomain_StillLogsIn(t *testing.T) {
+	store := &fakeLoginStore{
+		getAuthRequestModelFn: func(context.Context, string) (*storage.AuthRequestModel, error) {
+			return &storage.AuthRequestModel{ID: "ar-1", ClientID: "client-a"}, nil
+		},
+		getUserByProviderIdentity: func(context.Context, string, string) (*storage.User, error) {
+			return &storage.User{ID: "u-legacy", Status: "active"}, nil
+		},
+		createUserWithIdentityFn: func(context.Context, storage.CreateUserWithIdentityInput) (*storage.User, error) {
+			t.Fatal("existing user must not be re-created")
+			return nil, nil
+		},
+		resolveClientFn: func(context.Context, string) (*storage.ClientModel, error) {
+			return &storage.ClientModel{ID: "client-a", Name: "Client A", LoginChannel: "browser"}, nil
+		},
+		createSessionFn: func(context.Context, string, time.Duration) (string, error) {
+			return "sess-1", nil
+		},
+		completeAuthRequestFn: func(context.Context, string, string) error { return nil },
+	}
+	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{
+		Sub: "sub-legacy", Email: "legacy@other.com", EmailVerified: true, Name: "Legacy",
+	}}
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
+	svc.SetSignupEmailDomains([]string{"example.com"})
+
+	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
+
+	if result.Action == ActionError {
+		t.Errorf("existing user outside the domain was locked out: %s", result.Error)
+	}
 }
