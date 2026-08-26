@@ -137,6 +137,13 @@ Device 플로우의 주요 사용자(CLI 첫 사용자)는 브라우저 세션�
 7. 승인 페이지 표시 → 사용자 승인
 ```
 
+**Step 6→7 은 세션 쿠키의 `SameSite`에 의존한다.**
+6번에서 발급한 세션 쿠키가 7번 요청에 실려야 승인 페이지가 뜬다. 이 홉은
+상위 IdP에서 시작된 리다이렉트 체인의 마지막 구간이므로, 쿠키가 `SameSite=Strict`이면
+WebKit(Safari)이 이를 전송하지 않는다. 그러면 7번에서 다시 "세션 없음"으로 판정되어
+1번으로 돌아가고, 사용자는 IdP 로그인만 반복하게 된다. 따라서 세션 쿠키는 `Lax`여야 한다
+([Spec 002 보안 요구사항](002-browser-login.md#보안-요구사항)).
+
 **Step 4 (validate-before-exchange) 는 보안상 load-bearing이다.**
 `user_code`가 unknown/expired/non-pending 상태에서는 IdP token 엔드포인트
 호출 자체를 막아 outbound traffic 증폭과 IdP quota 소모 공격을 차단한다.

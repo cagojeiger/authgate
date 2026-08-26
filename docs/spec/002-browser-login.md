@@ -197,7 +197,10 @@ RecoverUser 자체는 원자적이다 (단일 UPDATE).
 - 상위 IdP id_token `nonce` 검증: 로그인 시작 시 요청별 nonce를 생성해 nonce 쿠키 + authorize 파라미터로 보내고, 콜백에서 id_token의 nonce와 대조 (`rp.WithNonce`) → id_token 재생/주입 차단
 - confidential 클라이언트: client_secret bcrypt 검증
 - public 클라이언트: client_secret 없음, PKCE가 유일한 보호
-- 세션 쿠키: `HttpOnly`, `SameSite=Strict`, `Secure=!DevMode`
+- 세션 쿠키: `HttpOnly`, `SameSite=Lax`, `Secure=!DevMode`
+  - `Strict`이 아닌 이유: 세션 쿠키는 상위 IdP에서 돌아오는 콜백에서 발급된 뒤 리다이렉트를 한 번 더 타야 한다 (디바이스 플로우는 `/device?user_code=`). WebKit은 그 마지막 홉의 same-site 여부를 리다이렉트 체인 전체로 판단하는데, 체인의 시작이 상위 IdP(cross-site)이므로 `Strict` 쿠키를 보내지 않는다. 그 결과 Safari에서는 디바이스 플로우를 완료할 수 없다. Chromium은 홉마다 site-for-cookies를 갱신해 `Strict`도 전송하므로 이 문제가 드러나지 않는다.
+  - `Lax`의 노출 범위는 top-level cross-site GET 내비게이션뿐이다. GET 엔드포인트는 상태를 바꾸지 않으며 (`/device`는 동의 화면 렌더만), 상태를 바꾸는 `POST /device/approve`는 `csrf_token` 이중 제출로 막는다.
+- CSRF 쿠키 (`csrf_token`): `HttpOnly`, `SameSite=Strict`, Path=`/device`. 동의 화면(authgate 자체 origin)에서 발급되고 같은 origin의 폼 전송에서만 쓰이므로 `Strict`을 유지한다.
 - access_token: 15분 (ACCESS_TOKEN_TTL)
 - refresh_token: SHA-256 해시 저장, family_id로 rotation 추적
 
