@@ -123,6 +123,9 @@ type ClientModel struct {
 	RedirectURIList      StringArray
 	AllowedScopeList     StringArray
 	AllowedGrantTypeList StringArray
+	// SkipPKCE waives the PKCE S256 requirement. Zero value keeps it
+	// mandatory so every construction path defaults to the safe behavior.
+	SkipPKCE bool
 }
 
 func (c *ClientModel) GetID() string                    { return c.ID }

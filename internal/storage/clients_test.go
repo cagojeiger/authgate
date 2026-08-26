@@ -261,3 +261,119 @@ func TestLoadClients_DropsCIMDShapedClientID(t *testing.T) {
 		t.Errorf("URL-form client_id should NOT be loaded into static registry")
 	}
 }
+
+func TestLoadClientConfig_SkipPKCERejectedForPublic(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: my-app
+    client_type: public
+    skip_pkce: true
+    login_channel: browser
+    name: App A
+    redirect_uris: ["http://localhost:3000/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+
+	_, err := LoadClientConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "skip_pkce is only allowed for confidential") {
+		t.Fatalf("expected skip_pkce error, got: %v", err)
+	}
+}
+
+func TestLoadClientConfig_SkipPKCEAllowedForConfidential(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: my-app
+    client_type: confidential
+    client_secret_hash: "$2y$12$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012"
+    skip_pkce: true
+    login_channel: browser
+    name: App A
+    redirect_uris: ["https://app.example.com/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("expected config to load, got: %v", err)
+	}
+	if !cfg.Clients[0].SkipPKCE {
+		t.Fatal("expected SkipPKCE to be true")
+	}
+}
+
+func TestLoadClientConfig_SkipPKCEDefaultsToFalse(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: my-app
+    client_type: public
+    login_channel: browser
+    name: App A
+    redirect_uris: ["http://localhost:3000/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("expected config to load, got: %v", err)
+	}
+	if cfg.Clients[0].SkipPKCE {
+		t.Fatal("expected SkipPKCE to default to false")
+	}
+}
+
+// skip_pkce must not reach the MCP channel. PKCE S256 is part of the MCP
+// contract (spec 004), and the client_type guard alone does not cover it: a
+// confidential client on login_channel: mcp would otherwise load fine and
+// waive PKCE for a channel that requires it.
+func TestLoadClientConfig_SkipPKCERejectedForMCPChannel(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: mcp-app
+    client_type: confidential
+    client_secret_hash: "$2y$12$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012"
+    skip_pkce: true
+    login_channel: mcp
+    name: MCP App
+    redirect_uris: ["https://app.example.com/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+
+	_, err := LoadClientConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "skip_pkce is not allowed on the mcp channel") {
+		t.Fatalf("expected mcp channel rejection, got: %v", err)
+	}
+}
+
+// The browser channel is the one skip_pkce exists for, and it still loads when
+// the channel is left implicit (login_channel defaults to browser). This pins
+// the ordering: the guard reads the normalized value, so an omitted channel
+// must not be mistaken for something other than browser.
+func TestLoadClientConfig_SkipPKCEAllowedWithImplicitBrowserChannel(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: gitea
+    client_type: confidential
+    client_secret_hash: "$2y$12$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012"
+    skip_pkce: true
+    name: Gitea
+    redirect_uris: ["https://git.example.com/user/oauth2/authgate/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("expected config to load, got: %v", err)
+	}
+	if !cfg.Clients[0].SkipPKCE {
+		t.Fatal("expected SkipPKCE to be true")
+	}
+	if cfg.Clients[0].LoginChannel != "browser" {
+		t.Fatalf("LoginChannel = %q, want browser", cfg.Clients[0].LoginChannel)
+	}
+}

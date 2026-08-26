@@ -10,14 +10,21 @@
 - authgate에서 zitadel/oidc는 **내장 라이브러리**다. 별도 서버가 아니다. 모든 엔드포인트는 authgate의 단일 주소에서 제공된다.
 - 앱이 `clients.yaml`에 등록되어 있어야 함
 - authgate에 OIDC 자격증명이 설정되어 있어야 함 (OIDC_ISSUER_URL, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET)
-- 모든 `/authorize` 요청은 `code_challenge` + `code_challenge_method=S256`를 반드시 포함해야 함 (client 유형과 무관)
+- 모든 `/authorize` 요청은 `code_challenge` + `code_challenge_method=S256`를 반드시 포함해야 함. 예외는 `skip_pkce: true`를 명시한 **browser 채널의** confidential 클라이언트뿐이다.
 
 ## 클라이언트 유형
 
 | 유형 | client_secret | PKCE | 예시 |
 |------|-------------|------|------|
-| **confidential** | 있음 (bcrypt 해시 저장) | 필수 | 백엔드 웹 앱, BFF |
-| **public** | 없음 (NULL) | 필수 (유일한 보호 수단) | SPA, 모바일 앱 |
+| **confidential** | 있음 (bcrypt 해시 저장) | 필수 (browser 채널이면 `skip_pkce: true`로 면제 가능) | 백엔드 웹 앱, BFF |
+| **public** | 없음 (NULL) | 필수 (유일한 보호 수단, 면제 불가) | SPA, 모바일 앱 |
+
+`skip_pkce`는 `clients.yaml`의 클라이언트별 옵션이며 기본값은 `false`(= PKCE 필수)다.
+PKCE를 구현하지 않은 OIDC 라이브러리를 쓰는 앱을 위한 탈출구다 — 예: Gitea는
+`markbates/goth`의 openidConnect 프로바이더를 쓰는데 `code_challenge`를 보내지 않는다.
+public 클라이언트와 `login_channel: mcp` 클라이언트에는 설정할 수 없다(로드 시 거부).
+전자는 시크릿이 없어 PKCE가 인가 코드 가로채기에 대한 유일한 방어이고, 후자는
+PKCE S256이 MCP 채널 계약의 일부이기 때문이다 ([Spec 004](004-mcp-login.md)).
 
 토큰 요청 시:
 - confidential: `code_verifier` + `client_secret` 둘 다 전송
@@ -191,7 +198,7 @@ RecoverUser 자체는 원자적이다 (단일 UPDATE).
 
 ## 보안 요구사항
 
-- 모든 `/authorize` 요청에서 PKCE S256 필수 (plain 불허, code_challenge 누락 불허)
+- 모든 `/authorize` 요청에서 PKCE S256 필수 (plain 불허, code_challenge 누락 불허). `skip_pkce: true`인 browser 채널 confidential 클라이언트만 예외이며, 그 경우 client_secret이 보호 수단이 된다. 클라이언트 조회에 실패하면 PKCE를 강제한다(fail-safe).
 - 상위 IdP 로그인 CSRF 방어: `state`(authRequestID)를 암호화된 state 쿠키에 바인딩하고 콜백에서 대조 (`rp.AuthURLHandler` / `rp.CodeExchangeHandler`). 콜백을 시작한 브라우저만 완료 가능 → 인가코드 인젝션/세션 스왑 차단
 - 상위 IdP 교환에 PKCE(S256) 적용 (`rp.WithPKCE`)
 - 상위 IdP id_token `nonce` 검증: 로그인 시작 시 요청별 nonce를 생성해 nonce 쿠키 + authorize 파라미터로 보내고, 콜백에서 id_token의 nonce와 대조 (`rp.WithNonce`) → id_token 재생/주입 차단

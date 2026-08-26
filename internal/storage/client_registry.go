@@ -43,6 +43,7 @@ func (r *clientRegistry) Load(clients []ClientConfigEntry) {
 			RedirectURIList:      StringArray(c.RedirectURIs),
 			AllowedScopeList:     StringArray(c.AllowedScopes),
 			AllowedGrantTypeList: StringArray(c.AllowedGrantTypes),
+			SkipPKCE:             c.SkipPKCE,
 		}
 		r.clients.Store(c.ClientID, cm)
 	}

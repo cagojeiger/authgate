@@ -34,6 +34,10 @@ import (
 // poll cadence the binary ships with.
 const devicePollInterval = 5 * time.Second
 
+// skipPKCEClientSecretHash is bcrypt("skip-pkce-secret"). Only the authorize
+// leg is exercised, so the value never has to round-trip a token request.
+var skipPKCEClientSecretHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy" // #nosec G101 -- test fixture
+
 // TestServer holds everything needed for integration tests.
 type TestServer struct {
 	Server  *httptest.Server
@@ -130,6 +134,20 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 			RedirectURIs:      []string{srv.URL + "/callback"},
 			AllowedScopes:     []string{"openid", "profile", "email", "offline_access"},
 			AllowedGrantTypes: []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
+		},
+		{
+			// Confidential client that opted out of PKCE. Mirrors an OIDC
+			// library that cannot send code_challenge (e.g. Gitea's goth
+			// openidConnect provider).
+			ClientID:          "skip-pkce-client",
+			ClientType:        "confidential",
+			ClientSecretHash:  &skipPKCEClientSecretHash,
+			SkipPKCE:          true,
+			LoginChannel:      "browser",
+			Name:              "Skip PKCE Test",
+			RedirectURIs:      []string{srv.URL + "/callback"},
+			AllowedScopes:     []string{"openid", "profile", "email"},
+			AllowedGrantTypes: []string{"authorization_code"},
 		},
 	})
 	if opts.EnableMCP {

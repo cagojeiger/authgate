@@ -16,9 +16,15 @@ type ClientConfigFile struct {
 
 // ClientConfigEntry represents a single OAuth client in the YAML config.
 type ClientConfigEntry struct {
-	ClientID          string   `yaml:"client_id"`
-	ClientSecretHash  *string  `yaml:"client_secret_hash,omitempty"`
-	ClientType        string   `yaml:"client_type"`
+	ClientID         string  `yaml:"client_id"`
+	ClientSecretHash *string `yaml:"client_secret_hash,omitempty"`
+	ClientType       string  `yaml:"client_type"`
+	// SkipPKCE waives the PKCE S256 requirement for this client. Zero value
+	// (false) keeps PKCE mandatory, so any client that forgets the field —
+	// or is built on another code path, e.g. CIMD — stays protected.
+	// Only confidential clients may set it: a public client has no secret,
+	// so PKCE is its only defense against authorization code interception.
+	SkipPKCE          bool     `yaml:"skip_pkce,omitempty"`
 	LoginChannel      string   `yaml:"login_channel"`
 	Name              string   `yaml:"name"`
 	URL               string   `yaml:"url,omitempty"`
@@ -92,6 +98,23 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 			cfg.Clients[i].LoginChannel = "browser"
 		} else if c.LoginChannel != "browser" && c.LoginChannel != "mcp" {
 			return nil, fmt.Errorf("client[%d] %q: login_channel must be browser or mcp", i, c.ClientID)
+		}
+		// skip_pkce is an escape hatch for OIDC libraries that cannot send a
+		// code_challenge. It is not a way to relax a channel's contract, so two
+		// cases stay out of reach. Checked after the login_channel default is
+		// applied, and against cfg.Clients[i] rather than the loop copy, so the
+		// normalized value is what gets tested.
+		if c.SkipPKCE {
+			if c.ClientType != "confidential" {
+				return nil, fmt.Errorf("client[%d] %q: skip_pkce is only allowed for confidential clients", i, c.ClientID)
+			}
+			// MCP requires PKCE S256 as part of its own contract (spec 004).
+			// CIMD-registered clients are public and so already excluded; a
+			// confidential mcp client declared in YAML is the one path that
+			// could otherwise have waived it.
+			if cfg.Clients[i].LoginChannel == "mcp" {
+				return nil, fmt.Errorf("client[%d] %q: skip_pkce is not allowed on the mcp channel; PKCE S256 is part of the MCP contract", i, c.ClientID)
+			}
 		}
 		if c.Name == "" {
 			return nil, fmt.Errorf("client[%d] %q: name is required", i, c.ClientID)

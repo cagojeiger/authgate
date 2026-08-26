@@ -246,6 +246,30 @@ clients:
     allowed_grant_types: [authorization_code, "urn:ietf:params:oauth:grant-type:device_code", refresh_token]
 ```
 
+필드 목록:
+
+| 필드 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `client_id` | O | - | URL 형태(CIMD) 불가, 공백 불가, 중복 불가 |
+| `client_type` | O | - | `public` \| `confidential` |
+| `client_secret_hash` | confidential만 | - | bcrypt 해시 |
+| `skip_pkce` | X | `false` | PKCE S256 요구를 면제한다. **browser 채널의 confidential 클라이언트에서만** 허용 (public 또는 `login_channel: mcp`이면 로드 거부) |
+| `login_channel` | X | `browser` | `browser` \| `mcp` |
+| `name` | O | - | 최대 256자 |
+| `redirect_uris` | O | - | 1~10개 |
+| `allowed_scopes` | O | - | 1개 이상 |
+| `allowed_grant_types` | O | - | 1~3개 |
+
+`skip_pkce`는 PKCE를 구현하지 않은 OIDC 라이브러리를 위한 탈출구다. 예를 들어
+Gitea 는 `markbates/goth` 의 openidConnect 프로바이더를 쓰는데 `code_challenge` 를
+보내지 않아, 이 옵션 없이는 `/authorize` 에서 `PKCE S256 required` 로 거부된다.
+두 경우에는 설정할 수 없고 로드 시 거부된다.
+
+- **public 클라이언트**: 시크릿이 없으므로 PKCE 가 인가 코드 가로채기에 대한 유일한 방어다.
+- **`login_channel: mcp`**: PKCE S256 이 MCP 채널 계약의 일부다 ([Spec 004](004-mcp-login.md)). CIMD 로 등록되는 클라이언트는 전부 public 이라 이미 제외되지만, YAML 로 선언한 confidential mcp 클라이언트가 유일하게 빠져나갈 수 있는 경로였다.
+
+이 옵션은 채널 정책을 완화하는 수단이 아니라, PKCE 를 **구현하지 못하는** 라이브러리를 위한 탈출구다.
+
 배포 환경별 마운트:
 - Docker Compose: `volumes: ["./clients.yaml:/etc/authgate/clients.yaml:ro"]`
 - Kubernetes: ConfigMap → volumeMount
