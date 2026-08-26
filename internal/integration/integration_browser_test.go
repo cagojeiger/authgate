@@ -165,8 +165,12 @@ func TestIntegration_SessionCookie_Attributes(t *testing.T) {
 	if !sessionCookie.HttpOnly {
 		t.Error("session cookie: HttpOnly should be true")
 	}
-	if sessionCookie.SameSite != http.SameSiteStrictMode {
-		t.Errorf("session cookie: SameSite = %v, want Strict", sessionCookie.SameSite)
+	// Lax, not Strict. This cookie is minted on the hop back from the IdP and
+	// has to survive one more redirect; WebKit withholds a Strict cookie there
+	// because the redirect chain began cross-site, which made the device flow
+	// unusable in Safari. See internal/handler/session_cookie.go.
+	if sessionCookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("session cookie: SameSite = %v, want Lax", sessionCookie.SameSite)
 	}
 	// devMode=true in TestServer → Secure must be false
 	if sessionCookie.Secure {

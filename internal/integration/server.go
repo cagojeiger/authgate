@@ -158,6 +158,15 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 			Lifetime:     5 * time.Minute,
 			PollInterval: devicePollInterval,
 			UserFormPath: "/device",
+			// Must mirror newOPConfig in internal/app/oidc.go. Leaving this
+			// zero makes op issue empty user codes, which no real client would
+			// ever see and which quietly puts /device?user_code= out of reach
+			// of the integration suite.
+			UserCode: op.UserCodeConfig{
+				CharSet:      "BCDFGHJKLMNPQRSTVWXZ",
+				CharAmount:   8,
+				DashInterval: 4,
+			},
 		},
 	}
 

@@ -36,6 +36,8 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 | `device-006` | consumed state | 다시 polling | `invalid_grant` | 재사용 불가 |
 | `device-007` | callback 시점 `active` | approve | 토큰 발급 성공 | approve 시점 재검사 통과 |
 | `device-008` | callback 시점 `active`, approve 직전 `pending_deletion` 또는 `disabled/deleted`로 변경 | approve | `account_inactive` | approve 시점 차단 |
+| `device-samesite` | 세션 없음 | `/device/auth/callback` | 302 `/device?user_code=…` + 세션 쿠키 `SameSite=Lax` | IdP 복귀 리다이렉트에서 쿠키 생존 ([Spec 003](../spec/003-device-login.md#세션-없이-승인-시-흐름)) |
+| `device-samesite-2` | 유효 세션 | `/device?user_code=…` | 승인 화면 + `csrf_token` `SameSite=Strict` | 세션만 완화하고 CSRF는 조이는 조합 유지 |
 
 ## MCP
 

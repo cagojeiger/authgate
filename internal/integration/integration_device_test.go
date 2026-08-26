@@ -339,3 +339,135 @@ func TestIntegration_DeviceApprove_GetRejected(t *testing.T) {
 		t.Errorf("GET /device/approve status = %d, want 405", resp.StatusCode)
 	}
 }
+
+// device-samesite: the approve screen's CSRF cookie stays Strict.
+//
+// This is the other half of the session cookie being Lax. Loosening the
+// session only widens top-level GET navigations; the state-changing form post
+// is still double-submit gated, and this cookie is issued by a page on
+// authgate's own origin, so Strict costs nothing and is kept.
+func TestIntegration_DeviceApprovePage_CSRFCookieIsStrict(t *testing.T) {
+	ts := SetupTestServer(t)
+	ctx := context.Background()
+
+	user, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
+		Email: "device-csrf@test.com", EmailVerified: true, Name: "Device CSRF",
+		Provider: "google", ProviderUserID: "test-google-sub",
+	})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	sessionID, err := ts.Store.CreateSession(ctx, user.ID, time.Hour)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	authz := startDeviceAuthorization(t, ts)
+	if authz.UserCode == "" {
+		t.Fatal("device authorization returned an empty user_code; check op.UserCodeConfig in the test server")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.BaseURL+"/device?user_code="+url.QueryEscape(authz.UserCode), nil)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: "authgate_session", Value: sessionID})
+
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := noFollow.Do(req)
+	if err != nil {
+		t.Fatalf("device page: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// A live session must land on the consent screen, not bounce to the IdP.
+	// The entry form and its error states also answer 200, so check the body:
+	// only the consent screen carries the approve control.
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("device page status = %d, want 200 (redirect here means the session was not honoured)", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if !strings.Contains(string(body), `name="action"`) {
+		t.Fatalf("did not reach the consent screen; page was:\n%s", string(body))
+	}
+
+	var csrf *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "csrf_token" {
+			csrf = c
+			break
+		}
+	}
+	if csrf == nil {
+		t.Fatal("approve page did not set a csrf_token cookie")
+	}
+	if csrf.SameSite != http.SameSiteStrictMode {
+		t.Errorf("csrf_token SameSite = %v, want Strict", csrf.SameSite)
+	}
+	if !csrf.HttpOnly {
+		t.Error("csrf_token HttpOnly = false, want true")
+	}
+}
+
+// device-samesite-2: the device callback's session cookie must be Lax, and the
+// redirect it issues must be the device page.
+//
+// This is the exact hop that failed in Safari: the callback mints the session
+// and redirects to /device?user_code=…, and the browser only shows the consent
+// screen if the cookie survives that redirect. WebKit drops a Strict cookie
+// here because the chain was started cross-site by the IdP, so the device page
+// saw no session and sent the user back to the IdP, forever.
+//
+// Go's client has no SameSite policy, so this cannot assert the browser
+// behaviour — it pins the attribute that decides it.
+func TestIntegration_DeviceCallback_SessionCookieIsLax(t *testing.T) {
+	ts := SetupTestServer(t)
+	ctx := context.Background()
+
+	if _, err := ts.Store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
+		Email: "device-lax@test.com", EmailVerified: true, Name: "Device Lax",
+		Provider: "google", ProviderUserID: "test-google-sub",
+	}); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := ts.Store.StoreDeviceAuthorization(ctx, "test-client", "lax-dc", "LAX-CODE",
+		ts.Clock.Now().Add(5*time.Minute), []string{"openid"}); err != nil {
+		t.Fatalf("seed device_code: %v", err)
+	}
+
+	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := noFollow.Get(ts.BaseURL + "/device/auth/callback?code=fake-code&state=LAX-CODE")
+	if err != nil {
+		t.Fatalf("device callback: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusFound {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 302 body=%s", resp.StatusCode, string(body))
+	}
+	if loc := resp.Header.Get("Location"); loc != "/device?user_code=LAX-CODE" {
+		t.Errorf("Location = %q, want /device?user_code=LAX-CODE", loc)
+	}
+
+	var session *http.Cookie
+	for _, c := range resp.Cookies() {
+		if c.Name == "authgate_session" {
+			session = c
+			break
+		}
+	}
+	if session == nil {
+		t.Fatal("device callback did not set a session cookie")
+	}
+	if session.SameSite != http.SameSiteLaxMode {
+		t.Errorf("session cookie SameSite = %v, want Lax; Strict is dropped on the redirect that follows", session.SameSite)
+	}
+}
