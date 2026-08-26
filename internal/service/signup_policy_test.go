@@ -82,6 +82,9 @@ func TestSignupDomainPolicy_ReasonsAreDistinct(t *testing.T) {
 		{"user@other.com", true, "domain_not_allowed"},
 		{"user@example.com", false, "email_unverified"},
 		{"not-an-address", true, "email_malformed"},
+		// Failing both tests reports the domain, because verifying the address
+		// would not get this person in.
+		{"user@other.com", false, "domain_not_allowed"},
 	} {
 		if _, reason := p.allows(tc.email, tc.verified); reason != tc.want {
 			t.Errorf("allows(%q, %v) reason = %q, want %q", tc.email, tc.verified, reason, tc.want)

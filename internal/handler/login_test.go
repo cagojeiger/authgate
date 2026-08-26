@@ -12,7 +12,7 @@ import (
 )
 
 func newTestLoginHandler(devMode bool) *LoginHandler {
-	svc := service.NewLoginService(nil, "", 0)
+	svc := service.NewLoginService(nil, "", 0, nil)
 	// FakeProvider.Callback delivers the (empty) state to CompleteBrowserLogin,
 	// which returns the 400 "missing code or state" the callback test asserts.
 	provider := &upstream.FakeProvider{User: &upstream.UserInfo{Sub: "sub"}}

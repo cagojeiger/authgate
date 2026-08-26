@@ -204,7 +204,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	}
 
 	// Services
-	loginSvc := service.NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	loginSvc := service.NewLoginService(store, fakeProvider.Name(), 24*time.Hour, nil)
 	deviceSvc := service.NewDeviceService(store, fakeProvider.Name(), srv.URL, 24*time.Hour, clk)
 
 	// Handlers

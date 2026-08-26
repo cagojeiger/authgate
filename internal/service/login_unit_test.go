@@ -80,7 +80,7 @@ func TestLogin_HandleLogin_RecoversPendingDeletionSession(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "s1"}}
-	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour, nil)
 
 	result := svc.HandleLogin(context.Background(), "ar-1", "sess-1", "127.0.0.1", "ua")
 
@@ -116,7 +116,7 @@ func TestLogin_HandleCallback_EmailConflict(t *testing.T) {
 			Name:          "Dup",
 		},
 	}
-	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour, nil)
 
 	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
 
@@ -150,7 +150,7 @@ func TestLogin_HandleCallback_ExistingUser_AuditLogIncludesSessionAndClient(t *t
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
-	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour, nil)
 
 	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
 
@@ -195,7 +195,7 @@ func TestLogin_HandleCallback_SignupAuditLogIncludesChannel(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "sub-1"}}
-	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour, nil)
 
 	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
 
@@ -250,7 +250,7 @@ func TestLogin_HandleLogin_RejectsCrossChannelAuthRequest(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "s1"}}
-	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour, nil)
 
 	result := svc.HandleLogin(context.Background(), "ar-1", "sess-1", "127.0.0.1", "ua")
 
@@ -319,7 +319,7 @@ func TestLogin_HandleLogin_NoSession_Redirect(t *testing.T) {
 		},
 	}
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{Sub: "s1"}}
-	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour, nil)
 
 	result := svc.HandleLogin(context.Background(), "ar-1", "sess-1", "127.0.0.1", "ua")
 
@@ -378,8 +378,7 @@ func TestLogin_Signup_OutsideDomain_IsRefusedBeforeCreate(t *testing.T) {
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{
 		Sub: "sub-1", Email: "outsider@other.com", EmailVerified: true, Name: "Outsider",
 	}}
-	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
-	svc.SetSignupEmailDomains([]string{"example.com"})
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour, []string{"example.com"})
 
 	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
 
@@ -432,8 +431,7 @@ func TestLogin_Signup_InsideDomain_Proceeds(t *testing.T) {
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{
 		Sub: "sub-1", Email: "insider@example.com", EmailVerified: true, Name: "Insider",
 	}}
-	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
-	svc.SetSignupEmailDomains([]string{"example.com"})
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour, []string{"example.com"})
 
 	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
 
@@ -471,8 +469,7 @@ func TestLogin_ExistingUser_OutsideDomain_StillLogsIn(t *testing.T) {
 	provider := &upstream.FakeProvider{ProviderName: "google", User: &upstream.UserInfo{
 		Sub: "sub-legacy", Email: "legacy@other.com", EmailVerified: true, Name: "Legacy",
 	}}
-	svc := NewLoginService(store, provider.Name(), 24*time.Hour)
-	svc.SetSignupEmailDomains([]string{"example.com"})
+	svc := NewLoginService(store, provider.Name(), 24*time.Hour, []string{"example.com"})
 
 	result := svc.CompleteBrowserLogin(context.Background(), "ar-1", provider.User, "127.0.0.1", "ua")
 

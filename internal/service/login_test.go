@@ -31,7 +31,7 @@ func setupLoginService(t *testing.T) (*LoginService, *storage.Storage, *upstream
 		},
 	}
 
-	svc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	svc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour, nil)
 	return svc, store, fakeProvider.User
 }
 

@@ -41,6 +41,24 @@ func (p signupDomainPolicy) allows(email string, emailVerified bool) (ok bool, r
 	if !p.enabled() {
 		return true, ""
 	}
+	domain := emailDomain(email)
+	if domain == "" {
+		return false, "email_malformed"
+	}
+	// Domain is checked first so that an address failing both tests is reported
+	// as domain_not_allowed. Saying email_unverified there would tell an
+	// operator the person merely needs to verify their address, when in fact
+	// verifying would change nothing.
+	matched := false
+	for _, d := range p.domains {
+		if d == domain {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return false, "domain_not_allowed"
+	}
 	// An unverified address cannot be trusted to prove its domain, so with the
 	// allowlist on it is refused rather than matched. Google verifies its own
 	// accounts, but authgate brokers whatever issuer it is pointed at, and an
@@ -49,14 +67,5 @@ func (p signupDomainPolicy) allows(email string, emailVerified bool) (ok bool, r
 	if !emailVerified {
 		return false, "email_unverified"
 	}
-	domain := emailDomain(email)
-	if domain == "" {
-		return false, "email_malformed"
-	}
-	for _, d := range p.domains {
-		if d == domain {
-			return true, ""
-		}
-	}
-	return false, "domain_not_allowed"
+	return true, ""
 }

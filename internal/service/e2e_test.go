@@ -44,7 +44,7 @@ func setupE2ETest(t *testing.T) *e2eFixture {
 		User: &upstream.UserInfo{Sub: "e2e-sub", Email: "e2e@test.com", EmailVerified: true, Name: "E2E User"},
 	}
 
-	loginSvc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	loginSvc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour, nil)
 	mcpLoginSvc := NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
 	deviceSvc := NewDeviceService(store, fakeProvider.Name(), "http://localhost:8080", 24*time.Hour, clk)
 	return &e2eFixture{
