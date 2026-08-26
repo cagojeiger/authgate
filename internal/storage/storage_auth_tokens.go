@@ -18,23 +18,23 @@ import (
 // --- op.Storage: AuthStorage ---
 
 func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, userID string) (op.AuthRequest, error) {
-	if req.CodeChallenge == "" {
-		err := oidc.ErrInvalidRequest()
-		err.Description = "PKCE S256 required"
-		return nil, err
-	}
-	if req.CodeChallengeMethod != oidc.CodeChallengeMethodS256 {
-		err := oidc.ErrInvalidRequest()
-		err.Description = "PKCE S256 required"
-		return nil, err
-	}
-
 	resource := ResourceFromContext(ctx)
 	// #184: validate the channel × resource matrix on every /authorize, not
 	// only when resource is empty.
 	client, err := s.ResolveClient(ctx, req.ClientID)
 	if err == nil {
 		if err := s.resourcePolicy.ValidateAuthorizeRequest(ctx, client, resource); err != nil {
+			return nil, err
+		}
+	}
+
+	// PKCE stays mandatory unless a confidential client opted out. An
+	// unresolvable client keeps the requirement: never relax on a lookup
+	// failure. zitadel rejects the unknown client_id right after this.
+	if err != nil || !client.SkipPKCE {
+		if req.CodeChallenge == "" || req.CodeChallengeMethod != oidc.CodeChallengeMethodS256 {
+			err := oidc.ErrInvalidRequest()
+			err.Description = "PKCE S256 required"
 			return nil, err
 		}
 	}

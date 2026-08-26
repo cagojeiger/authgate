@@ -56,3 +56,40 @@ func TestPKCEEnforcement(t *testing.T) {
 		}
 	})
 }
+
+// A confidential client may waive PKCE via skip_pkce. This exists for OIDC
+// libraries that cannot send code_challenge — Gitea's goth openidConnect
+// provider has no PKCE support at all.
+func TestPKCESkipForConfidentialClient(t *testing.T) {
+	t.Run("authorize without code_challenge is accepted", func(t *testing.T) {
+		ts := SetupTestServer(t)
+		client := NewOAuthClientFor(t, ts.BaseURL, "skip-pkce-client", "/login/callback")
+
+		noFollow := *client.Client
+		noFollow.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+
+		resp, err := noFollow.Get(client.AuthorizeURLNoPKCE())
+		if err != nil {
+			t.Fatalf("authorize without pkce: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if loc := resp.Header.Get("Location"); loc != "" {
+			u, parseErr := url.Parse(loc)
+			if parseErr != nil {
+				t.Fatalf("parse location: %v", parseErr)
+			}
+			if got := u.Query().Get("error"); got != "" {
+				t.Fatalf("expected no error for skip_pkce client, got %q (location=%s)", got, loc)
+			}
+			return
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		if strings.Contains(string(body), "PKCE S256 required") {
+			t.Fatalf("skip_pkce client was still rejected: status=%d body=%s", resp.StatusCode, string(body))
+		}
+	})
+}

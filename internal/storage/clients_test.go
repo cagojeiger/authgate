@@ -261,3 +261,66 @@ func TestLoadClients_DropsCIMDShapedClientID(t *testing.T) {
 		t.Errorf("URL-form client_id should NOT be loaded into static registry")
 	}
 }
+
+func TestLoadClientConfig_SkipPKCERejectedForPublic(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: my-app
+    client_type: public
+    skip_pkce: true
+    login_channel: browser
+    name: App A
+    redirect_uris: ["http://localhost:3000/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+
+	_, err := LoadClientConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "skip_pkce is only allowed for confidential") {
+		t.Fatalf("expected skip_pkce error, got: %v", err)
+	}
+}
+
+func TestLoadClientConfig_SkipPKCEAllowedForConfidential(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: my-app
+    client_type: confidential
+    client_secret_hash: "$2y$12$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012"
+    skip_pkce: true
+    login_channel: browser
+    name: App A
+    redirect_uris: ["https://app.example.com/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("expected config to load, got: %v", err)
+	}
+	if !cfg.Clients[0].SkipPKCE {
+		t.Fatal("expected SkipPKCE to be true")
+	}
+}
+
+func TestLoadClientConfig_SkipPKCEDefaultsToFalse(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: my-app
+    client_type: public
+    login_channel: browser
+    name: App A
+    redirect_uris: ["http://localhost:3000/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("expected config to load, got: %v", err)
+	}
+	if cfg.Clients[0].SkipPKCE {
+		t.Fatal("expected SkipPKCE to default to false")
+	}
+}

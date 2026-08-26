@@ -246,6 +246,25 @@ clients:
     allowed_grant_types: [authorization_code, "urn:ietf:params:oauth:grant-type:device_code", refresh_token]
 ```
 
+필드 목록:
+
+| 필드 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `client_id` | O | - | URL 형태(CIMD) 불가, 공백 불가, 중복 불가 |
+| `client_type` | O | - | `public` \| `confidential` |
+| `client_secret_hash` | confidential만 | - | bcrypt 해시 |
+| `skip_pkce` | X | `false` | PKCE S256 요구를 면제한다. confidential 에서만 허용 |
+| `login_channel` | X | `browser` | `browser` \| `mcp` |
+| `name` | O | - | 최대 256자 |
+| `redirect_uris` | O | - | 1~10개 |
+| `allowed_scopes` | O | - | 1개 이상 |
+| `allowed_grant_types` | O | - | 1~3개 |
+
+`skip_pkce`는 PKCE를 구현하지 않은 OIDC 라이브러리를 위한 탈출구다. 예를 들어
+Gitea 는 `markbates/goth` 의 openidConnect 프로바이더를 쓰는데 `code_challenge` 를
+보내지 않아, 이 옵션 없이는 `/authorize` 에서 `PKCE S256 required` 로 거부된다.
+public 클라이언트에는 설정할 수 없다 — 시크릿이 없으면 PKCE 가 유일한 방어다.
+
 배포 환경별 마운트:
 - Docker Compose: `volumes: ["./clients.yaml:/etc/authgate/clients.yaml:ro"]`
 - Kubernetes: ConfigMap → volumeMount

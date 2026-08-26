@@ -16,9 +16,15 @@ type ClientConfigFile struct {
 
 // ClientConfigEntry represents a single OAuth client in the YAML config.
 type ClientConfigEntry struct {
-	ClientID          string   `yaml:"client_id"`
-	ClientSecretHash  *string  `yaml:"client_secret_hash,omitempty"`
-	ClientType        string   `yaml:"client_type"`
+	ClientID         string  `yaml:"client_id"`
+	ClientSecretHash *string `yaml:"client_secret_hash,omitempty"`
+	ClientType       string  `yaml:"client_type"`
+	// SkipPKCE waives the PKCE S256 requirement for this client. Zero value
+	// (false) keeps PKCE mandatory, so any client that forgets the field —
+	// or is built on another code path, e.g. CIMD — stays protected.
+	// Only confidential clients may set it: a public client has no secret,
+	// so PKCE is its only defense against authorization code interception.
+	SkipPKCE          bool     `yaml:"skip_pkce,omitempty"`
 	LoginChannel      string   `yaml:"login_channel"`
 	Name              string   `yaml:"name"`
 	URL               string   `yaml:"url,omitempty"`
@@ -87,6 +93,9 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		}
 		if c.ClientType == "confidential" && (c.ClientSecretHash == nil || strings.TrimSpace(*c.ClientSecretHash) == "") {
 			return nil, fmt.Errorf("client[%d] %q: confidential client requires client_secret_hash", i, c.ClientID)
+		}
+		if c.SkipPKCE && c.ClientType != "confidential" {
+			return nil, fmt.Errorf("client[%d] %q: skip_pkce is only allowed for confidential clients", i, c.ClientID)
 		}
 		if c.LoginChannel == "" {
 			cfg.Clients[i].LoginChannel = "browser"
