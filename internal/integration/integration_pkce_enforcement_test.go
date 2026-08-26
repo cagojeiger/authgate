@@ -76,20 +76,34 @@ func TestPKCESkipForConfidentialClient(t *testing.T) {
 		}
 		defer resp.Body.Close()
 
-		if loc := resp.Header.Get("Location"); loc != "" {
-			u, parseErr := url.Parse(loc)
-			if parseErr != nil {
-				t.Fatalf("parse location: %v", parseErr)
-			}
-			if got := u.Query().Get("error"); got != "" {
-				t.Fatalf("expected no error for skip_pkce client, got %q (location=%s)", got, loc)
-			}
-			return
+		// Assert the success shape, not the absence of one error string. A
+		// waived request that still failed — for any reason, with any body —
+		// has to fail this test, so the only accepted outcome is the redirect
+		// into the login flow that an authorized request produces.
+		if resp.StatusCode != http.StatusFound {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("status = %d, want 302: skip_pkce client was not authorized (body=%s)", resp.StatusCode, string(body))
 		}
 
-		body, _ := io.ReadAll(resp.Body)
-		if strings.Contains(string(body), "PKCE S256 required") {
-			t.Fatalf("skip_pkce client was still rejected: status=%d body=%s", resp.StatusCode, string(body))
+		loc := resp.Header.Get("Location")
+		if loc == "" {
+			t.Fatal("302 with no Location header")
+		}
+		u, err := url.Parse(loc)
+		if err != nil {
+			t.Fatalf("parse location %q: %v", loc, err)
+		}
+		// An error is reported by redirecting back to the client's redirect_uri
+		// with ?error=…, so a bare check of the query would not distinguish it
+		// from the login redirect. Pin the path instead.
+		if u.Path != "/login" {
+			t.Fatalf("Location path = %q, want /login (location=%s)", u.Path, loc)
+		}
+		if got := u.Query().Get("error"); got != "" {
+			t.Fatalf("authorization returned error=%q (location=%s)", got, loc)
+		}
+		if u.Query().Get("authRequestID") == "" {
+			t.Fatalf("no authRequestID in login redirect (location=%s)", loc)
 		}
 	})
 }
