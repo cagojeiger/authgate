@@ -94,13 +94,27 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		if c.ClientType == "confidential" && (c.ClientSecretHash == nil || strings.TrimSpace(*c.ClientSecretHash) == "") {
 			return nil, fmt.Errorf("client[%d] %q: confidential client requires client_secret_hash", i, c.ClientID)
 		}
-		if c.SkipPKCE && c.ClientType != "confidential" {
-			return nil, fmt.Errorf("client[%d] %q: skip_pkce is only allowed for confidential clients", i, c.ClientID)
-		}
 		if c.LoginChannel == "" {
 			cfg.Clients[i].LoginChannel = "browser"
 		} else if c.LoginChannel != "browser" && c.LoginChannel != "mcp" {
 			return nil, fmt.Errorf("client[%d] %q: login_channel must be browser or mcp", i, c.ClientID)
+		}
+		// skip_pkce is an escape hatch for OIDC libraries that cannot send a
+		// code_challenge. It is not a way to relax a channel's contract, so two
+		// cases stay out of reach. Checked after the login_channel default is
+		// applied, and against cfg.Clients[i] rather than the loop copy, so the
+		// normalized value is what gets tested.
+		if c.SkipPKCE {
+			if c.ClientType != "confidential" {
+				return nil, fmt.Errorf("client[%d] %q: skip_pkce is only allowed for confidential clients", i, c.ClientID)
+			}
+			// MCP requires PKCE S256 as part of its own contract (spec 004).
+			// CIMD-registered clients are public and so already excluded; a
+			// confidential mcp client declared in YAML is the one path that
+			// could otherwise have waived it.
+			if cfg.Clients[i].LoginChannel == "mcp" {
+				return nil, fmt.Errorf("client[%d] %q: skip_pkce is not allowed on the mcp channel; PKCE S256 is part of the MCP contract", i, c.ClientID)
+			}
 		}
 		if c.Name == "" {
 			return nil, fmt.Errorf("client[%d] %q: name is required", i, c.ClientID)
