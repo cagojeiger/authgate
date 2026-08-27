@@ -33,10 +33,16 @@ type Config struct {
 	// fail-fast on misconfigured/compromised env vars that would otherwise
 	// redirect every login through an attacker-controlled IdP.
 	OIDCIssuerHostAllowlist []string
-	OIDCInternalURL         string // optional: internal base URL for server-to-server OIDC calls (Docker/K8s)
-	OIDCHTTPTimeout         time.Duration
-	OIDCClientID            string
-	OIDCClientSecret        string
+	// SignupEmailDomains restricts which email domains may create an account.
+	// Empty (the default) admits every address the upstream IdP authenticates.
+	// Entries are bare domains and match exactly, so "example.com" does not
+	// admit "sub.example.com". Only signup is gated: accounts that already
+	// exist keep working regardless of this list.
+	SignupEmailDomains []string
+	OIDCInternalURL    string // optional: internal base URL for server-to-server OIDC calls (Docker/K8s)
+	OIDCHTTPTimeout    time.Duration
+	OIDCClientID       string
+	OIDCClientSecret   string
 	// PII at-rest encryption roots (ADR-002). Secrets are base64-encoded
 	// (>=32 bytes). Optional: all four empty = encryption inert. The first
 	// encrypting consumer (PR2) makes them required in production.
@@ -98,6 +104,7 @@ func Load() (*Config, error) {
 		PublicURL:                 os.Getenv("PUBLIC_URL"),
 		OIDCIssuerURL:             envDefault("OIDC_ISSUER_URL", "http://localhost:8082"),
 		OIDCIssuerHostAllowlist:   envCommaList("OIDC_ISSUER_HOST_ALLOWLIST"),
+		SignupEmailDomains:        envCommaList("SIGNUP_EMAIL_DOMAINS"),
 		OIDCInternalURL:           os.Getenv("OIDC_INTERNAL_URL"),
 		OIDCHTTPTimeout:           time.Duration(envInt("OIDC_HTTP_TIMEOUT_SEC", 10)) * time.Second,
 		OIDCClientID:              envDefault("OIDC_CLIENT_ID", "authgate"),
@@ -214,6 +221,16 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("OIDC_ISSUER_URL host %q is not in OIDC_ISSUER_HOST_ALLOWLIST %v", issuerURL.Host, c.OIDCIssuerHostAllowlist)
 		}
 	}
+
+	// Normalized here rather than at the point of use so a typo fails at
+	// startup. A silently-unmatched entry would not error anywhere later; it
+	// would just refuse every signup, which is the kind of outage that only
+	// surfaces when a real user tries to join.
+	domains, err := normalizeSignupDomains(c.SignupEmailDomains)
+	if err != nil {
+		return nil, fmt.Errorf("SIGNUP_EMAIL_DOMAINS: %w", err)
+	}
+	c.SignupEmailDomains = domains
 
 	// Production guards
 	if !c.DevMode {
@@ -338,6 +355,59 @@ func envBool(key string, fallback bool) bool {
 // envCommaList returns the comma-separated values of an environment variable,
 // trimmed of surrounding whitespace, with empty entries dropped. Empty or unset
 // returns nil.
+// normalizeSignupDomains canonicalizes SIGNUP_EMAIL_DOMAINS entries to
+// lowercase bare domains and rejects anything that could never match an email
+// address. "@example.com" is accepted alongside "example.com": the leading @ is
+// a natural thing to write, and refusing it would be pedantry.
+func normalizeSignupDomains(raw []string) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, entry := range raw {
+		d := strings.ToLower(strings.TrimSpace(entry))
+		d = strings.TrimPrefix(d, "@")
+		if d == "" {
+			return nil, fmt.Errorf("entry is empty")
+		}
+
+		// "*.example.com" admits subdomains. It is stored as ".example.com":
+		// the leading dot is the label boundary, so matching stays a suffix
+		// test that cannot be fooled by "notexample.com".
+		wildcard := strings.HasPrefix(d, "*.")
+		base := strings.TrimPrefix(d, "*.")
+		if strings.Contains(base, "*") {
+			return nil, fmt.Errorf("%q: '*' is only allowed as a leading \"*.\" label", entry)
+		}
+		if strings.HasPrefix(base, ".") {
+			return nil, fmt.Errorf("%q must not start with a dot; write example.com or *.example.com", entry)
+		}
+		if strings.ContainsAny(base, "@ \t") {
+			return nil, fmt.Errorf("%q must be a bare domain like example.com", entry)
+		}
+		// Also what stops "*.com": its base is "com", which has no dot. A
+		// wildcard therefore always sits under a two-label domain. This is not
+		// a public-suffix check — "*.co.uk" still passes — so a wildcard stays
+		// something to write deliberately.
+		if !strings.Contains(base, ".") {
+			return nil, fmt.Errorf("%q has no dot; expected something like example.com", entry)
+		}
+
+		if wildcard {
+			d = "." + base
+		} else {
+			d = base
+		}
+		if _, dup := seen[d]; dup {
+			continue
+		}
+		seen[d] = struct{}{}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
 func envCommaList(key string) []string {
 	v := strings.TrimSpace(os.Getenv(key))
 	if v == "" {

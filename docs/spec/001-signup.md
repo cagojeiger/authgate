@@ -120,15 +120,47 @@ user_identities:
 | IdP 인증 성공 | OIDC IdP 인증 | 가입 불가 |
 | DB 조회 성공 | PostgreSQL 정상 | 500 (가입 시도 안 함) |
 | identity 미존재 | `ErrNotFound` | 기존 유저 → 로그인 플로우 |
+| 이메일 도메인 허용 | `SIGNUP_EMAIL_DOMAINS` 미설정이거나 일치 | 403 `signup_not_allowed` (계정 생성 시도 안 함) |
 | 이메일 미충돌 | `users.email` UNIQUE 통과 | 409 `email_conflict` |
 
 ## 가입 제한
 
-현재 authgate는 **자동 가입 (open signup)** 모델이다.
-OIDC IdP 인증에 성공하면 누구나 가입할 수 있다.
+기본값은 **자동 가입 (open signup)** 이다. `SIGNUP_EMAIL_DOMAINS`가 비어 있으면
+OIDC IdP 인증에 성공한 누구나 가입할 수 있다.
 
-향후 가입 제한이 필요하면 (SHOULD):
-- 이메일 도메인 제한
+### 이메일 도메인 제한
+
+`SIGNUP_EMAIL_DOMAINS`에 콤마 구분 도메인을 설정하면 해당 도메인 이메일만 가입할 수 있다.
+
+```
+SIGNUP_EMAIL_DOMAINS=example.com,*.example.com,corp.test
+```
+
+항목은 두 가지 형태를 가진다.
+
+| 형태 | 의미 | 예 |
+|------|------|-----|
+| `example.com` | 그 도메인만 | `a@example.com` ✓ / `a@sub.example.com` ✗ |
+| `*.example.com` | 서브도메인만 (**도메인 자체는 불포함**) | `a@sub.example.com` ✓ / `a@example.com` ✗ |
+
+도메인과 서브도메인을 모두 허용하려면 **둘 다 적는다**. 와일드카드가 상위 도메인을
+자동으로 포함하지 않는 이유는, 포함 여부가 운영자의 결정이지 표기법의 부수효과가
+되어서는 안 되기 때문이다.
+
+| 규칙 | 내용 |
+|------|------|
+| 매칭 | 정확히 일치, 또는 와일드카드의 **라벨 경계** 일치. `*.example.com`은 `notexample.com`·`evil-example.com`을 허용하지 않는다 |
+| 표기 | `example.com` / `@example.com` 모두 허용. 대소문자 무시 |
+| 검증 | 점이 없거나 `@`·공백이 섞인 항목, `*`가 선두 `*.` 이외의 위치에 있는 항목, `*.com`처럼 TLD를 대상으로 하는 와일드카드는 **시작 거부** (오타가 조용히 전원 차단으로 이어지지 않게) |
+| 비용 | 정규식을 쓰지 않는다. 와일드카드는 `.example.com` 형태로 저장되어 접미사 비교 한 번으로 끝난다 — 항목당 길이 비교 + memcmp, 할당 0. 가입 시 1회만 호출되며 요청마다 도는 경로가 아니다 |
+| `email_verified` | 제한이 켜져 있으면 미검증 주소는 도메인이 맞아도 거부. 미검증 주소는 도메인을 증명하지 못하므로, 그렇지 않으면 게이트가 형식적인 것이 된다 |
+| 적용 범위 | **가입만.** 이미 존재하는 계정은 도메인이 목록에서 빠져도 계속 로그인된다 |
+
+이미 만들어진 계정을 막는 것은 가입 정책이 아니라 계정 lifecycle(`user.Status`)의 일이다
+([Spec 006](006-account-lifecycle.md)). 도메인 목록에서 항목을 빼는 것만으로 기존 사용자가
+잠기지 않는다.
+
+향후 추가 가능한 제한 (SHOULD):
 - 초대 코드
 - 승인 모드
 
@@ -139,6 +171,7 @@ OIDC IdP 인증에 성공하면 누구나 가입할 수 있다.
 | IdP 인증 실패 (사용자 취소) | — | 302 | 앱의 redirect_uri로 `error=access_denied` |
 | IdP 서버 오류 | `upstream_error` | 500 | IdP 연동 실패 |
 | DB 오류 (유저 조회) | `internal_error` | 500 | 가입 시도 안 함 |
+| 도메인 미허용 / 미검증 이메일 | `signup_not_allowed` | 403 | `SIGNUP_EMAIL_DOMAINS` 설정 시. 계정을 만들지 않고 거부 — 만든 뒤 막으면 운영자가 저장에 동의한 적 없는 row가 남는다 |
 | 이메일 충돌 (같은 email, 다른 sub) | `email_conflict` | 409 | 정책 충돌 — 운영자 확인 필요 |
 | 트랜잭션 실패 (user+identity) | `internal_error` | 500 | 전부 ROLLBACK, 고아 없음 |
 
@@ -147,6 +180,7 @@ OIDC IdP 인증에 성공하면 누구나 가입할 수 있다.
 | 이벤트 | 시점 | 필드 |
 |--------|------|------|
 | `auth.signup` | 계정 생성 직후 | user_id, ip, user_agent |
+| `auth.signup_denied` | 도메인 게이트 거부 시 | ip, user_agent, `reason`(`domain_not_allowed` / `email_unverified` / `email_malformed`), `domain`, `channel`, `client_id`, `client_name`. 계정이 아직 없으므로 **user_id는 null** |
 
 ## 다른 스펙과의 관계
 

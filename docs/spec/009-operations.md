@@ -76,6 +76,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `PUBLIC_URL` | O | — | 외부 접근 URL (예: `https://auth.example.com`) |
 | `OIDC_ISSUER_URL` | X | `http://localhost:8082` | OIDC IdP issuer URL (예: `https://accounts.google.com`) |
 | `OIDC_ISSUER_HOST_ALLOWLIST` | X | — | 콤마 구분 host 목록 (예: `accounts.google.com,login.microsoftonline.com`). 비어 있으면 검사 안 함. 설정되면 `OIDC_ISSUER_URL`의 host가 정확히 일치해야 시작. 운영자 misconfig 시 attacker IdP로 phishing redirect 되는 경로를 fail-fast로 차단한다. 운영에서 설정 권장 — `DEV_MODE=false`인데 비어 있으면 시작 시 경고 로그를 남긴다. |
+| `SIGNUP_EMAIL_DOMAINS` | X | — | 콤마 구분 도메인 목록. 비어 있으면 **가입 제한 없음**(기본). `example.com`은 그 도메인만, `*.example.com`은 서브도메인만 허용한다(도메인 자체는 불포함이므로 둘 다 허용하려면 둘 다 적는다). `@example.com` 표기도 허용. 잘못된 항목(점 없음, `@` 포함, `*` 위치 오류, `*.com`처럼 TLD 대상 와일드카드)은 **시작 거부**. 활성화 시 `email_verified=false` 주소는 도메인이 맞아도 거부한다. **가입만** 막으며 기존 계정 로그인은 영향 없음. 거부는 `auth.signup_denied`로 감사 기록 |
 | `OIDC_INTERNAL_URL` | X | — | 서버 간 OIDC 호출용 내부 URL (Docker/K8s 환경) |
 | `OIDC_HTTP_TIMEOUT_SEC` | X | `10` | Upstream OIDC HTTP 호출 timeout(초) |
 | `OIDC_CLIENT_ID` | X | `authgate` | OIDC Client ID |

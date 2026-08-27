@@ -36,7 +36,7 @@ func setupAccountTest(t *testing.T) *accountFixture {
 		User: &upstream.UserInfo{Sub: "acct-sub-123", Email: "acct@test.com", EmailVerified: true, Name: "Acct User"},
 	}
 
-	loginSvc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	loginSvc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour, nil)
 	return &accountFixture{
 		LoginSvc: loginSvc,
 		Store:    store,

@@ -142,6 +142,7 @@ go run ./cmd/authgate
 | `OIDC_HTTP_TIMEOUT_SEC` | `10` | outbound HTTP timeout for upstream OIDC discovery/token/userinfo calls |
 | `OIDC_CLIENT_ID` | `authgate` | upstream OIDC client ID |
 | `OIDC_CLIENT_SECRET` | empty | upstream OIDC client secret |
+| `SIGNUP_EMAIL_DOMAINS` | – | Comma-separated domains allowed to create an account. Unset leaves signup open. `example.com` matches only that domain; `*.example.com` matches its subdomains but not the domain itself, so admitting both means listing both. With it set, unverified addresses are refused too. Gates signup only — existing accounts keep working. |
 | `PORT` | `8080` | listen port |
 | `DEV_MODE` | `false` | allows insecure local development mode |
 | `SESSION_TTL` | `86400` | session TTL in seconds |

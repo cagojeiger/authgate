@@ -25,6 +25,7 @@ func clearEnv() {
 		"HTTP_READ_HEADER_TIMEOUT_SEC", "HTTP_READ_TIMEOUT_SEC",
 		"HTTP_WRITE_TIMEOUT_SEC", "HTTP_IDLE_TIMEOUT_SEC",
 		"SHUTDOWN_TIMEOUT_SEC", "METRICS_ADDR",
+		"SIGNUP_EMAIL_DOMAINS",
 	} {
 		os.Unsetenv(key)
 	}
@@ -644,5 +645,114 @@ func TestLoad_DevModeEmptyAllowlist_NoWarn(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "OIDC_ISSUER_HOST_ALLOWLIST is empty") {
 		t.Errorf("dev mode should not warn about allowlist; logs = %q", logs.String())
+	}
+}
+
+// config-signup-001: SIGNUP_EMAIL_DOMAINS is unset by default, which leaves
+// signup open — the behaviour every existing deployment already has.
+func TestLoad_SignupEmailDomains_DefaultOpen(t *testing.T) {
+	clearEnv()
+	setMinimal()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.SignupEmailDomains) != 0 {
+		t.Errorf("SignupEmailDomains = %v, want empty by default", cfg.SignupEmailDomains)
+	}
+}
+
+// config-signup-002: entries are canonicalized so the matcher can compare
+// exactly. A leading @ is accepted because it is a natural way to write it.
+func TestLoad_SignupEmailDomains_Normalized(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("SIGNUP_EMAIL_DOMAINS", " @Example.COM , corp.test ,example.com")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{"example.com", "corp.test"} // lowercased, @ stripped, deduped
+	if len(cfg.SignupEmailDomains) != len(want) {
+		t.Fatalf("SignupEmailDomains = %v, want %v", cfg.SignupEmailDomains, want)
+	}
+	for i, w := range want {
+		if cfg.SignupEmailDomains[i] != w {
+			t.Errorf("SignupEmailDomains[%d] = %q, want %q", i, cfg.SignupEmailDomains[i], w)
+		}
+	}
+}
+
+// config-signup-003: a malformed entry stops startup.
+//
+// The failure mode this prevents is silent: an entry that can never match does
+// not error at match time, it just refuses every signup, and nobody finds out
+// until a real person is turned away.
+func TestLoad_SignupEmailDomains_RejectsMalformed(t *testing.T) {
+	for name, value := range map[string]string{
+		"no dot":        "example",
+		"full address":  "user@example.com",
+		"embedded @":    "exa@mple.com",
+		"embedded tab":  "exa\tmple.com",
+		"only a bare @": "@",
+	} {
+		t.Run(name, func(t *testing.T) {
+			clearEnv()
+			setMinimal()
+			os.Setenv("SIGNUP_EMAIL_DOMAINS", value)
+
+			if _, err := Load(); err == nil {
+				t.Errorf("Load accepted SIGNUP_EMAIL_DOMAINS=%q", value)
+			}
+		})
+	}
+}
+
+// config-signup-004: "*.example.com" is stored as ".example.com" — the leading
+// dot is the label boundary that keeps matching a plain suffix test.
+func TestLoad_SignupEmailDomains_Wildcard(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("SIGNUP_EMAIL_DOMAINS", "example.com, *.example.com , *.Corp.Test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{"example.com", ".example.com", ".corp.test"}
+	if len(cfg.SignupEmailDomains) != len(want) {
+		t.Fatalf("SignupEmailDomains = %v, want %v", cfg.SignupEmailDomains, want)
+	}
+	for i, w := range want {
+		if cfg.SignupEmailDomains[i] != w {
+			t.Errorf("SignupEmailDomains[%d] = %q, want %q", i, cfg.SignupEmailDomains[i], w)
+		}
+	}
+}
+
+// config-signup-005: only a leading "*." is a wildcard, and it cannot be
+// pointed at a bare TLD.
+func TestLoad_SignupEmailDomains_RejectsBadWildcard(t *testing.T) {
+	for name, value := range map[string]string{
+		"bare TLD":          "*.com",
+		"star in middle":    "ex*mple.com",
+		"star as suffix":    "example.*",
+		"double star":       "*.*.example.com",
+		"leading dot":       ".example.com",
+		"star without dot":  "*example.com",
+		"wildcard only":     "*.",
+		"leading dot alone": ".",
+	} {
+		t.Run(name, func(t *testing.T) {
+			clearEnv()
+			setMinimal()
+			os.Setenv("SIGNUP_EMAIL_DOMAINS", value)
+
+			if _, err := Load(); err == nil {
+				t.Errorf("Load accepted SIGNUP_EMAIL_DOMAINS=%q", value)
+			}
+		})
 	}
 }

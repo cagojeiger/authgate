@@ -16,6 +16,10 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 | `browser-004` | `disabled` | Browser 로그인 | `account_inactive` | 차단 |
 | `browser-004b` | `deleted` | Browser 로그인 | Spec 001 신규 가입 서브플로우 진입 | 재가입 경로 |
 | `browser-005` | `pending_deletion`, 복구 후 auth_request 완료 상태 반영 실패 | Browser 재로그인 | 다음 재시도에서 정상 완료 | 복구 후 재시도 멱등성 |
+| `signup-domain-100` | 미가입, `SIGNUP_EMAIL_DOMAINS` 밖 도메인 | Browser 로그인 | 403 `signup_not_allowed` | 계정 생성 **전** 차단 + `auth.signup_denied` 기록 |
+| `signup-domain-101` | 미가입, 허용 도메인 | Browser 로그인 | 정상 가입 | 게이트가 정상 가입을 막지 않음 |
+| `signup-domain-006` | `*.example.com` 설정 | `sub.example.com` / `example.com` / `notexample.com` | 순서대로 허용 / 거부 / 거부 | 와일드카드는 라벨 경계를 지키고 상위 도메인을 포함하지 않음 |
+| `signup-domain-102` | 기존 `active`, 도메인 목록 밖 | Browser 로그인 | 정상 로그인 | 가입만 제한 — 기존 계정 잠기지 않음 |
 
 ### Browser code → token 교환
 

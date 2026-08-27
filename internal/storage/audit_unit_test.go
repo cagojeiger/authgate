@@ -110,3 +110,29 @@ func TestSanitizeAuditMetadata_EmptyResultReturnsNil(t *testing.T) {
 		t.Fatalf("disallowed-only metadata = %#v, want nil", got)
 	}
 }
+
+// A new event type is only half-wired until its keys are in
+// auditMetadataAllowlist. The service-layer tests assert on a fake store, which
+// never runs sanitize, so a missing registration would pass every test and then
+// silently drop the metadata in production — with the reason and domain gone,
+// the row cannot answer the one question it exists to answer.
+func TestSanitizeAuditMetadata_SignupDeniedKeysAreRegistered(t *testing.T) {
+	got := newAuditLogger(nil, nil, nil).sanitize(context.Background(), EventAuthSignupDenied, map[string]any{
+		"reason":      "domain_not_allowed",
+		"domain":      "other.com",
+		"channel":     "browser",
+		"client_id":   "client-1",
+		"client_name": "Client One",
+		"email":       "person@other.com", // never allowed through
+	})
+	want := map[string]any{
+		"reason":      "domain_not_allowed",
+		"domain":      "other.com",
+		"channel":     "browser",
+		"client_id":   "client-1",
+		"client_name": "Client One",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sanitized metadata = %#v, want %#v", got, want)
+	}
+}

@@ -49,7 +49,10 @@ func Run() {
 	deviceProvider := mustBuildUpstreamProvider(ctx, cfg, "/device/auth/callback", upstreamOpts)
 
 	// Service layer
-	loginService := service.NewLoginService(store, browserProvider.Name(), cfg.SessionTTL)
+	loginService := service.NewLoginService(store, browserProvider.Name(), cfg.SessionTTL, cfg.SignupEmailDomains)
+	if len(cfg.SignupEmailDomains) > 0 {
+		slog.Info("signup restricted by email domain", "domains", cfg.SignupEmailDomains)
+	}
 
 	// Device service
 	deviceService := service.NewDeviceService(store, deviceProvider.Name(), cfg.PublicURL, cfg.SessionTTL, clk)
