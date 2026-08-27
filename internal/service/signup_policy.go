@@ -12,11 +12,18 @@ import "strings"
 // if their domain is later removed from the list — locking out a live user is
 // an account-lifecycle decision (user.Status), not a signup one, and doing it
 // here would turn an operator's typo into a fleet-wide lockout.
-// Entries must arrive already normalized — lowercase, bare domains — which is
-// config's job (SIGNUP_EMAIL_DOMAINS is validated at startup so a typo fails
-// there rather than silently locking out every new user). Matching here is
-// exact, so "example.com" does not admit "evil.example.com"; a wildcard is a
-// decision an operator should have to write out.
+// Entries must arrive already normalized — lowercase, and in one of two forms,
+// which is config's job (SIGNUP_EMAIL_DOMAINS is validated at startup so a typo
+// fails there rather than silently locking out every new user):
+//
+//	example.com    exact match, and only that domain
+//	.example.com   any subdomain of it, but not example.com itself
+//
+// The wildcard an operator writes is "*.example.com"; config stores it with the
+// leading dot instead. That is what makes the match a plain suffix test while
+// still respecting label boundaries — ".example.com" cannot match
+// "notexample.com" or "evil-example.com", which is exactly the bug a naive
+// HasSuffix on "example.com" would have.
 type signupDomainPolicy struct {
 	// domains is normalized and non-empty only when enforcement is on.
 	domains []string
@@ -49,8 +56,18 @@ func (p signupDomainPolicy) allows(email string, emailVerified bool) (ok bool, r
 	// as domain_not_allowed. Saying email_unverified there would tell an
 	// operator the person merely needs to verify their address, when in fact
 	// verifying would change nothing.
+	// Two forms, one cheap test each. A wildcard entry is stored as
+	// ".example.com", so the leading dot doubles as the label boundary and the
+	// whole check is a length compare plus a memcmp — no regex, no allocation.
 	matched := false
 	for _, d := range p.domains {
+		if d[0] == '.' {
+			if strings.HasSuffix(domain, d) {
+				matched = true
+				break
+			}
+			continue
+		}
 		if d == domain {
 			matched = true
 			break

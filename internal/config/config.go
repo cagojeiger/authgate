@@ -371,11 +371,33 @@ func normalizeSignupDomains(raw []string) ([]string, error) {
 		if d == "" {
 			return nil, fmt.Errorf("entry is empty")
 		}
-		if strings.ContainsAny(d, "@ \t") {
+
+		// "*.example.com" admits subdomains. It is stored as ".example.com":
+		// the leading dot is the label boundary, so matching stays a suffix
+		// test that cannot be fooled by "notexample.com".
+		wildcard := strings.HasPrefix(d, "*.")
+		base := strings.TrimPrefix(d, "*.")
+		if strings.Contains(base, "*") {
+			return nil, fmt.Errorf("%q: '*' is only allowed as a leading \"*.\" label", entry)
+		}
+		if strings.HasPrefix(base, ".") {
+			return nil, fmt.Errorf("%q must not start with a dot; write example.com or *.example.com", entry)
+		}
+		if strings.ContainsAny(base, "@ \t") {
 			return nil, fmt.Errorf("%q must be a bare domain like example.com", entry)
 		}
-		if !strings.Contains(d, ".") {
+		// Also what stops "*.com": its base is "com", which has no dot. A
+		// wildcard therefore always sits under a two-label domain. This is not
+		// a public-suffix check — "*.co.uk" still passes — so a wildcard stays
+		// something to write deliberately.
+		if !strings.Contains(base, ".") {
 			return nil, fmt.Errorf("%q has no dot; expected something like example.com", entry)
+		}
+
+		if wildcard {
+			d = "." + base
+		} else {
+			d = base
 		}
 		if _, dup := seen[d]; dup {
 			continue

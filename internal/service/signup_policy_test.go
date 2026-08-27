@@ -101,3 +101,67 @@ func TestSignupDomainPolicy_RequiresNormalizedEntries(t *testing.T) {
 		t.Error("policy matched an un-normalized entry; normalization must happen in config")
 	}
 }
+
+// signup-domain-006: a wildcard admits subdomains and nothing that merely looks
+// like one. The stored form carries a leading dot, which is what makes the
+// suffix test respect label boundaries — the exact bug a naive HasSuffix on
+// "example.com" would introduce.
+func TestSignupDomainPolicy_Wildcard(t *testing.T) {
+	p := signupDomainPolicy{domains: []string{".example.com"}}
+
+	for _, email := range []string{
+		"user@sub.example.com",
+		"user@mail.example.com",
+		"user@a.b.c.example.com",
+		"USER@SUB.EXAMPLE.COM",
+	} {
+		if ok, reason := p.allows(email, true); !ok {
+			t.Errorf("%q should be allowed by *.example.com, refused with %s", email, reason)
+		}
+	}
+
+	for _, email := range []string{
+		"user@example.com",      // the base itself is NOT included
+		"user@notexample.com",   // no label boundary
+		"user@evil-example.com", // no label boundary
+		"user@example.com.evil",
+		"user@sub.example.org",
+	} {
+		if ok, _ := p.allows(email, true); ok {
+			t.Errorf("%q should be refused by *.example.com", email)
+		}
+	}
+}
+
+// signup-domain-007: the base domain and its subdomains are separate decisions,
+// so admitting both means listing both.
+func TestSignupDomainPolicy_WildcardPlusBase(t *testing.T) {
+	p := signupDomainPolicy{domains: []string{"example.com", ".example.com"}}
+
+	for _, email := range []string{"user@example.com", "user@sub.example.com"} {
+		if ok, reason := p.allows(email, true); !ok {
+			t.Errorf("%q should be allowed, refused with %s", email, reason)
+		}
+	}
+	if ok, _ := p.allows("user@other.com", true); ok {
+		t.Error("unrelated domain was admitted")
+	}
+}
+
+// The gate runs once per signup, not per request, so its cost is close to
+// irrelevant. It is still worth pinning that matching is allocation-free: no
+// regex is compiled or run, only a length compare and a memcmp per entry.
+func BenchmarkSignupDomainPolicy_Allows(b *testing.B) {
+	p := signupDomainPolicy{domains: []string{
+		"example.com", ".example.com", "corp.test", ".corp.test",
+		"a.com", "b.com", "c.com", "d.com", "e.com", "f.com",
+	}}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Worst case: scans every entry before matching the last one.
+		if ok, _ := p.allows("user@deep.sub.corp.test", true); !ok {
+			b.Fatal("expected a match")
+		}
+	}
+}

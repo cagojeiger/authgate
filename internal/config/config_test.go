@@ -709,3 +709,50 @@ func TestLoad_SignupEmailDomains_RejectsMalformed(t *testing.T) {
 		})
 	}
 }
+
+// config-signup-004: "*.example.com" is stored as ".example.com" — the leading
+// dot is the label boundary that keeps matching a plain suffix test.
+func TestLoad_SignupEmailDomains_Wildcard(t *testing.T) {
+	clearEnv()
+	setMinimal()
+	os.Setenv("SIGNUP_EMAIL_DOMAINS", "example.com, *.example.com , *.Corp.Test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := []string{"example.com", ".example.com", ".corp.test"}
+	if len(cfg.SignupEmailDomains) != len(want) {
+		t.Fatalf("SignupEmailDomains = %v, want %v", cfg.SignupEmailDomains, want)
+	}
+	for i, w := range want {
+		if cfg.SignupEmailDomains[i] != w {
+			t.Errorf("SignupEmailDomains[%d] = %q, want %q", i, cfg.SignupEmailDomains[i], w)
+		}
+	}
+}
+
+// config-signup-005: only a leading "*." is a wildcard, and it cannot be
+// pointed at a bare TLD.
+func TestLoad_SignupEmailDomains_RejectsBadWildcard(t *testing.T) {
+	for name, value := range map[string]string{
+		"bare TLD":          "*.com",
+		"star in middle":    "ex*mple.com",
+		"star as suffix":    "example.*",
+		"double star":       "*.*.example.com",
+		"leading dot":       ".example.com",
+		"star without dot":  "*example.com",
+		"wildcard only":     "*.",
+		"leading dot alone": ".",
+	} {
+		t.Run(name, func(t *testing.T) {
+			clearEnv()
+			setMinimal()
+			os.Setenv("SIGNUP_EMAIL_DOMAINS", value)
+
+			if _, err := Load(); err == nil {
+				t.Errorf("Load accepted SIGNUP_EMAIL_DOMAINS=%q", value)
+			}
+		})
+	}
+}
