@@ -325,6 +325,60 @@ clients:
 	}
 }
 
+func TestLoadClientConfig_IDTokenUserinfoAssertionOptIn(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: cloudflare-access
+    client_type: confidential
+    client_secret_hash: "$2y$12$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012"
+    id_token_userinfo_assertion: true
+    login_channel: browser
+    name: Cloudflare Access
+    redirect_uris: ["https://example.cloudflareaccess.com/cdn-cgi/access/callback"]
+    allowed_scopes: [openid, profile, email]
+    allowed_grant_types: [authorization_code]
+`)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("expected config to load, got: %v", err)
+	}
+	if !cfg.Clients[0].IDTokenUserinfoAssertion {
+		t.Fatal("expected IDTokenUserinfoAssertion to be true")
+	}
+
+	s := &Storage{}
+	s.LoadClients(cfg.Clients)
+	loaded, ok := s.registry.clients.Load("cloudflare-access")
+	if !ok {
+		t.Fatal("expected cloudflare-access client to be loaded")
+	}
+	if !loaded.(*ClientModel).IDTokenUserinfoClaimsAssertion() {
+		t.Fatal("expected client model to enable ID token UserInfo claims")
+	}
+}
+
+func TestLoadClientConfig_IDTokenUserinfoAssertionDefaultsToFalse(t *testing.T) {
+	path := writeClientConfigFile(t, `
+clients:
+  - client_id: my-app
+    client_type: public
+    login_channel: browser
+    name: App A
+    redirect_uris: ["http://localhost:3000/callback"]
+    allowed_scopes: [openid, email]
+    allowed_grant_types: [authorization_code]
+`)
+
+	cfg, err := LoadClientConfig(path)
+	if err != nil {
+		t.Fatalf("expected config to load, got: %v", err)
+	}
+	if cfg.Clients[0].IDTokenUserinfoAssertion {
+		t.Fatal("expected IDTokenUserinfoAssertion to default to false")
+	}
+}
+
 // skip_pkce must not reach the MCP channel. PKCE S256 is part of the MCP
 // contract (spec 004), and the client_type guard alone does not cover it: a
 // confidential client on login_channel: mcp would otherwise load fine and

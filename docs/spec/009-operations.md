@@ -254,6 +254,7 @@ clients:
 | `client_type` | O | - | `public` \| `confidential` |
 | `client_secret_hash` | confidential만 | - | bcrypt 해시 |
 | `skip_pkce` | X | `false` | PKCE S256 요구를 면제한다. **browser 채널의 confidential 클라이언트에서만** 허용 (public 또는 `login_channel: mcp`이면 로드 거부) |
+| `id_token_userinfo_assertion` | X | `false` | 요청된 `profile`·`email` UserInfo claim을 ID token에도 포함한다. UserInfo endpoint를 호출하지 않는 클라이언트에만 사용 |
 | `login_channel` | X | `browser` | `browser` \| `mcp` |
 | `name` | O | - | 최대 256자 |
 | `redirect_uris` | O | - | 1~10개 |

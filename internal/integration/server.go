@@ -53,7 +53,8 @@ func SetupTestServer(t *testing.T) *TestServer {
 }
 
 type SetupOptions struct {
-	EnableMCP bool
+	EnableMCP                bool
+	IDTokenUserinfoAssertion bool
 }
 
 // setupCryptoKeys derives test crypto keys and registers their epochs.
@@ -127,13 +128,14 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	// Register test clients in memory
 	store.LoadClients([]storage.ClientConfigEntry{
 		{
-			ClientID:          "test-client",
-			ClientType:        "public",
-			LoginChannel:      "browser",
-			Name:              "Test",
-			RedirectURIs:      []string{srv.URL + "/callback"},
-			AllowedScopes:     []string{"openid", "profile", "email", "offline_access"},
-			AllowedGrantTypes: []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
+			ClientID:                 "test-client",
+			ClientType:               "public",
+			IDTokenUserinfoAssertion: opts.IDTokenUserinfoAssertion,
+			LoginChannel:             "browser",
+			Name:                     "Test",
+			RedirectURIs:             []string{srv.URL + "/callback"},
+			AllowedScopes:            []string{"openid", "profile", "email", "offline_access"},
+			AllowedGrantTypes:        []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"},
 		},
 		{
 			// Confidential client that opted out of PKCE. Mirrors an OIDC

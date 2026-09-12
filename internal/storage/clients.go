@@ -24,13 +24,17 @@ type ClientConfigEntry struct {
 	// or is built on another code path, e.g. CIMD — stays protected.
 	// Only confidential clients may set it: a public client has no secret,
 	// so PKCE is its only defense against authorization code interception.
-	SkipPKCE          bool     `yaml:"skip_pkce,omitempty"`
-	LoginChannel      string   `yaml:"login_channel"`
-	Name              string   `yaml:"name"`
-	URL               string   `yaml:"url,omitempty"`
-	RedirectURIs      []string `yaml:"redirect_uris"`
-	AllowedScopes     []string `yaml:"allowed_scopes"`
-	AllowedGrantTypes []string `yaml:"allowed_grant_types"`
+	SkipPKCE bool `yaml:"skip_pkce,omitempty"`
+	// IDTokenUserinfoAssertion copies requested UserInfo claims into the ID token
+	// for clients that do not call the UserInfo endpoint. It is opt-in because
+	// the default OIDC code flow returns these claims from UserInfo.
+	IDTokenUserinfoAssertion bool     `yaml:"id_token_userinfo_assertion,omitempty"`
+	LoginChannel             string   `yaml:"login_channel"`
+	Name                     string   `yaml:"name"`
+	URL                      string   `yaml:"url,omitempty"`
+	RedirectURIs             []string `yaml:"redirect_uris"`
+	AllowedScopes            []string `yaml:"allowed_scopes"`
+	AllowedGrantTypes        []string `yaml:"allowed_grant_types"`
 }
 
 const (
