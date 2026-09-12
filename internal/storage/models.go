@@ -125,7 +125,8 @@ type ClientModel struct {
 	AllowedGrantTypeList StringArray
 	// SkipPKCE waives the PKCE S256 requirement. Zero value keeps it
 	// mandatory so every construction path defaults to the safe behavior.
-	SkipPKCE bool
+	SkipPKCE                 bool
+	IDTokenUserinfoAssertion bool
 }
 
 func (c *ClientModel) GetID() string                    { return c.ID }
@@ -180,8 +181,10 @@ func (c *ClientModel) IsScopeAllowed(scope string) bool {
 	}
 	return false
 }
-func (c *ClientModel) IDTokenUserinfoClaimsAssertion() bool { return false }
-func (c *ClientModel) ClockSkew() time.Duration             { return 0 }
+func (c *ClientModel) IDTokenUserinfoClaimsAssertion() bool {
+	return c.IDTokenUserinfoAssertion
+}
+func (c *ClientModel) ClockSkew() time.Duration { return 0 }
 
 // --- DeviceCode Model ---
 

@@ -34,16 +34,17 @@ func (r *clientRegistry) Load(clients []ClientConfigEntry) {
 			continue
 		}
 		cm := &ClientModel{
-			ID:                   c.ClientID,
-			SecretHash:           c.ClientSecretHash,
-			Type:                 c.ClientType,
-			LoginChannel:         c.LoginChannel,
-			Name:                 c.Name,
-			URL:                  c.URL,
-			RedirectURIList:      StringArray(c.RedirectURIs),
-			AllowedScopeList:     StringArray(c.AllowedScopes),
-			AllowedGrantTypeList: StringArray(c.AllowedGrantTypes),
-			SkipPKCE:             c.SkipPKCE,
+			ID:                       c.ClientID,
+			SecretHash:               c.ClientSecretHash,
+			Type:                     c.ClientType,
+			LoginChannel:             c.LoginChannel,
+			Name:                     c.Name,
+			URL:                      c.URL,
+			RedirectURIList:          StringArray(c.RedirectURIs),
+			AllowedScopeList:         StringArray(c.AllowedScopes),
+			AllowedGrantTypeList:     StringArray(c.AllowedGrantTypes),
+			SkipPKCE:                 c.SkipPKCE,
+			IDTokenUserinfoAssertion: c.IDTokenUserinfoAssertion,
 		}
 		r.clients.Store(c.ClientID, cm)
 	}

@@ -10,6 +10,46 @@ import (
 	"testing"
 )
 
+func TestIntegration_IDTokenUserinfoAssertion_EmbedsRequestedClaims(t *testing.T) {
+	ts := SetupTestServerWithOptions(t, SetupOptions{
+		EnableMCP:                true,
+		IDTokenUserinfoAssertion: true,
+	})
+
+	tokens := completeLoginFlow(t, ts)
+	if tokens.StatusCode != http.StatusOK {
+		t.Fatalf("token exchange failed: status=%d body=%s", tokens.StatusCode, tokens.RawBody)
+	}
+
+	claims := jwtPayloadMap(t, tokens.IDToken)
+	if got := claims["email"]; got != "test@example.com" {
+		t.Errorf("id_token email = %#v, want test@example.com", got)
+	}
+	if got := claims["email_verified"]; got != true {
+		t.Errorf("id_token email_verified = %#v, want true", got)
+	}
+	if got := claims["name"]; got != "Test User" {
+		t.Errorf("id_token name = %#v, want Test User", got)
+	}
+}
+
+func TestIntegration_IDTokenUserinfoAssertion_DefaultOmitsRequestedClaims(t *testing.T) {
+	ts := SetupTestServer(t)
+
+	tokens := completeLoginFlow(t, ts)
+	if tokens.StatusCode != http.StatusOK {
+		t.Fatalf("token exchange failed: status=%d body=%s", tokens.StatusCode, tokens.RawBody)
+	}
+
+	claims := jwtPayloadMap(t, tokens.IDToken)
+	if _, ok := claims["email"]; ok {
+		t.Errorf("id_token unexpectedly contains email without client opt-in")
+	}
+	if _, ok := claims["name"]; ok {
+		t.Errorf("id_token unexpectedly contains name without client opt-in")
+	}
+}
+
 func TestIntegration_BrowserFullFlow_TokenIssued(t *testing.T) {
 	ts := SetupTestServer(t)
 
