@@ -29,7 +29,7 @@
 | `audit-010c` | 교환된 토큰을 유예 안에 재제출 / 상한 초과 | `auth.refresh_reuse_grace` | 발급 시 `outcome=issued` 1행, 상한 거부 시 `outcome=refused` 1행, `metadata.family_id` 기록 |
 | `audit-010b` | 이미 revoke된 family의 토큰을 다른 IP에서 반복 제출 | `auth.refresh_reuse_detected`, `auth.refresh_family_revoked` | reuse는 제출마다 1행(뒤 제출자 IP 포함), family revoke는 1행, 모든 제출 `invalid_grant`, 살아있는 토큰 0 |
 | `audit-011` | client 컨텍스트가 있는 모든 이벤트 | (해당 이벤트) | `metadata.client_id` + `metadata.client_name`이 함께 기록 (#147) |
-| `audit-012` | OIDC RP-Initiated Logout (`/end_session`) 호출 | `auth.logout` | **세션 폐기**만 의미. 발급된 refresh 토큰은 자연 만료/명시적 revoke 전까지 유효. `metadata.client_id` + `client_name` 함께 기록 (#191, [Spec 005 Logout vs. Revoke](../spec/005-token-lifecycle.md#logout-vs-revoke-191)) |
+| `audit-012` | OIDC RP-Initiated Logout (`/end_session`)으로 세션 종료 | `auth.logout` | 실제로 세션을 폐기했을 때만 1행(`RevokeSessionsByUserID` 영향 행 > 0). 종료할 세션이 없거나, 확인 페이지만 렌더링·CSRF 거부된 요청, 이미 끝난 세션에 대한 반복 요청은 기록 없음 (`logout-001`~`logout-014`). **세션 폐기**만 의미. 발급된 refresh 토큰은 자연 만료/명시적 revoke 전까지 유효. `metadata.client_id` + `client_name` 함께 기록 (#191, [Spec 005 Logout vs. Revoke](../spec/005-token-lifecycle.md#logout-vs-revoke-191)) |
 | `audit-013` | RFC 7009 `/oauth/revoke` 호출에서 **매칭되는 refresh token이 발견되어 그 grant의 살아있는 토큰이 revoke된 경우** | `auth.token_revoked` | `metadata.client_id` 기록. 알려지지 않은 토큰은 RFC 7009 §2.2에 따라 200 OK만 반환하고 이벤트는 발생하지 않음. `auth.logout`과 별개 이벤트 (#191) |
 | `audit-014` | audit metadata 저장 | (해당 이벤트) | 이벤트별 allowlist에 없는 key는 저장하지 않음. 예: `email`, token, secret류 임의 key는 drop |
 | `audit-015` | Device code 발급 | `auth.device_code_issued` | 승인 전 단계라 `user_id=NULL`. `metadata.client_id` + `metadata.client_name`만 기록하고 `device_code`/`user_code`는 저장하지 않음 |

@@ -1,0 +1,14 @@
+{{define "content"}}
+<div class="status-icon is-success" aria-hidden="true">
+  <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+</div>
+
+<div class="centered">
+  <h1>You are signed out</h1>
+</div>
+
+<p class="centered">There is no active {{.Brand.Name}} session in this browser.</p>
+
+<div class="note">You can close this page. The next time an application sends you here, you will be asked to sign in and can pick a different account.</div>
+{{end}}
+{{template "layout" .}}

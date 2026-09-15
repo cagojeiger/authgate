@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"log"
-	"net/http"
 	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/op"
@@ -14,7 +13,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
-func mustBuildOIDCProvider(cfg *config.Config, store *storage.Storage) http.Handler {
+func mustBuildOIDCProvider(cfg *config.Config, store *storage.Storage) *op.Provider {
 	provider, err := op.NewProvider(
 		buildOPConfig(cfg),
 		store,

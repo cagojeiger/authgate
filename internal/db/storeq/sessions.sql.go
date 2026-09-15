@@ -89,7 +89,7 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 	return err
 }
 
-const revokeSessionsByUserID = `-- name: RevokeSessionsByUserID :exec
+const revokeSessionsByUserID = `-- name: RevokeSessionsByUserID :execrows
 UPDATE sessions
 SET revoked_at = $1
 WHERE user_id = $2 AND revoked_at IS NULL
@@ -100,7 +100,10 @@ type RevokeSessionsByUserIDParams struct {
 	UserID    string
 }
 
-func (q *Queries) RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error {
-	_, err := q.db.ExecContext(ctx, revokeSessionsByUserID, arg.RevokedAt, arg.UserID)
-	return err
+func (q *Queries) RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeSessionsByUserID, arg.RevokedAt, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

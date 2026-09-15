@@ -3,7 +3,7 @@
 ## 개요
 
 authgate가 직접 제공하는 HTML 페이지 목록.
-이 페이지들은 토큰 발급 전 조건(디바이스 승인)을 처리하므로 authgate 책임이다.
+이 페이지들은 토큰 발급 전 조건(디바이스 승인)과 authgate 세션 종료(로그아웃 확인)를 처리하므로 authgate 책임이다.
 
 약관/개인정보 동의는 **각 앱이 자체 관리**한다. authgate는 순수 인증 서비스이며, 약관 페이지를 제공하지 않는다.
 
@@ -14,6 +14,8 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 | 디바이스 코드 입력 | `/device` (GET) | user_code 입력 폼 | CLI 로그인 시 사용자가 브라우저에서 접근 |
 | 디바이스 승인 | `/device?user_code=XXXX` (GET) | 승인/거부 선택 | user_code 입력 후 |
 | 결과 | `/device/approve` (POST 결과) | 승인/거부 결과 표시 | 디바이스 승인/거부 후 |
+| 로그아웃 확인 | `/end_session` (GET/POST) | 로그아웃 확인 버튼 | 브라우저 세션이 있는데 `id_token_hint`가 없거나 다른 사용자일 때 (세션 조회 오류 포함) |
+| 로그아웃 완료 | `/end_session` (GET/POST) | 세션 없음 안내 | 로그아웃 종료 후 검증된 `post_logout_redirect_uri`가 없을 때 |
 | 에러 | 모든 에러 경로 | HTTP 에러 코드 + 메시지 표시 | 인증 실패, 잘못된 요청, 서버 에러 등 |
 
 ## authgate가 페이지를 제공하지 않는 것
@@ -99,6 +101,43 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 └──────────────────────────────────┘
 ```
 
+### 로그아웃 확인 페이지
+
+```
+┌──────────────────────────────────┐
+│ authgate                SIGN OUT │
+│                                  │
+│  Sign out of authgate?           │
+│                                  │
+│  You are signed in to authgate   │
+│  in this browser. ...            │
+│                                  │
+│  ┌────────────────────────────┐  │
+│  │         Sign out           │  │
+│  └────────────────────────────┘  │
+└──────────────────────────────────┘
+```
+
+**URL**: `GET`/`POST /end_session`
+**입력**: RP가 보낸 `id_token_hint`, `logout_hint`, `client_id`, `post_logout_redirect_uri`, `state`, `ui_locales` (있는 것만 hidden), `csrf_token` (hidden), `confirm`
+**표시 정보**: 브랜드 이름만. 이메일 등 계정 정보는 표시하지 않는다.
+**보호 장치**: `end_session_csrf` 쿠키와 hidden `csrf_token`의 double-submit. 불일치 시 403 에러 페이지. 흐름은 [Spec 005 Logout vs. Revoke](005-token-lifecycle.md#logout-vs-revoke)를 따른다.
+**성공 시**: 브라우저 사용자의 모든 authgate 세션 종료. 등록된 `post_logout_redirect_uri`로 302, 없으면 로그아웃 완료 페이지
+
+### 로그아웃 완료 페이지
+
+```
+┌──────────────────────────────────┐
+│ authgate                SIGN OUT │
+│                                  │
+│               ✅                 │
+│       You are signed out         │
+│                                  │
+│  There is no active authgate     │
+│  session in this browser.        │
+└──────────────────────────────────┘
+```
+
 ## 디자인 원칙
 
 1. **외부 의존성 없음** — 인라인 `<style>` 하나, 스크립트 없음, 폰트를 포함해 외부에서
@@ -114,7 +153,7 @@ authgate가 직접 제공하는 HTML 페이지 목록.
    설정을 따라가지 않는다(다른 서비스와 같은 방식).
 6. **접근성** — 시맨틱 HTML, label 연결, 보이는 포커스, 색만으로 상태를 전달하지 않음,
    `prefers-reduced-motion` 존중.
-7. **서버 제어 게이트 유지** — 디바이스 승인처럼 토큰 발급 전 게이트는 authgate 페이지에서 직접 처리
+7. **서버 제어 게이트 유지** — 디바이스 승인·로그아웃 확인처럼 사용자의 명시적 동의가 필요한 게이트는 authgate 페이지에서 직접 처리
 
 ## 브랜딩
 

@@ -103,7 +103,7 @@ audit_log
 | `auth.deletion_requested` | 삭제 요청 성공 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name` | — (방출자 없음) | — | GAP — 관리면(gRPC) 구현 시 복원 |
 | `auth.deletion_cancelled` | pending_deletion 유저 브라우저 재로그인 복구 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.deletion_completed` | cleanup PII scrub 완료 | user_id, created_at | `reason` | `internal/storage/cleanup_runner.go` | `internal/service/cleanup_test.go` | DONE |
-| `auth.logout` | RP-Initiated Logout | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/storage/storage_integration_test.go` | DONE |
+| `auth.logout` | RP-Initiated Logout | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go`, `internal/handler/logout.go` | `internal/storage/storage_integration_test.go`, `internal/integration/integration_logout_test.go` | DONE |
 | `auth.token_revoked` | RFC 7009 revoke에서 refresh token 매칭 → grant(family) 전체 폐기 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
 | `auth.refresh_reuse_detected` | 폐기 refresh token 재사용 (제출마다) | user_id, IP, UA, created_at | `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
 | `auth.refresh_reuse_grace` | 유예 시간 안의 재제출 (발급·거부 모두) | user_id, IP, UA, created_at | `family_id`, `outcome` | `internal/storage/storage_auth_tokens.go` | `internal/storage/refresh_reuse_grace_integration_test.go` | DONE |
@@ -123,6 +123,7 @@ audit_log
 | `POST /oauth/device/authorize` | Device code 발급 | `auth.device_code_issued` | token limiter | DONE |
 | `GET /device` | Device 코드 입력/승인 화면 | 없음 | auth limiter | DONE |
 | `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
+| `GET`/`POST /end_session` | 세션 종료 (RP-Initiated Logout) | `auth.logout` (종료한 사용자마다). 확인 POST는 CSRF 이중 제출 | auth limiter | DONE |
 | `POST /device/approve` | Device 승인/거부 | `auth.device_approved`, `auth.device_denied`, `auth.inactive_user` | token limiter | DONE |
 
 ## 남은 GAP

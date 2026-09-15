@@ -33,6 +33,22 @@ func setSessionCookie(w http.ResponseWriter, sessionID string, devMode bool) {
 	})
 }
 
+// clearSessionCookie expires the browser session on logout. Every attribute
+// but the value and MaxAge must match setSessionCookie, or the browser treats
+// it as a different cookie and keeps the session.
+func clearSessionCookie(w http.ResponseWriter, devMode bool) {
+	//nolint:gosec // Secure=false is allowed only in explicit DEV_MODE for localhost development.
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   !devMode,
+	})
+}
+
 func getSessionCookie(r *http.Request) string {
 	c, err := r.Cookie(sessionCookieName)
 	if err != nil {

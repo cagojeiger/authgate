@@ -74,6 +74,7 @@ func Run() {
 
 	loginHandler := handler.NewLoginHandler(loginService, browserProvider, cfg.DevMode, brand)
 	deviceHandler := handler.NewDeviceHandler(deviceService, deviceProvider, cfg.DevMode, brand)
+	logoutHandler := handler.NewLogoutHandler(provider, store, cfg.DevMode, brand)
 
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if cfg.EnableMCP {
@@ -87,7 +88,7 @@ func Run() {
 
 	var isShuttingDown atomic.Bool
 	mux := http.NewServeMux()
-	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, mcpLoginHandler, &isShuttingDown)
+	registerRoutes(mux, cfg, db, store, provider, loginHandler, deviceHandler, logoutHandler, mcpLoginHandler, &isShuttingDown)
 
 	trustedProxies, err := clientinfo.ParseTrustedProxies(cfg.TrustedProxies)
 	if err != nil {

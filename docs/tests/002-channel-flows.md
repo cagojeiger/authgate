@@ -2,7 +2,7 @@
 
 ## 목적
 
-Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 깨지 않고 동작하는지 검증한다.
+Browser / Device / MCP / Refresh / Logout / Delete 각 채널이 공통 상태기계를 깨지 않고 동작하는지 검증한다.
 
 ## Browser
 
@@ -77,6 +77,37 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 | `refresh-020` | 잠정 판정 뒤 계정 비활성화 / 토큰 만료 후 insert | `Storage` | `invalid_grant`, 자식 없음 | 잠금 하 재검증 |
 | `refresh-018` | 교환 안 된 토큰에 20개 동시 요청 × 5회 | `Storage` | 자식 ≤ 3, 거부는 전부 `ErrInvalidRefreshToken`, 교착 없음 | 실제 동시성 |
 
+## Logout
+
+`/end_session` (OIDC RP-Initiated Logout 1.0). 통합 테스트는 `internal/integration/integration_logout_test.go`, 핸들러 단위 테스트는 `internal/handler/logout_test.go`.
+
+| ID | 초기 상태 | 입력 | 기대 결과 | 검증 포인트 |
+|----|----------|------|----------|------------|
+| `logout-001` | 세션 없음 | `GET /end_session` (hint 없음) | 200 로그아웃 완료 페이지, 리다이렉트 없음, `auth.logout` 0 | 종료할 것 없음 |
+| `logout-002` | 유효 세션 | `GET /end_session` (hint 없음) | 200 확인 페이지 + `csrf_token`, 세션 유지 | §2 확인 필수 |
+| `logout-003` | 유효 세션 | 확인 POST (CSRF 일치) | 세션 폐기, `authgate_session` 만료, `auth.logout` 1, 다음 `/login`은 IdP로 | 계정 전환 경로 |
+| `logout-004` | 유효 세션 | 확인 POST (CSRF 누락/불일치) | 403, 세션 유지, `auth.logout` 0 | CSRF 방어 |
+| `logout-005` | 유효 세션 | `id_token_hint` = 세션 사용자 | 확인 없이 종료, 쿠키 만료, `auth.logout.client_id` = hint `azp` | hint가 확인을 대신 |
+| `logout-006` | 사용자 B 세션 | `id_token_hint` = 사용자 A | 확인 페이지, 확인 POST 후 B 세션만 폐기(A 유지), `auth.logout` 1 | 다른 사용자 hint는 증거가 아님 |
+| `logout-007` | 유효 세션 | 서명 불일치/형식 오류 `id_token_hint` | 400, 세션 유지 | hint 검증 |
+| `logout-008` | 사용자 세션(다른 브라우저) | 쿠키 없이 유효한 `id_token_hint` | 완료 페이지, 세션 유지, `auth.logout` 0 | hint만으로 로그아웃 불가 |
+| `logout-009` | — | 쿠키 없는 POST | 200, `authgate_session`/`end_session_csrf` Set-Cookie 없음 | 교차 사이트 POST 강제 로그아웃 차단 |
+| `logout-010` | 유효 세션 | `confirm` 없는 POST | 확인 페이지, 세션 유지 | RP의 POST 요청은 확인이 아님 |
+| `logout-011` | 유효 세션 | 세션 사용자 hint + 미등록 `post_logout_redirect_uri` | 로그아웃 완료 페이지, 리다이렉트 없음, 세션 폐기 | 미등록 URI는 버리고 로그아웃 계속 |
+| `logout-012` | 유효 세션 | hint + `azp`와 다른 `client_id` | 400, 세션 유지 | 클라이언트 일치 |
+| `logout-013` | 비활성화된 계정 세션 | 확인 POST | 세션 폐기, 쿠키 만료 | 비활성 계정도 로그아웃 |
+| `logout-014` | 유효 세션 | 같은 hint로 3회 | `auth.logout` 1 | 종료한 것이 없으면 감사 없음 |
+| `logout-015` | 세션 1개 | `Storage.TerminateSession` 3회 | `auth.logout` 1 | 영향 행 0이면 감사 없음 |
+| `logout-unit-001` | 유효 세션 | `GET` (hint 없음) | 확인 페이지, CSRF 쿠키 `Strict`/`HttpOnly`/`Secure`/Path=`/end_session` | 쿠키 속성 |
+| `logout-unit-002` | 유효 세션 | 확인 POST (폼 토큰 누락/쿠키 누락/불일치) | 403, 종료 호출 없음, 세션 쿠키 미변경 | CSRF 가드 |
+| `logout-unit-003` | 유효 세션 | 확인 POST (CSRF 일치) | 종료 1회, 세션·CSRF 쿠키 만료 | 쿠키 삭제 |
+| `logout-unit-004` | — | 등록된 `post_logout_redirect_uri` + `client_id` + `state` | 302 `…?state=` | §3 리다이렉트 |
+| `logout-unit-005` | — | `client_id` 없이 `post_logout_redirect_uri` + `state` | 200 완료 페이지, 리다이렉트 없음 | 미검증 URI·빈 URL 리다이렉트 금지 |
+| `logout-unit-006` | 유효 세션 | 미등록 `post_logout_redirect_uri` + `client_id` | 확인 페이지, 리다이렉트·종료 없음 | open redirect 차단, 로그아웃은 계속 |
+| `logout-unit-007` | 세션 조회 오류 | GET → 확인 POST | 확인 페이지 → 세션 쿠키 만료 | 장애 시에도 이 브라우저 로그아웃 |
+| `logout-unit-008` | — | 쿠키 없는 POST | Set-Cookie 없음 | 가져오지 않은 쿠키는 지우지 않음 |
+| `session-cookie-003` | — | `clearSessionCookie` | 발급과 같은 속성 + `Max-Age<0` | 브라우저가 같은 쿠키로 인식 |
+
 ## Delete / Recover
 
 | ID | 초기 상태 | 입력 | 기대 결과 | 검증 포인트 |
@@ -94,4 +125,5 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 2. Device/MCP는 active 사용자만 통과하는가?
 3. Refresh는 active 상태에서만 허용되는가?
 4. Delete/Recover가 상태기계를 깨지 않는가?
+5. 로그아웃은 증거(일치하는 id_token_hint) 또는 사용자 확인이 있을 때만 세션을 끝내는가?
 ```

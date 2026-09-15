@@ -45,6 +45,9 @@ type TestServer struct {
 	DB      *sql.DB
 	Clock   *clock.FixedClock
 	BaseURL string
+	// Upstream is the fake IdP. Swapping its User signs the next login in as
+	// someone else.
+	Upstream *upstream.FakeProvider
 }
 
 // SetupTestServer creates a full authgate server with testcontainers PostgreSQL.
@@ -216,6 +219,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	// Handlers
 	loginHandler := handler.NewLoginHandler(loginSvc, fakeProvider, true, pages.Brand{Name: "authgate"})
 	deviceHandler := handler.NewDeviceHandler(deviceSvc, fakeProvider, true, pages.Brand{Name: "authgate"})
+	logoutHandler := handler.NewLogoutHandler(provider, store, true, pages.Brand{Name: "authgate"})
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if opts.EnableMCP {
 		mcpLoginSvc := service.NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
@@ -297,6 +301,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	mux.HandleFunc("/device", deviceHandler.HandleDevicePage)
 	mux.HandleFunc("/device/approve", deviceHandler.HandleDeviceApprove)
 	mux.HandleFunc("/device/auth/callback", deviceHandler.HandleDeviceCallback)
+	mux.HandleFunc("/end_session", logoutHandler.HandleEndSession)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"healthy"}`))
@@ -308,11 +313,12 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	srv.Config.Handler = middleware.RequestIDMiddleware(corsMW(mux))
 
 	return &TestServer{
-		Server:  srv,
-		Store:   store,
-		DB:      db,
-		Clock:   clk,
-		BaseURL: srv.URL,
+		Server:   srv,
+		Store:    store,
+		DB:       db,
+		Clock:    clk,
+		BaseURL:  srv.URL,
+		Upstream: fakeProvider,
 	}
 }
 

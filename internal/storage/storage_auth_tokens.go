@@ -333,12 +333,17 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 // must call /oauth/revoke). See docs/spec/005-token-lifecycle.md "Logout vs.
 // Revoke".
 func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID string) error {
-	err := storeq.New(s.db).RevokeSessionsByUserID(ctx, storeq.RevokeSessionsByUserIDParams{
+	n, err := storeq.New(s.db).RevokeSessionsByUserID(ctx, storeq.RevokeSessionsByUserIDParams{
 		RevokedAt: sql.NullTime{Time: s.clock.Now(), Valid: true},
 		UserID:    userID,
 	})
 	if err != nil {
 		return err
+	}
+	// Audit a logout only when it ended something, so replayed or duplicate
+	// logout requests do not add rows for sessions that were already gone.
+	if n == 0 {
+		return nil
 	}
 	info := clientinfo.FromContext(ctx)
 	// Emit client_id + client_name so auth.logout carries client context

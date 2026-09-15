@@ -89,7 +89,7 @@ type Querier interface {
 	// redeemed at the token endpoint, which is what refresh reuse grace relies on
 	// to tell a rotated token from a revoked one.
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
-	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error
+	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) (int64, error)
 	SetUserStatusByID(ctx context.Context, arg SetUserStatusByIDParams) error
 	TombstoneRefreshFamily(ctx context.Context, arg TombstoneRefreshFamilyParams) (int64, error)
 	TryCleanupAdvisoryLock(ctx context.Context, lockKey int64) (bool, error)
