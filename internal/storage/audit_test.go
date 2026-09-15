@@ -65,6 +65,72 @@ func TestAudit010And011_RefreshReuseAndFamilyRevoke(t *testing.T) {
 	}
 }
 
+// One reuse incident is audited once. Clients that refreshed concurrently keep
+// presenting tokens from the family after it is revoked: 9/11 production saw
+// six reuse requests in 2.5s from one Claude Code install, each writing its
+// own pair of rows. Later requests must still be refused, but not re-audited.
+func TestAudit010And011_ReuseOfRevokedFamilyAuditedOnce(t *testing.T) {
+	db := testutil.SetupPostgres(t)
+	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
+	gen := idgen.CryptoGenerator{}
+	store := withTestKeys(t, New(db, clk, gen, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour))
+	ctx := context.Background()
+
+	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "audit-reuse-once@test.com", EmailVerified: true, Name: "Reuse Once", Provider: "google", ProviderUserID: "audit-reuse-once-sub"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	now := clk.Now()
+	familyID := gen.NewUUID()
+	usedToken := "reuse-once-used-token"
+	currentToken := "reuse-once-current-token"
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, revoked_at, used_at, created_at)
+		 VALUES (uuid_generate_v4(), $1, $2, $3, 'test-client', '{openid}', $4, $5, $5, $5)`,
+		store.Keys().RefreshHash(usedToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
+	); err != nil {
+		t.Fatalf("insert used token: %v", err)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
+		 VALUES (uuid_generate_v4(), $1, $2, $3, 'test-client', '{openid}', $4, $5)`,
+		store.Keys().RefreshHash(currentToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
+	); err != nil {
+		t.Fatalf("insert current token: %v", err)
+	}
+
+	// The used token three times, then the family's newest token, which the
+	// first request revoked along with the rest of the family.
+	for _, token := range []string{usedToken, usedToken, usedToken, currentToken} {
+		if _, err := store.TokenRequestByRefreshToken(ctx, token); err == nil {
+			t.Fatal("expected invalid refresh token error for a token from a revoked family")
+		}
+	}
+
+	for _, eventType := range []string{"auth.refresh_reuse_detected", "auth.refresh_family_revoked"} {
+		var n int
+		if err := db.QueryRowContext(ctx,
+			`SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = $2`, user.ID, eventType,
+		).Scan(&n); err != nil {
+			t.Fatalf("count %s: %v", eventType, err)
+		}
+		if n != 1 {
+			t.Errorf("%s rows = %d, want 1 for a single incident", eventType, n)
+		}
+	}
+
+	var live int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM refresh_tokens WHERE family_id = $1 AND revoked_at IS NULL`, familyID,
+	).Scan(&live); err != nil {
+		t.Fatalf("count live tokens: %v", err)
+	}
+	if live != 0 {
+		t.Fatalf("live tokens in revoked family = %d, want 0", live)
+	}
+}
+
 func TestAuditLog_AppendOnlyGuardAllowsPIIRedactionOnly(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}

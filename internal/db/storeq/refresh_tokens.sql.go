@@ -200,7 +200,7 @@ func (q *Queries) RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshT
 	return err
 }
 
-const tombstoneRefreshFamily = `-- name: TombstoneRefreshFamily :exec
+const tombstoneRefreshFamily = `-- name: TombstoneRefreshFamily :execrows
 INSERT INTO refresh_token_families (family_id, user_id, reason, revoked_at)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (family_id) DO NOTHING
@@ -213,12 +213,15 @@ type TombstoneRefreshFamilyParams struct {
 	RevokedAt time.Time
 }
 
-func (q *Queries) TombstoneRefreshFamily(ctx context.Context, arg TombstoneRefreshFamilyParams) error {
-	_, err := q.db.ExecContext(ctx, tombstoneRefreshFamily,
+func (q *Queries) TombstoneRefreshFamily(ctx context.Context, arg TombstoneRefreshFamilyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, tombstoneRefreshFamily,
 		arg.FamilyID,
 		arg.UserID,
 		arg.Reason,
 		arg.RevokedAt,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
