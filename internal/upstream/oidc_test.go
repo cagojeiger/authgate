@@ -282,6 +282,34 @@ func TestOIDCProvider_AuthURL_ContainsRequiredParams(t *testing.T) {
 	}
 }
 
+// ── oidc-auth-002: WithPrompt sets the upstream prompt parameter ─────────────
+
+func TestOIDCProvider_AuthURL_Prompt(t *testing.T) {
+	idp := newFakeIdP(t)
+	p := idp.newProvider(t)
+
+	plain, err := url.Parse(authURLForTest(t, p, "req-state-plain"))
+	if err != nil {
+		t.Fatalf("parse auth URL: %v", err)
+	}
+	if plain.Query().Has("prompt") {
+		t.Errorf("AuthURL without WithPrompt has prompt: %s", plain)
+	}
+
+	rec := httptest.NewRecorder()
+	p.Redirect(rec, httptest.NewRequest(http.MethodGet, "/login", nil), "req-state-prompt", WithPrompt("select_account"))
+	withPrompt, err := url.Parse(rec.Result().Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("parse auth URL: %v", err)
+	}
+	if got := withPrompt.Query().Get("prompt"); got != "select_account" {
+		t.Errorf("prompt = %q, want select_account: %s", got, withPrompt)
+	}
+	if withPrompt.Query().Get("nonce") == "" || withPrompt.Query().Get("state") == "" {
+		t.Errorf("WithPrompt dropped state or nonce: %s", withPrompt)
+	}
+}
+
 // ── oidc-exchange-001: normal code exchange ───────────────────────────────────
 
 func TestOIDCProvider_Exchange_Success(t *testing.T) {

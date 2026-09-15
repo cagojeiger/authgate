@@ -213,7 +213,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	}
 
 	// Services
-	loginSvc := service.NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	loginSvc := service.NewLoginService(store, fakeProvider.Name(), srv.URL, 24*time.Hour)
 	deviceSvc := service.NewDeviceService(store, fakeProvider.Name(), srv.URL, 24*time.Hour, clk)
 
 	// Handlers
@@ -222,7 +222,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	logoutHandler := handler.NewLogoutHandler(provider, store, true, pages.Brand{Name: "authgate"})
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if opts.EnableMCP {
-		mcpLoginSvc := service.NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
+		mcpLoginSvc := service.NewMCPLoginService(store, fakeProvider.Name(), srv.URL, 24*time.Hour)
 		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginSvc, fakeProvider, true, pages.Brand{Name: "authgate"})
 	}
 

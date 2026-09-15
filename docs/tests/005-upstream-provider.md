@@ -100,6 +100,7 @@ rp 라이브러리가 ID token을 검증하므로, fake IdP는:
 | ID | 시나리오 | 입력 | 기대 결과 | 검증 포인트 |
 |----|----------|------|----------|-------------|
 | `oidc-auth-001` | 정상 URL 생성 | `state="req-123"` | Discovery의 authorization_endpoint 기반 URL | client_id, redirect_uri, response_type=code, state 파라미터 포함 |
+| `oidc-auth-002` | upstream prompt | `WithPrompt("select_account")` 유무 | 옵션이 있을 때만 `prompt=select_account` | state·nonce 유지 |
 
 ### Exchange — 전체 경로 (Token + UserInfo)
 

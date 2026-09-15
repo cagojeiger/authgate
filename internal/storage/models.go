@@ -33,6 +33,7 @@ type AuthRequestModel struct {
 	Nonce               string
 	CodeChallenge       string
 	CodeChallengeMethod string
+	Prompt              StringArray // OIDC prompt values from /authorize; read by the login handlers
 	Subject             *string
 	AuthTime            *time.Time
 	IsDone              bool

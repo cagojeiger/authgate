@@ -99,8 +99,8 @@ func setupGapTest(t *testing.T) *gapFixture {
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: "gap-sub", Email: "gap@test.com", EmailVerified: true, Name: "Gap User"},
 	}
-	loginSvc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
-	mcpLoginSvc := NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	loginSvc := NewLoginService(store, fakeProvider.Name(), "http://authgate.test", 24*time.Hour)
+	mcpLoginSvc := NewMCPLoginService(store, fakeProvider.Name(), "http://authgate.test", 24*time.Hour)
 	deviceSvc := NewDeviceService(store, fakeProvider.Name(), "http://localhost:8080", 24*time.Hour, clk)
 	return &gapFixture{
 		LoginSvc:    loginSvc,
@@ -124,7 +124,7 @@ func setupLoginServiceWithSub(t *testing.T, sub, email string) (*LoginService, *
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: sub, Email: email, EmailVerified: true, Name: "Test User"},
 	}
-	svc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	svc := NewLoginService(store, fakeProvider.Name(), "http://authgate.test", 24*time.Hour)
 	return svc, store, fakeProvider.User
 }
 
@@ -139,6 +139,6 @@ func setupMCPLoginServiceWithSub(t *testing.T, sub, email string) (*MCPLoginServ
 	fakeProvider := &upstream.FakeProvider{ProviderName: "google",
 		User: &upstream.UserInfo{Sub: sub, Email: email, EmailVerified: true, Name: "Test User"},
 	}
-	svc := NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	svc := NewMCPLoginService(store, fakeProvider.Name(), "http://authgate.test", 24*time.Hour)
 	return svc, store, fakeProvider.User
 }

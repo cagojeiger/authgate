@@ -5,8 +5,11 @@ package storage
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 )
 
 func TestCodes_HashedAtRest(t *testing.T) {
@@ -71,5 +74,43 @@ func TestCodes_HashedAtRest(t *testing.T) {
 	}
 	if storedCode == "AUTHCODE-XYZ" {
 		t.Error("authorization code stored in plaintext")
+	}
+}
+
+// login-prompt-007: the OIDC prompt values survive CreateAuthRequest, and an
+// absent prompt is stored as an empty array (the column is NOT NULL).
+func TestCreateAuthRequest_PromptRoundTrip(t *testing.T) {
+	s := testStorage(t)
+	ctx := context.Background()
+	s.LoadClients([]ClientConfigEntry{{
+		ClientID:          "prompt-app",
+		ClientType:        "public",
+		LoginChannel:      "browser",
+		Name:              "Prompt App",
+		RedirectURIs:      []string{"https://app.example.com/cb"},
+		AllowedScopes:     []string{"openid"},
+		AllowedGrantTypes: []string{"authorization_code"},
+	}})
+
+	for _, prompt := range [][]string{{"login", "consent"}, {"none"}, nil} {
+		created, err := s.CreateAuthRequest(ctx, &oidc.AuthRequest{
+			ClientID:            "prompt-app",
+			RedirectURI:         "https://app.example.com/cb",
+			Scopes:              []string{"openid"},
+			ResponseType:        oidc.ResponseTypeCode,
+			CodeChallenge:       "challenge",
+			CodeChallengeMethod: oidc.CodeChallengeMethodS256,
+			Prompt:              prompt,
+		}, "")
+		if err != nil {
+			t.Fatalf("CreateAuthRequest(prompt=%v): %v", prompt, err)
+		}
+		got, err := s.GetAuthRequestModel(ctx, created.GetID())
+		if err != nil {
+			t.Fatalf("GetAuthRequestModel: %v", err)
+		}
+		if strings.Join(got.Prompt, " ") != strings.Join(prompt, " ") {
+			t.Fatalf("stored prompt = %v, want %v", got.Prompt, prompt)
+		}
 	}
 }

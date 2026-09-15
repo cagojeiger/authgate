@@ -61,7 +61,7 @@ func Run() {
 	deviceProvider := mustBuildUpstreamProvider(ctx, cfg, "/device/auth/callback", upstreamOpts)
 
 	// Service layer
-	loginService := service.NewLoginService(store, browserProvider.Name(), cfg.SessionTTL)
+	loginService := service.NewLoginService(store, browserProvider.Name(), cfg.PublicURL, cfg.SessionTTL)
 
 	// Device service
 	deviceService := service.NewDeviceService(store, deviceProvider.Name(), cfg.PublicURL, cfg.SessionTTL, clk)
@@ -79,7 +79,7 @@ func Run() {
 	var mcpLoginHandler *handler.MCPLoginHandler
 	if cfg.EnableMCP {
 		mcpProvider := mustBuildUpstreamProvider(ctx, cfg, "/mcp/callback", upstreamOpts)
-		mcpLoginService := service.NewMCPLoginService(store, mcpProvider.Name(), cfg.SessionTTL)
+		mcpLoginService := service.NewMCPLoginService(store, mcpProvider.Name(), cfg.PublicURL, cfg.SessionTTL)
 		mcpLoginHandler = handler.NewMCPLoginHandler(mcpLoginService, mcpProvider, cfg.DevMode, brand)
 	}
 

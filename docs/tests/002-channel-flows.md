@@ -17,6 +17,27 @@ Browser / Device / MCP / Refresh / Logout / Delete 각 채널이 공통 상태�
 | `browser-004b` | `deleted` | Browser 로그인 | Spec 001 신규 가입 서브플로우 진입 | 재가입 경로 |
 | `browser-005` | `pending_deletion`, 복구 후 auth_request 완료 상태 반영 실패 | Browser 재로그인 | 다음 재시도에서 정상 완료 | 복구 후 재시도 멱등성 |
 
+### prompt 파라미터 (Browser / MCP 공통)
+
+| ID | 초기 상태 | 입력 | 기대 결과 | 검증 포인트 |
+|----|----------|------|----------|-------------|
+| `login-prompt-001` | `active` 세션 | `prompt=none` → `/login`, `/mcp/login` | auto-approve | 세션 재사용 유지 |
+| `login-prompt-002` | 세션 없음 | `prompt=none` → `/login`, `/mcp/login` | `redirect_uri?error=login_required&state&iss`, 기존 query 유지 | IdP·화면 없음 |
+| `login-prompt-003` | Browser `disabled`/`deleted`, MCP `disabled`/`pending_deletion` 세션 | `prompt=none` | `login_required` + `auth.inactive_user` 1건 | 403 화면 대신 오류 응답 |
+| `login-prompt-004` | mcp 클라이언트 auth_request | `prompt=none` → `/login` | `channel_mismatch` 화면 | 채널 검증이 redirect보다 먼저 |
+| `login-prompt-005` | `active` 세션 | `prompt=login`, `select_account`, `login consent` | IdP redirect + upstream `prompt=select_account`, 세션 조회 없음 | 세션 재사용 안 함 |
+| `login-prompt-006` | `active` 세션 / 세션 없음 | prompt 없음, `consent` | auto-approve / upstream prompt 없는 IdP redirect | 기존 동작 |
+| `login-prompt-007` | - | `Storage.CreateAuthRequest`(prompt 있음/없음) | `GetAuthRequestModel`에서 같은 값, 없음은 빈 배열 | prompt 저장 |
+| `login-prompt-008` | `pending_deletion` 세션 (browser) | `prompt=none` | `login_required`, 복구·완료 없음, `auth.inactive_user` 1 | 백그라운드 확인이 탈퇴를 취소하지 않음 |
+| `login-prompt-009` | 만료된 auth_request (browser/mcp) | `/login` | 400 `auth_request_expired` | 만료는 500이 아님 |
+| `browser-prompt-001` / `mcp-prompt-001` | 로그인 후 세션 쿠키 | `/authorize?prompt=select_account` → 로그인 경로 | `/fake-auth?...&prompt=select_account` | 실제 서버에서 세션 재사용 안 함 |
+| `browser-prompt-002` / `mcp-prompt-002` | 세션 없음 | `/authorize?prompt=none` → 로그인 경로 | `302 /callback?error=login_required&state=test-state&iss=<issuer>` | RFC 9207 `iss` |
+| `browser-prompt-003` / `mcp-prompt-003` | 로그인 후 세션 쿠키 | `/authorize?prompt=none` | code 발급 + 토큰 교환 성공 | 무화면 로그인 |
+| `browser-prompt-004` | - | `/authorize?prompt=none login` | `invalid_request`, 로그인 경로로 가지 않음 | zitadel 검증 |
+
+단위 테스트(`login-prompt-001`~`006`, `008`, `009`)는 `internal/service/login_unit_test.go`, `login-prompt-007`은
+`internal/storage/codes_integration_test.go`, `*-prompt-00N` 통합 테스트는 `internal/integration/integration_prompt_test.go`에 있다.
+
 ### Browser code → token 교환
 
 | ID | 초기 상태 | 입력 | 기대 결과 | 검증 포인트 |

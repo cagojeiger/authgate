@@ -15,13 +15,18 @@ import (
 type MCPLoginService struct {
 	store        LoginStore
 	providerName string
+	issuer       string
 	sessionTTL   time.Duration
 }
 
-func NewMCPLoginService(store LoginStore, providerName string, sessionTTL time.Duration) *MCPLoginService {
+// NewMCPLoginService builds the mcp login service. issuer is the public URL
+// sent as the RFC 9207 iss parameter on the error responses /mcp/login returns
+// to the client itself (prompt=none).
+func NewMCPLoginService(store LoginStore, providerName, issuer string, sessionTTL time.Duration) *MCPLoginService {
 	return &MCPLoginService{
 		store:        store,
 		providerName: providerName,
+		issuer:       issuer,
 		sessionTTL:   sessionTTL,
 	}
 }
@@ -31,23 +36,35 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 		return &LoginResult{Action: ActionError, Error: "missing authRequestID", ErrorCode: http.StatusBadRequest}
 	}
 
+	authReq, result := loadLoginAuthRequest(ctx, s.store, authRequestID)
+	if result != nil {
+		return result
+	}
+
+	mode := loginPromptMode(authReq.Prompt)
+	if mode == promptInteractive {
+		return redirectToProviderSelectingAccount(authRequestID)
+	}
+
 	if sessionID != "" {
 		user, err := s.store.GetValidSession(ctx, sessionID)
-		if errors.Is(err, storage.ErrUserAccountClosed) {
+		if errors.Is(err, storage.ErrUserAccountClosed) || (err == nil && CheckAccess(user.Status, "mcp") != AccessAllow) {
 			s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
+			if mode == promptSilent {
+				return loginRequired(ctx, s.store, "mcp", s.issuer, authReq, ipAddress, userAgent)
+			}
 			return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 		}
 		if err == nil {
-			if CheckAccess(user.Status, "mcp") != AccessAllow {
-				s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
-				return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
-			}
 			// mcp never recovers (CheckAccess denies pending_deletion for mcp),
 			// so recovered is always false.
-			return completeReusedSessionLogin(ctx, s.store, "mcp", user, authRequestID, sessionID, ipAddress, userAgent, false)
+			return completeReusedSessionLogin(ctx, s.store, "mcp", user, authReq, sessionID, ipAddress, userAgent, false)
 		}
 	}
 
+	if mode == promptSilent {
+		return loginRequired(ctx, s.store, "mcp", s.issuer, authReq, ipAddress, userAgent)
+	}
 	return &LoginResult{Action: ActionRedirectToIdP, AuthRequestID: authRequestID}
 }
 

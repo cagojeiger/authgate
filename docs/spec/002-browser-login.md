@@ -37,7 +37,7 @@ PKCE S256이 MCP 채널 계약의 일부이기 때문이다 ([Spec 004](004-mcp-
 | Method | Path | 내부 처리 | 설명 |
 |--------|------|----------|------|
 | GET | `/authorize` | zitadel 라이브러리 | 인증 시작 (PKCE, redirect_uri, client_id 검증, auth_request 생성) |
-| GET | `/login` | authgate 핸들러 | 세션 확인 → 유효하면 auto-approve, 없으면 IdP redirect |
+| GET | `/login` | authgate 핸들러 | `prompt` 확인 → 세션 확인 → 유효하면 auto-approve, 없으면 IdP redirect (`prompt=none`이면 `login_required`) |
 | GET | `/login/callback` | authgate 핸들러 | IdP 코드 교환 → 신규/기존 판별 → 세션 생성 |
 | POST | `/oauth/token` | zitadel 라이브러리 | code + code_verifier (+ client_secret) → 토큰 발급 |
 | GET | `/.well-known/openid-configuration` | zitadel 라이브러리 | OIDC Discovery |
@@ -47,7 +47,8 @@ PKCE S256이 MCP 채널 계약의 일부이기 때문이다 ([Spec 004](004-mcp-
 
 - OAuth 2.1 Authorization Code Grant
 - RFC 7636 (PKCE, S256 필수)
-- OpenID Connect Core 1.0
+- OpenID Connect Core 1.0 (`prompt` 파라미터 §3.1.2.1)
+- RFC 9207 (authorization response `iss`)
 
 ## 플로우
 
@@ -70,10 +71,14 @@ sequenceDiagram
     AG->>AG: [zitadel] client.LoginURL(authRequestID)
     AG->>U: 302 → /login?authRequestID=xxx
 
-    Note over U,G: 3. 세션 확인
+    Note over U,G: 3. prompt + 세션 확인
     U->>AG: GET /login?authRequestID=xxx
-    alt 유효한 세션 + active
+    alt prompt=login 또는 select_account
+        AG->>U: 302 → IdP OAuth (prompt=select_account, 세션 재사용 안 함)
+    else 유효한 세션 + active
         AG->>AG: auto-approve → 6단계로
+    else 세션 없음 + prompt=none
+        AG->>U: 302 → App redirect_uri?error=login_required&state=...&iss=...
     else 세션 없음
         AG->>U: 302 → IdP OAuth
     end
@@ -140,6 +145,36 @@ sequenceDiagram
 | 세션 없음 + 기존 유저 | 로그인 클릭 → IdP → 완료 | 6 |
 | 세션 없음 + 신규 유저 | 로그인 클릭 → IdP → 완료 | 6 |
 
+## prompt 파라미터
+
+`/authorize`의 `prompt`(OIDC Core §3.1.2.1)는 zitadel이 파싱·검증하고 `auth_requests.prompt`에 저장된다.
+`none`을 다른 값과 함께 보내면 zitadel이 `/authorize`에서 `invalid_request`로 거부한다.
+`/login`은 세션을 보기 전에 저장된 값을 읽어 다음처럼 동작한다.
+
+| prompt | 유효한 세션 있음 | 세션 없음 |
+|--------|----------------|----------|
+| 없음 | 세션 재사용 (auto-approve) | IdP redirect |
+| `consent` | 없음과 같음. authgate에는 동의 화면이 없다 | 없음과 같음 |
+| `login`, `select_account` | 세션을 재사용하지 않고 IdP redirect | IdP redirect |
+| `none` | 세션 재사용 (auto-approve, 상태 검사·채널 검증 동일). 단 `pending_deletion` 계정은 **복구하지 않고** `login_required` | 화면·IdP redirect 없이 `login_required` 오류 응답 |
+
+- **IdP로 보내는 prompt**: `login`/`select_account`면 상위 IdP authorize 요청에 `prompt=select_account`를 붙인다.
+  Google은 `prompt=login`을 받지 않으며, `select_account`는 로그인된 Google 세션이 있어도 계정 선택 화면을 띄워 다른 계정으로 로그인할 수 있게 한다.
+  `select_account`는 **계정 선택을 강제할 뿐 재인증(비밀번호·2FA)을 강제하지 않는다**. Google 세션이 살아 있으면 계정만 고르고 끝날 수 있으므로, `prompt=login`의 "재인증" 의미는 근사치다.
+  그 외 경우에는 IdP에 `prompt`를 보내지 않는다. 콜백 이후 처리(가입·상태 검사·새 세션 발급)는 일반 로그인과 같다.
+- **`login_required` 응답**: auth_request의 `redirect_uri`(zitadel이 `/authorize`에서 클라이언트 등록값과 대조한 값)로
+  `302`하며 query에 `error=login_required`, 원래 `state`, `iss=<PUBLIC_URL>`(RFC 9207)을 붙인다. `code`는 없다.
+- **`prompt=none` + `pending_deletion`**: 복구는 탈퇴 요청을 취소하는 동작이라 사용자가 시작한 대화형 로그인에서만 일어난다.
+  RP가 페이지 로드마다 돌리는 백그라운드 확인으로 조용히 탈퇴가 취소되지 않도록, `auth.inactive_user`를 기록하고 `login_required`를 보낸다.
+- **`prompt=none` + 비활성 계정**: 세션의 계정이 `disabled`/`deleted`면 `auth.inactive_user`를 기록한 뒤 403 화면 대신
+  같은 `login_required` 오류 응답을 보낸다. 화면을 띄울 수 없는 요청이므로 RP가 대화형 로그인으로 넘어가게 하고,
+  그 대화형 로그인에서 `account_inactive` 화면이 뜬다. 오류 응답에는 계정 상태를 담지 않는다.
+- **redirect할 수 없는 오류**: auth_request 없음(400 `auth_request_not_found`)/만료(400 `auth_request_expired`), 채널 불일치는 `prompt=none`이어도 오류 화면을 띄운다.
+- **`max_age`와 `auth_time`**: `max_age`는 강제하지 않는다(`prompt=login`에 대해 zitadel이 설정하는 `max_age=0` 포함). ID token의 `auth_time`은
+  **auth_request를 완료한 시각**이며, 세션을 재사용한 경우에도 그렇다. 따라서 `auth_time`으로 인증 신선도를 판단하는 RP는 이를 실제 인증 시각으로 믿으면 안 된다.
+- **`consent`**: authgate에는 동의 화면이 없어 `consent`를 없는 것으로 취급한다. MCP 채널은 CIMD로 3rd-party 클라이언트도 받지만 동의 화면은 역시 없다([Spec 004](004-mcp-login.md)).
+- `/login`은 prompt와 무관하게 먼저 auth_request를 조회하므로, 존재하지 않는 auth_request는 IdP로 보내기 전에 `auth_request_not_found`로 끝난다.
+
 ## 토큰 내용
 
 ```json
@@ -178,6 +213,8 @@ sequenceDiagram
 | PKCE code_verifier 불일치 | `invalid_grant` | 400 | zitadel이 처리 |
 | client_secret 불일치 | `invalid_client` | 401 | confidential 클라이언트만 |
 | 채널 불일치 (`login_channel: mcp` 클라이언트의 auth_request를 브라우저 경로로 완료 시도) | `channel_mismatch` | 400 | `auth.channel_mismatch` audit 후 거부. `/login`, `/login/callback` 둘 다에서 강제 |
+| `prompt=none` + 유효한 세션 없음 또는 비활성 계정 | `login_required` | 302 | 클라이언트 `redirect_uri`로 오류 응답 (`state`, `iss` 포함) |
+| `prompt=none`과 다른 값 동시 지정 | `invalid_request` | 302 | zitadel이 `/authorize`에서 거부 |
 
 ## pending_deletion 복구
 
