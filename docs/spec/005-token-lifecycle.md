@@ -143,6 +143,36 @@ family revoke와 거의 동시에 진행되던 rotation이 끼워넣는 새 토�
 폐기한 요청, 즉 tombstone을 **새로 만든** 요청만 기록한다. tombstone insert의 `ON CONFLICT DO NOTHING`이
 판정하므로 재사용 요청 둘이 경합해도 폐기 기록은 하나다.
 
+### 재사용 유예 시간 (Reuse Grace)
+
+한 자격증명을 여러 세션이 공유하는 클라이언트(예: 창마다 MCP 연결을 띄우는 Claude Code)는 access_token이
+같은 순간 만료되면 **같은 refresh_token으로 거의 동시에** 갱신한다. 먼저 도착한 요청이 토큰을 교환하고 나면
+나머지는 "이미 사용된 토큰"이 되어, 유예가 없으면 위 규칙대로 family 전체가 폐기되고 모든 세션이 로그아웃된다.
+(2026-09-11 프로덕션: 같은 토큰이 2ms 간격으로 두 번 제출돼 family가 폐기됨.)
+
+`REFRESH_TOKEN_REUSE_GRACE_SEC`(기본 5초) 안에 다시 제출된 토큰은 폐기하지 않고 **같은 family에 새 토큰을 하나 더 발급**한다.
+기존 세션의 토큰도, 새로 받은 세션의 토큰도 모두 계속 쓸 수 있다.
+
+유예는 아래를 **모두** 만족할 때만 적용된다.
+
+| 조건 | 이유 |
+|------|------|
+| 토큰이 토큰 엔드포인트에서 **교환**됐다 (`used_at` 설정) | `/oauth/revoke`, 계정 삭제, family revoke로 **폐기**된 토큰은 `used_at`을 남기지 않으므로 유예가 없다 |
+| 교환 후 유예 시간 이내 | 그 뒤의 재제출은 다시 탈취 의심이다 |
+| family가 tombstone되지 않았다 | 재사용 탐지로 폐기된 family는 되살리지 않는다 |
+| 교환 이후 family에 생긴 토큰이 3개 미만 | 유예 창 안에서 재생 공격이 얻을 수 있는 토큰 수를 제한한다 |
+
+상한(3개)에 도달한 요청은 `invalid_grant`로 거부하지만 **family는 폐기하지 않는다**. 다른 세션이 쓰는 토큰을 지키기 위해서다.
+유예로 발급한 요청은 서버 로그에 `refresh token reuse within grace`(INFO), 상한 거부는
+`refresh token reuse within grace refused: cap reached`(WARN)로 남으며 감사 이벤트는 기록하지 않는다.
+
+**트레이드오프**: 토큰을 탈취한 공격자가 정상 교환 직후 유예 시간 안에 제출하면 탐지되지 않고 토큰을 받는다.
+유예를 수 초로 짧게 두고 발급 수를 제한하는 이유다. Auth0(Reuse Interval), Okta(grace period) 등도 같은 방식을 쓴다.
+유예를 끄려면 `REFRESH_TOKEN_REUSE_GRACE_SEC=0`.
+
+동시성: 같은 토큰을 제출한 요청은 행 잠금(`FOR UPDATE`)으로 직렬화되지만 새 토큰 insert는 뒤이은 트랜잭션에서 일어나므로,
+동시에 들어온 요청은 서로의 insert를 보기 전에 개수를 셀 수 있다. 상한은 동시성 하에서 근사치이고, 유예 시간이 상한을 한 번 더 묶는다.
+
 ## 계정 상태별 토큰 동작
 
 [ADR-000](../adr/000-authgate-identity.md) 상태 판정 규칙과 일치:

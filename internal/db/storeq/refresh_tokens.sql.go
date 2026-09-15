@@ -13,6 +13,24 @@ import (
 	"github.com/lib/pq"
 )
 
+const countRefreshTokensInFamilySince = `-- name: CountRefreshTokensInFamilySince :one
+SELECT count(*)
+FROM refresh_tokens
+WHERE family_id = $1 AND created_at >= $2
+`
+
+type CountRefreshTokensInFamilySinceParams struct {
+	FamilyID string
+	Since    time.Time
+}
+
+func (q *Queries) CountRefreshTokensInFamilySince(ctx context.Context, arg CountRefreshTokensInFamilySinceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRefreshTokensInFamilySince, arg.FamilyID, arg.Since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getRefreshFamilyIDByTokenHash = `-- name: GetRefreshFamilyIDByTokenHash :one
 SELECT family_id
 FROM refresh_tokens
@@ -167,7 +185,7 @@ func (q *Queries) RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFami
 
 const revokeRefreshTokenByHash = `-- name: RevokeRefreshTokenByHash :execrows
 UPDATE refresh_tokens
-SET revoked_at = $1, used_at = $1
+SET revoked_at = $1
 WHERE token_hash = $2 AND revoked_at IS NULL
 `
 
@@ -176,6 +194,9 @@ type RevokeRefreshTokenByHashParams struct {
 	TokenHash string
 }
 
+// Revocation leaves used_at alone: used_at is set only when the token is
+// redeemed at the token endpoint, which is what refresh reuse grace relies on
+// to tell a rotated token from a revoked one.
 func (q *Queries) RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeRefreshTokenByHash, arg.RevokedAt, arg.TokenHash)
 	if err != nil {

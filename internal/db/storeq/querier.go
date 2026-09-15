@@ -22,6 +22,7 @@ type Querier interface {
 	AnonymizeUserAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
+	CountRefreshTokensInFamilySince(ctx context.Context, arg CountRefreshTokensInFamilySinceParams) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
 	DeleteExpiredAuthRequestsBefore(ctx context.Context, arg DeleteExpiredAuthRequestsBeforeParams) (int64, error)
 	DeleteExpiredDeviceCodesBefore(ctx context.Context, arg DeleteExpiredDeviceCodesBeforeParams) (int64, error)
@@ -76,6 +77,9 @@ type Querier interface {
 	RedactAuditLogPIIByUserID(ctx context.Context, userID string) (int64, error)
 	RevokeActiveRefreshTokensByUserID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDParams) error
 	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error
+	// Revocation leaves used_at alone: used_at is set only when the token is
+	// redeemed at the token endpoint, which is what refresh reuse grace relies on
+	// to tell a rotated token from a revoked one.
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
 	RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error
 	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error

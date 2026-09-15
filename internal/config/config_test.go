@@ -14,7 +14,7 @@ func clearEnv() {
 		"OIDC_ISSUER_URL", "OIDC_ISSUER_HOST_ALLOWLIST",
 		"OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
 		"OIDC_HTTP_TIMEOUT_SEC",
-		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL",
+		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "REFRESH_TOKEN_REUSE_GRACE_SEC",
 		"AUDIT_LOG_PII_RETENTION_DAYS", "ADMIN_AUDIT_LOG_PII_RETENTION_DAYS",
 		"DEV_MODE", "ENABLE_MCP",
 		"PII_ENC_ROOT_KEY_ID", "PII_ENC_ROOT_SECRET",
@@ -210,6 +210,9 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.RefreshTokenTTL.Seconds() != 2592000 {
 		t.Errorf("RefreshTokenTTL = %v, want 2592000s", cfg.RefreshTokenTTL)
+	}
+	if cfg.RefreshTokenReuseGrace.Seconds() != 5 {
+		t.Errorf("RefreshTokenReuseGrace = %v, want 5s", cfg.RefreshTokenReuseGrace)
 	}
 	if cfg.AuditLogPIIRetention.Hours() != 90*24 {
 		t.Errorf("AuditLogPIIRetention = %v, want 90 days", cfg.AuditLogPIIRetention)
@@ -644,5 +647,35 @@ func TestLoad_DevModeEmptyAllowlist_NoWarn(t *testing.T) {
 	}
 	if strings.Contains(logs.String(), "OIDC_ISSUER_HOST_ALLOWLIST is empty") {
 		t.Errorf("dev mode should not warn about allowlist; logs = %q", logs.String())
+	}
+}
+
+func TestLoad_RefreshTokenReuseGraceBounds(t *testing.T) {
+	for _, tc := range []struct {
+		value   string
+		wantErr bool
+	}{
+		{"0", false},
+		{"60", false},
+		{"-1", true},
+		{"61", true},
+		{"abc", true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			clearEnv()
+			setMinimal()
+			os.Setenv("REFRESH_TOKEN_REUSE_GRACE_SEC", tc.value)
+
+			_, err := Load()
+			if tc.wantErr && err == nil {
+				t.Fatalf("REFRESH_TOKEN_REUSE_GRACE_SEC=%s: expected an error", tc.value)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("REFRESH_TOKEN_REUSE_GRACE_SEC=%s: unexpected error %v", tc.value, err)
+			}
+			if err != nil && !strings.Contains(err.Error(), "REFRESH_TOKEN_REUSE_GRACE_SEC") {
+				t.Errorf("error = %v, want one mentioning REFRESH_TOKEN_REUSE_GRACE_SEC", err)
+			}
+		})
 	}
 }

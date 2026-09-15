@@ -4,8 +4,11 @@ FROM refresh_tokens
 WHERE token_hash = $1;
 
 -- name: RevokeRefreshTokenByHash :execrows
+-- Revocation leaves used_at alone: used_at is set only when the token is
+-- redeemed at the token endpoint, which is what refresh reuse grace relies on
+-- to tell a rotated token from a revoked one.
 UPDATE refresh_tokens
-SET revoked_at = $1, used_at = $1
+SET revoked_at = $1
 WHERE token_hash = $2 AND revoked_at IS NULL;
 
 -- name: InsertRefreshToken :exec
@@ -43,6 +46,11 @@ WHERE token_hash = $1 AND client_id = $2;
 INSERT INTO refresh_token_families (family_id, user_id, reason, revoked_at)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (family_id) DO NOTHING;
+
+-- name: CountRefreshTokensInFamilySince :one
+SELECT count(*)
+FROM refresh_tokens
+WHERE family_id = sqlc.arg(family_id) AND created_at >= sqlc.arg(since);
 
 -- name: IsRefreshFamilyRevoked :one
 SELECT EXISTS (

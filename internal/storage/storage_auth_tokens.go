@@ -221,6 +221,31 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		return nil, err
 	}
 
+	// A token redeemed moments ago by a sibling request is not a theft signal:
+	// clients that run several sessions on one stored credential refresh it
+	// concurrently. Within the grace, issue another child into the same family
+	// instead of revoking it.
+	if isRefreshTokenUsedOrRevoked(rt) {
+		switch grace, err := s.refreshReuseGraceDecision(ctx, qtx, rt, now); {
+		case err != nil:
+			return nil, err
+		case grace == graceIssue:
+			if err := s.validateRefreshTokenRequest(ctx, tx, rt, now); err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(); err != nil {
+				return nil, err
+			}
+			slog.InfoContext(ctx, "refresh token reuse within grace", "family_id", rt.FamilyID)
+			return rt, nil
+		case grace == graceRefuse:
+			// Past the cap but still inside the window: refuse this request, but
+			// do not revoke the family the other sessions are using.
+			slog.WarnContext(ctx, "refresh token reuse within grace refused: cap reached", "family_id", rt.FamilyID)
+			return nil, op.ErrInvalidRefreshToken
+		}
+	}
+
 	// Already used/revoked → reuse detection → family revoke + tombstone
 	if isRefreshTokenUsedOrRevoked(rt) {
 		if err := revokeRefreshFamilyOnReuse(ctx, qtx, rt.FamilyID, now); err != nil {
@@ -461,6 +486,68 @@ func loadRefreshTokenForUpdate(ctx context.Context, qtx *storeq.Queries, tokenHa
 
 func isRefreshTokenUsedOrRevoked(rt *RefreshTokenModel) bool {
 	return rt.RevokedAt != nil || rt.UsedAt != nil
+}
+
+// refreshReuseGraceMaxIssued caps the tokens a family may gain from one
+// redemption inside the grace: the regular child plus grace children. It bounds
+// what a replay inside the window can obtain.
+const refreshReuseGraceMaxIssued = 3
+
+type refreshReuseGrace int
+
+const (
+	// graceNone: the grace does not apply; run reuse detection.
+	graceNone refreshReuseGrace = iota
+	// graceIssue: redeem the token again into the same family.
+	graceIssue
+	// graceRefuse: inside the window but the cap is reached; refuse without
+	// revoking the family.
+	graceRefuse
+)
+
+// refreshReuseGraceDecision decides how a redeemed refresh token presented
+// again is handled. The grace applies only when all of these hold:
+//
+//   - the grace is enabled;
+//   - the token was redeemed: used_at is set, and revoked in that same step.
+//     Revocation through /oauth/revoke, account deletion or a family revoke
+//     never sets used_at, so a revoked token gets no grace;
+//   - the redemption was at most the grace ago;
+//   - the family is not tombstoned by reuse detection.
+//
+// Within the grace the token is redeemed again while the family has gained
+// fewer than refreshReuseGraceMaxIssued tokens since the redemption, and
+// refused (graceRefuse) after that.
+//
+// Requests presenting the same token are serialized by the FOR UPDATE row lock,
+// but the child each leads to is inserted in a later transaction, so concurrent
+// requests can each count before the others commit. The cap is therefore
+// approximate under concurrency; the grace window still bounds it.
+func (s *Storage) refreshReuseGraceDecision(ctx context.Context, qtx *storeq.Queries, rt *RefreshTokenModel, now time.Time) (refreshReuseGrace, error) {
+	if s.refreshReuseGrace <= 0 || rt.UsedAt == nil || rt.RevokedAt == nil || !rt.RevokedAt.Equal(*rt.UsedAt) {
+		return graceNone, nil
+	}
+	if now.Sub(*rt.UsedAt) > s.refreshReuseGrace {
+		return graceNone, nil
+	}
+	tombstoned, err := qtx.IsRefreshFamilyRevoked(ctx, rt.FamilyID)
+	if err != nil {
+		return graceNone, err
+	}
+	if tombstoned {
+		return graceNone, nil
+	}
+	issued, err := qtx.CountRefreshTokensInFamilySince(ctx, storeq.CountRefreshTokensInFamilySinceParams{
+		FamilyID: rt.FamilyID,
+		Since:    *rt.UsedAt,
+	})
+	if err != nil {
+		return graceNone, err
+	}
+	if issued >= refreshReuseGraceMaxIssued {
+		return graceRefuse, nil
+	}
+	return graceIssue, nil
 }
 
 func revokeRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, familyID string, now time.Time) error {

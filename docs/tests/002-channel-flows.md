@@ -58,8 +58,14 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 | `refresh-001` | `active` | valid refresh_token | 새 access/refresh 발급 | 정상 rotation |
 | `refresh-002` | `pending_deletion` | valid refresh_token | `invalid_grant` | 삭제 유예 차단 |
 | `refresh-003` | `disabled` 또는 `deleted` | valid refresh_token | `invalid_grant` | 비활성 차단 |
-| `refresh-004` | same token concurrent 2회 | `/oauth/token` | 1회 성공 + 1회 실패 | row lock/원자성 |
+| `refresh-004` | same token concurrent 2회 (유예 끔) | `/oauth/token` | 1회 성공 + 1회 실패 | row lock/원자성 |
+| `refresh-004b` | same token concurrent 2회 (유예 5초) | `/oauth/token` | 2회 성공, 두 토큰 모두 rotation 가능, reuse 감사 0 | 동시 갱신 클라이언트 보호 |
 | `refresh-005` | revoked token 재사용 | `/oauth/token` | family revoke + `invalid_grant` | 탈취 의심 처리 |
+| `refresh-006` | 교환된 토큰을 유예 안에 재제출 | `Storage` | 같은 family에 새 토큰, tombstone 없음 | 유예 발급 |
+| `refresh-007` | 교환된 토큰을 유예 밖에 재제출 | `Storage` | family revoke + tombstone | 유예 만료 |
+| `refresh-008` | `/oauth/revoke`한 토큰을 유예 안에 재제출 | `Storage` | family revoke + tombstone | 폐기 토큰은 유예 없음 |
+| `refresh-009` | 유예 안에서 상한(3개) 초과 재제출 | `Storage` | `invalid_grant`, family 유지 | 재생 발급 제한 |
+| `refresh-010` | tombstone된 family 토큰을 유예 안에 재제출 | `Storage` | `invalid_grant` | 폐기 family 부활 금지 |
 
 ## Delete / Recover
 

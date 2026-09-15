@@ -55,6 +55,9 @@ func SetupTestServer(t *testing.T) *TestServer {
 type SetupOptions struct {
 	EnableMCP                bool
 	IDTokenUserinfoAssertion bool
+	// RefreshReuseGrace mirrors REFRESH_TOKEN_REUSE_GRACE_SEC. Zero keeps the
+	// strict reuse detection the rest of the suite asserts.
+	RefreshReuseGrace time.Duration
 }
 
 // setupCryptoKeys derives test crypto keys and registers their epochs.
@@ -102,6 +105,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 
 	store := storage.New(db, clk, gen, stateChecker, 15*time.Minute, 30*24*time.Hour)
 	store.SetDevicePollInterval(devicePollInterval)
+	store.SetRefreshReuseGrace(opts.RefreshReuseGrace)
 	// PII at-rest encryption keys are mandatory after the plaintext-PII cleanup
 	// (ADR-002): signup/lookup require them, so every test server wires them.
 	setupCryptoKeys(t, store)

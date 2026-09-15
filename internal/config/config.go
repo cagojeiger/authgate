@@ -47,6 +47,10 @@ type Config struct {
 	SessionTTL       time.Duration
 	AccessTokenTTL   time.Duration
 	RefreshTokenTTL  time.Duration
+	// RefreshTokenReuseGrace is how long a just-redeemed refresh token is still
+	// accepted, so clients refreshing one credential from several sessions at
+	// once do not trip reuse detection. Zero disables it.
+	RefreshTokenReuseGrace time.Duration
 	// AuditLogPIIRetention is how long end-user activity records keep their
 	// identifying columns. This is an incident-investigation horizon: the
 	// statutory access-record duty covers personal-information handlers
@@ -109,6 +113,7 @@ func Load() (*Config, error) {
 		SessionTTL:                time.Duration(envInt("SESSION_TTL", 86400)) * time.Second,
 		AccessTokenTTL:            time.Duration(envInt("ACCESS_TOKEN_TTL", 900)) * time.Second,
 		RefreshTokenTTL:           time.Duration(envInt("REFRESH_TOKEN_TTL", 2592000)) * time.Second,
+		RefreshTokenReuseGrace:    time.Duration(envInt("REFRESH_TOKEN_REUSE_GRACE_SEC", 5)) * time.Second,
 		AuditLogPIIRetention:      time.Duration(envInt("AUDIT_LOG_PII_RETENTION_DAYS", 90)) * 24 * time.Hour,
 		AdminAuditLogPIIRetention: time.Duration(envInt("ADMIN_AUDIT_LOG_PII_RETENTION_DAYS", 730)) * 24 * time.Hour,
 		DevMode:                   envBool("DEV_MODE", false),
@@ -154,6 +159,11 @@ func Load() (*Config, error) {
 	// shorter for operator actions rather than silently under-retaining.
 	if c.AdminAuditLogPIIRetention < 365*24*time.Hour {
 		return nil, fmt.Errorf("ADMIN_AUDIT_LOG_PII_RETENTION_DAYS must be >= 365")
+	}
+	// The grace is a window in which a replayed token still works, so keep it
+	// to what concurrent clients need rather than a general leeway.
+	if c.RefreshTokenReuseGrace < 0 || c.RefreshTokenReuseGrace > 60*time.Second {
+		return nil, fmt.Errorf("REFRESH_TOKEN_REUSE_GRACE_SEC must be between 0 and 60")
 	}
 	if c.RateLimitTokenRPS <= 0 {
 		return nil, fmt.Errorf("RATE_LIMIT_TOKEN_RPS must be > 0")
@@ -271,6 +281,7 @@ func validateParseableEnv() error {
 		"SESSION_TTL",
 		"ACCESS_TOKEN_TTL",
 		"REFRESH_TOKEN_TTL",
+		"REFRESH_TOKEN_REUSE_GRACE_SEC",
 		"AUDIT_LOG_PII_RETENTION_DAYS",
 		"ADMIN_AUDIT_LOG_PII_RETENTION_DAYS",
 		"HTTP_READ_HEADER_TIMEOUT_SEC",
