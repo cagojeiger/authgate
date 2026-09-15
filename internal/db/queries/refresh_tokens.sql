@@ -39,7 +39,7 @@ SELECT user_id, id
 FROM refresh_tokens
 WHERE token_hash = $1 AND client_id = $2;
 
--- name: TombstoneRefreshFamily :exec
+-- name: TombstoneRefreshFamily :execrows
 INSERT INTO refresh_token_families (family_id, user_id, reason, revoked_at)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (family_id) DO NOTHING;

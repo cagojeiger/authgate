@@ -229,14 +229,23 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		// Tombstone the family in the same tx as the revoke. RevokeRefreshFamily
 		// only flips existing rows; the tombstone is what CreateAccessAndRefreshTokens
 		// checks so a child rotating in just after the revoke is still refused.
-		if err := tombstoneRefreshFamilyOnReuse(ctx, qtx, rt.FamilyID, rt.UserID, now); err != nil {
+		tombstoned, err := tombstoneRefreshFamilyOnReuse(ctx, qtx, rt.FamilyID, rt.UserID, now)
+		if err != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
-		// Write the reuse-detection audit rows in the SAME transaction too, so the
-		// revoke, tombstone and audit evidence commit atomically. If any insert
-		// fails the whole tx rolls back; the client's retry triggers reuse
-		// detection again (token already used/revoked, so it stays unusable).
-		if err := s.auditRefreshReuseDetectionTx(ctx, qtx, rt.UserID, rt.FamilyID); err != nil {
+		// Every reuse is audited with the presenter's IP and user agent: in a
+		// theft the attacker is often a later presenter (the victim trips
+		// detection first, the attacker then presents its own now-revoked
+		// token), and these rows are the only record of where it connected
+		// from. The family revoke is audited once, by the request whose
+		// tombstone insert won; ON CONFLICT DO NOTHING picks exactly one
+		// transaction even when reuse requests race.
+		//
+		// The audit rows commit in the SAME transaction as the revoke and
+		// tombstone, so they cannot be lost on their own. If any insert fails the
+		// whole tx rolls back, the tombstone with it, and the client's retry
+		// detects the reuse again and audits it then.
+		if err := s.auditRefreshReuseDetectionTx(ctx, qtx, rt.UserID, rt.FamilyID, tombstoned); err != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
 		if err := tx.Commit(); err != nil {
@@ -463,24 +472,33 @@ func revokeRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, family
 
 // tombstoneRefreshFamilyOnReuse records a permanent per-family tombstone so a
 // child token cannot be issued into the family later (checked by
-// CreateAccessAndRefreshTokens). Idempotent via ON CONFLICT DO NOTHING.
-func tombstoneRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, familyID, userID string, now time.Time) error {
-	return qtx.TombstoneRefreshFamily(ctx, storeq.TombstoneRefreshFamilyParams{
+// CreateAccessAndRefreshTokens). Idempotent via ON CONFLICT DO NOTHING; it
+// reports whether this call created the tombstone.
+func tombstoneRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, familyID, userID string, now time.Time) (bool, error) {
+	n, err := qtx.TombstoneRefreshFamily(ctx, storeq.TombstoneRefreshFamilyParams{
 		FamilyID:  familyID,
 		UserID:    userID,
 		Reason:    "reuse_detected",
 		RevokedAt: now,
 	})
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
-// auditRefreshReuseDetectionTx writes the reuse-detection and family-revoked
-// audit rows via the supplied transaction queries, so they commit atomically
-// with the family revoke. An insert error is returned (not swallowed) so the
+// auditRefreshReuseDetectionTx writes the reuse-detection audit row, and the
+// family-revoked row when familyRevoked (this request created the tombstone),
+// via the supplied transaction queries, so they commit atomically with the
+// family revoke. An insert error is returned (not swallowed) so the
 // caller can roll back the whole reuse-detection transaction.
-func (s *Storage) auditRefreshReuseDetectionTx(ctx context.Context, qtx *storeq.Queries, userID, familyID string) error {
+func (s *Storage) auditRefreshReuseDetectionTx(ctx context.Context, qtx *storeq.Queries, userID, familyID string, familyRevoked bool) error {
 	info := clientinfo.FromContext(ctx)
 	if err := s.writeAuditLogTx(ctx, qtx, &userID, EventAuthRefreshReuseDetected, info.IP, info.UserAgent, map[string]any{"family_id": familyID}); err != nil {
 		return err
+	}
+	if !familyRevoked {
+		return nil
 	}
 	return s.writeAuditLogTx(ctx, qtx, &userID, EventAuthRefreshFamilyRevoked, info.IP, info.UserAgent, map[string]any{"family_id": familyID})
 }

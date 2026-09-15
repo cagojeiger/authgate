@@ -80,7 +80,7 @@ type Querier interface {
 	RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error
 	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error
 	SetUserStatusByID(ctx context.Context, arg SetUserStatusByIDParams) error
-	TombstoneRefreshFamily(ctx context.Context, arg TombstoneRefreshFamilyParams) error
+	TombstoneRefreshFamily(ctx context.Context, arg TombstoneRefreshFamilyParams) (int64, error)
 	TryCleanupAdvisoryLock(ctx context.Context, lockKey int64) (bool, error)
 	UnlockCleanupAdvisoryLock(ctx context.Context, lockKey int64) (bool, error)
 	UpdateAuthRequestCode(ctx context.Context, arg UpdateAuthRequestCodeParams) error
