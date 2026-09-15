@@ -16,16 +16,19 @@ import (
 const countRefreshTokensInFamilySince = `-- name: CountRefreshTokensInFamilySince :one
 SELECT count(*)
 FROM refresh_tokens
-WHERE family_id = $1 AND created_at >= $2
+WHERE family_id = $1 AND created_at >= $2 AND id <> $3
 `
 
 type CountRefreshTokensInFamilySinceParams struct {
-	FamilyID string
-	Since    time.Time
+	FamilyID   string
+	Since      time.Time
+	RedeemedID string
 }
 
+// Tokens the family gained since a redemption, not counting the redeemed token
+// itself (its created_at can equal the redemption time).
 func (q *Queries) CountRefreshTokensInFamilySince(ctx context.Context, arg CountRefreshTokensInFamilySinceParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countRefreshTokensInFamilySince, arg.FamilyID, arg.Since)
+	row := q.db.QueryRowContext(ctx, countRefreshTokensInFamilySince, arg.FamilyID, arg.Since, arg.RedeemedID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

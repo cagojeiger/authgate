@@ -22,6 +22,8 @@ type Querier interface {
 	AnonymizeUserAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
+	// Tokens the family gained since a redemption, not counting the redeemed token
+	// itself (its created_at can equal the redemption time).
 	CountRefreshTokensInFamilySince(ctx context.Context, arg CountRefreshTokensInFamilySinceParams) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
 	DeleteExpiredAuthRequestsBefore(ctx context.Context, arg DeleteExpiredAuthRequestsBeforeParams) (int64, error)

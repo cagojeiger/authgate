@@ -48,9 +48,11 @@ VALUES ($1, $2, $3, $4)
 ON CONFLICT (family_id) DO NOTHING;
 
 -- name: CountRefreshTokensInFamilySince :one
+-- Tokens the family gained since a redemption, not counting the redeemed token
+-- itself (its created_at can equal the redemption time).
 SELECT count(*)
 FROM refresh_tokens
-WHERE family_id = sqlc.arg(family_id) AND created_at >= sqlc.arg(since);
+WHERE family_id = sqlc.arg(family_id) AND created_at >= sqlc.arg(since) AND id <> sqlc.arg(redeemed_id);
 
 -- name: IsRefreshFamilyRevoked :one
 SELECT EXISTS (

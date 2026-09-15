@@ -538,8 +538,9 @@ func (s *Storage) refreshReuseGraceDecision(ctx context.Context, qtx *storeq.Que
 		return graceNone, nil
 	}
 	issued, err := qtx.CountRefreshTokensInFamilySince(ctx, storeq.CountRefreshTokensInFamilySinceParams{
-		FamilyID: rt.FamilyID,
-		Since:    *rt.UsedAt,
+		FamilyID:   rt.FamilyID,
+		Since:      *rt.UsedAt,
+		RedeemedID: rt.ID,
 	})
 	if err != nil {
 		return graceNone, err
