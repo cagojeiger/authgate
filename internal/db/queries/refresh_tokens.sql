@@ -28,14 +28,16 @@ SET revoked_at = $1
 WHERE family_id = $2 AND revoked_at IS NULL;
 
 -- name: GetRefreshTokenGrantByHash :one
+-- Scoped to the client: RFC 7009 §2.1 revokes only tokens issued to the
+-- requesting client.
 SELECT family_id, user_id
 FROM refresh_tokens
-WHERE token_hash = $1;
+WHERE token_hash = $1 AND client_id = $2;
 
 -- name: GetRefreshTokenGrantByID :one
 SELECT family_id, user_id
 FROM refresh_tokens
-WHERE id = $1;
+WHERE id = $1 AND client_id = $2;
 
 -- name: MarkRefreshTokenUsedAndRevokedByID :exec
 UPDATE refresh_tokens

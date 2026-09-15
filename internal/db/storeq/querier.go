@@ -49,8 +49,10 @@ type Querier interface {
 	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (GetDeviceCodeByUserCodeRow, error)
 	GetRefreshFamilyIDByTokenHash(ctx context.Context, tokenHash string) (string, error)
 	GetRefreshTokenForUpdateByHash(ctx context.Context, tokenHash string) (GetRefreshTokenForUpdateByHashRow, error)
-	GetRefreshTokenGrantByHash(ctx context.Context, tokenHash string) (GetRefreshTokenGrantByHashRow, error)
-	GetRefreshTokenGrantByID(ctx context.Context, id string) (GetRefreshTokenGrantByIDRow, error)
+	// Scoped to the client: RFC 7009 §2.1 revokes only tokens issued to the
+	// requesting client.
+	GetRefreshTokenGrantByHash(ctx context.Context, arg GetRefreshTokenGrantByHashParams) (GetRefreshTokenGrantByHashRow, error)
+	GetRefreshTokenGrantByID(ctx context.Context, arg GetRefreshTokenGrantByIDParams) (GetRefreshTokenGrantByIDRow, error)
 	GetRefreshTokenInfoByHashAndClientID(ctx context.Context, arg GetRefreshTokenInfoByHashAndClientIDParams) (GetRefreshTokenInfoByHashAndClientIDRow, error)
 	GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error)
 	GetUserByProviderSubHash(ctx context.Context, arg GetUserByProviderSubHashParams) (GetUserByProviderSubHashRow, error)

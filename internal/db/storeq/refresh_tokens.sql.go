@@ -82,16 +82,23 @@ func (q *Queries) GetRefreshTokenForUpdateByHash(ctx context.Context, tokenHash 
 const getRefreshTokenGrantByHash = `-- name: GetRefreshTokenGrantByHash :one
 SELECT family_id, user_id
 FROM refresh_tokens
-WHERE token_hash = $1
+WHERE token_hash = $1 AND client_id = $2
 `
+
+type GetRefreshTokenGrantByHashParams struct {
+	TokenHash string
+	ClientID  string
+}
 
 type GetRefreshTokenGrantByHashRow struct {
 	FamilyID string
 	UserID   string
 }
 
-func (q *Queries) GetRefreshTokenGrantByHash(ctx context.Context, tokenHash string) (GetRefreshTokenGrantByHashRow, error) {
-	row := q.db.QueryRowContext(ctx, getRefreshTokenGrantByHash, tokenHash)
+// Scoped to the client: RFC 7009 §2.1 revokes only tokens issued to the
+// requesting client.
+func (q *Queries) GetRefreshTokenGrantByHash(ctx context.Context, arg GetRefreshTokenGrantByHashParams) (GetRefreshTokenGrantByHashRow, error) {
+	row := q.db.QueryRowContext(ctx, getRefreshTokenGrantByHash, arg.TokenHash, arg.ClientID)
 	var i GetRefreshTokenGrantByHashRow
 	err := row.Scan(&i.FamilyID, &i.UserID)
 	return i, err
@@ -100,16 +107,21 @@ func (q *Queries) GetRefreshTokenGrantByHash(ctx context.Context, tokenHash stri
 const getRefreshTokenGrantByID = `-- name: GetRefreshTokenGrantByID :one
 SELECT family_id, user_id
 FROM refresh_tokens
-WHERE id = $1
+WHERE id = $1 AND client_id = $2
 `
+
+type GetRefreshTokenGrantByIDParams struct {
+	ID       string
+	ClientID string
+}
 
 type GetRefreshTokenGrantByIDRow struct {
 	FamilyID string
 	UserID   string
 }
 
-func (q *Queries) GetRefreshTokenGrantByID(ctx context.Context, id string) (GetRefreshTokenGrantByIDRow, error) {
-	row := q.db.QueryRowContext(ctx, getRefreshTokenGrantByID, id)
+func (q *Queries) GetRefreshTokenGrantByID(ctx context.Context, arg GetRefreshTokenGrantByIDParams) (GetRefreshTokenGrantByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getRefreshTokenGrantByID, arg.ID, arg.ClientID)
 	var i GetRefreshTokenGrantByIDRow
 	err := row.Scan(&i.FamilyID, &i.UserID)
 	return i, err

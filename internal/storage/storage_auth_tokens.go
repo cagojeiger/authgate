@@ -360,11 +360,16 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 // passes it after GetRefreshTokenInfo.
 func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID string, clientID string) *oidc.Error {
 	info := clientinfo.FromContext(ctx)
-	revoked, err := s.revokeRefreshGrant(ctx, tokenOrTokenID)
+	revoked, grantUserID, err := s.revokeRefreshGrant(ctx, tokenOrTokenID, clientID)
 	if err != nil {
 		slog.ErrorContext(ctx, "revoke refresh grant", "error", err)
 	}
 	if revoked {
+		// zitadel/oidc passes an empty subject when it could not resolve the
+		// token itself; the grant's owner is known from the row.
+		if grantUserID != "" {
+			userID = grantUserID
+		}
 		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, info.IP, info.UserAgent, map[string]any{
 			"client_id":   clientID,
 			"client_name": s.auditClientName(ctx, clientID),
@@ -376,42 +381,44 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 }
 
 // revokeRefreshGrant revokes the family of the refresh token identified by
-// tokenOrTokenID and tombstones it. It reports whether any live token was
-// revoked.
-func (s *Storage) revokeRefreshGrant(ctx context.Context, tokenOrTokenID string) (bool, error) {
+// tokenOrTokenID and tombstones it, provided the token was issued to clientID;
+// a token of another client is left alone (RFC 7009 §2.1), which the endpoint
+// still answers with 200. It reports whether any live token was revoked and
+// the grant's user.
+func (s *Storage) revokeRefreshGrant(ctx context.Context, tokenOrTokenID, clientID string) (bool, string, error) {
 	now := s.clock.Now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	defer func() { _ = tx.Rollback() }()
 	qtx := storeq.New(tx)
 
-	familyID, userID, err := lookupRefreshGrant(ctx, qtx, s.keys.RefreshHash(tokenOrTokenID), tokenOrTokenID)
+	familyID, userID, err := lookupRefreshGrant(ctx, qtx, s.keys.RefreshHash(tokenOrTokenID), tokenOrTokenID, clientID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+		return false, "", nil
 	}
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	n, err := qtx.RevokeRefreshFamily(ctx, storeq.RevokeRefreshFamilyParams{
 		RevokedAt: sql.NullTime{Time: now, Valid: true},
 		FamilyID:  familyID,
 	})
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	if _, err := tombstoneRefreshFamily(ctx, qtx, familyID, userID, tombstoneReasonRevoked, now); err != nil {
-		return false, err
+		return false, "", err
 	}
 	if err := tx.Commit(); err != nil {
-		return false, err
+		return false, "", err
 	}
-	return n > 0, nil
+	return n > 0, userID, nil
 }
 
-func lookupRefreshGrant(ctx context.Context, qtx *storeq.Queries, tokenHash, tokenID string) (familyID, userID string, err error) {
-	row, err := qtx.GetRefreshTokenGrantByHash(ctx, tokenHash)
+func lookupRefreshGrant(ctx context.Context, qtx *storeq.Queries, tokenHash, tokenID, clientID string) (familyID, userID string, err error) {
+	row, err := qtx.GetRefreshTokenGrantByHash(ctx, storeq.GetRefreshTokenGrantByHashParams{TokenHash: tokenHash, ClientID: clientID})
 	if err == nil {
 		return row.FamilyID, row.UserID, nil
 	}
@@ -421,7 +428,7 @@ func lookupRefreshGrant(ctx context.Context, qtx *storeq.Queries, tokenHash, tok
 	if _, perr := uuid.Parse(tokenID); perr != nil {
 		return "", "", sql.ErrNoRows
 	}
-	byID, err := qtx.GetRefreshTokenGrantByID(ctx, tokenID)
+	byID, err := qtx.GetRefreshTokenGrantByID(ctx, storeq.GetRefreshTokenGrantByIDParams{ID: tokenID, ClientID: clientID})
 	if err != nil {
 		return "", "", err
 	}
@@ -683,7 +690,13 @@ func (s *Storage) lockAndCheckGraceChild(ctx context.Context, tx *sql.Tx, qtx *s
 		return rt.ID, false, nil
 	}
 	if err := s.validateRefreshTokenRequest(ctx, tx, rt, now); err != nil {
-		return "", false, err
+		// Keep an OAuth error as it is (e.g. an inactive account); anything
+		// else would reach the client as 500 from this step.
+		var oerr *oidc.Error
+		if errors.As(err, &oerr) {
+			return "", false, err
+		}
+		return "", false, errRefreshGrantRefused()
 	}
 	grace, err := s.refreshReuseGraceDecision(ctx, qtx, rt, now)
 	if err != nil {

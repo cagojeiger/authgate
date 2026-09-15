@@ -73,6 +73,8 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 | `refresh-015` | 정상 교환과 유예 재생이 insert 순서를 바꿈 | `Storage` | `outcome=issued` 감사는 재생 IP 1건 | 감사 귀속 |
 | `refresh-016` | insert 단계에서 상한 거부 | `Storage` | `invalid_grant`(→ 400), `ErrInvalidRefreshToken` 래핑 | 500 금지 |
 | `refresh-017` | 교환된 토큰 행이 insert 전 삭제됨 | `Storage` | `invalid_grant`, 토큰 발급 없음 | 무관한 family 생성 금지 |
+| `refresh-019` | 다른 클라이언트가 같은 family의 토큰(원문·id)으로 revoke | `Storage` | grant 유지, tombstone·감사 없음 | RFC 7009 클라이언트 바인딩 |
+| `refresh-020` | 잠정 판정 뒤 계정 비활성화 / 토큰 만료 후 insert | `Storage` | `invalid_grant`, 자식 없음 | 잠금 하 재검증 |
 | `refresh-018` | 교환 안 된 토큰에 20개 동시 요청 × 5회 | `Storage` | 자식 ≤ 3, 거부는 전부 `ErrInvalidRefreshToken`, 교착 없음 | 실제 동시성 |
 
 ## Delete / Recover

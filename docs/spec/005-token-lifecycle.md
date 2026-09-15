@@ -291,7 +291,7 @@ OIDC RP-Initiated Logout 1.0 §2의 `/end_session` 엔드포인트와 RFC 7009�
 
 **핵심 계약**:
 
-- `/oauth/revoke`는 제출된 토큰 한 행이 아니라 그 토큰의 **grant 전체**를 폐기한다(RFC 7009 §2.1 허용). 재사용 유예로 한 family에 살아있는 토큰이 여럿일 수 있어, 한 행만 폐기하면 다른 세션이 받은 형제 토큰이 수명 끝까지 살아남기 때문이다. id로 전달돼도(zitadel이 `GetRefreshTokenInfo` 후 id를 넘김) 같다.
+- `/oauth/revoke`는 제출된 토큰 한 행이 아니라 그 토큰의 **grant 전체**를 폐기한다(RFC 7009 §2.1 허용). 재사용 유예로 한 family에 살아있는 토큰이 여럿일 수 있어, 한 행만 폐기하면 다른 세션이 받은 형제 토큰이 수명 끝까지 살아남기 때문이다. 토큰 원문으로 오든 행 id로 오든(zitadel이 `GetRefreshTokenInfo` 후 id를 넘기거나, 해석에 실패하면 원문을 그대로 넘김) 같다. 단, **요청한 클라이언트에게 발급된 토큰일 때만** 폐기한다(RFC 7009 §2.1). 다른 클라이언트의 토큰이면 아무것도 폐기하지 않고 200을 돌려준다. 감사 행의 `user_id`는 grant 소유자다.
 - `/end_session`은 **세션만** 폐기한다. authgate는 access token을 stateless로 발급(만료 시각만 검증)하므로 즉시 무효화할 수 없고, refresh token은 자연 만료, 명시적 `/oauth/revoke`, 또는 family 폐기 전까지 유효하다.
 - `auth.logout` 이벤트를 "세션 + 토큰 모두 무효화"로 해석해서는 안 된다. 감사 컨슈머는 refresh token 무효화 여부를 확인하려면 `auth.token_revoked` / `auth.refresh_family_revoked`를 함께 추적해야 한다.
 - RP가 로그아웃 시 토큰까지 폐기하려면 `/end_session` 호출과 별도로 `/oauth/revoke`를 호출해야 한다 (또는 두 엔드포인트가 실제로 받아들이는 인증 방식은 [Spec 004 §AS Metadata](004-mcp-login.md#authorization-server-metadata)에 광고된 그대로다).

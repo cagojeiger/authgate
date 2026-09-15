@@ -456,7 +456,8 @@ func TestRefreshReuseGrace_MissingRedeemedRowIsRefused(t *testing.T) {
 }
 
 // Real concurrency: many requests present one unredeemed token at once. The
-// cap must hold, every refusal must be invalid_grant, and nothing may deadlock.
+// cap must hold, every refusal must be a refresh token refusal, and nothing may
+// deadlock.
 func TestRefreshReuseGrace_ConcurrentRedemptionsRespectCap(t *testing.T) {
 	f, _ := newGraceFixture(t, testReuseGrace)
 	ctx := context.Background()
@@ -513,5 +514,106 @@ func TestRefreshReuseGrace_ConcurrentRedemptionsRespectCap(t *testing.T) {
 		if children > refreshReuseGraceMaxIssued || issued != children {
 			t.Fatalf("round %d: issued=%d children=%d refused=%d, want at most %d children", round, issued, children, refused, refreshReuseGraceMaxIssued)
 		}
+	}
+}
+
+// A client may revoke only its own tokens (RFC 7009 §2.1). Now that revoke ends
+// the whole grant, another client presenting any token of the family, even an
+// old redeemed one, must not end the owner's grant.
+func TestRefreshReuseGrace_RevokeByAnotherClientLeavesGrantAlive(t *testing.T) {
+	f, child := newGraceFixture(t, testReuseGrace)
+	ctx := context.Background()
+
+	_, childID, err := f.store.GetRefreshTokenInfo(ctx, "test-client", child)
+	if err != nil {
+		t.Fatalf("resolve child: %v", err)
+	}
+	for _, target := range []string{f.first, child, childID} {
+		if oerr := f.store.RevokeToken(ctx, target, "", "other-client"); oerr != nil {
+			t.Fatalf("revoke: %v", oerr)
+		}
+	}
+
+	if f.tombstoned(t) {
+		t.Fatal("another client's revoke tombstoned the grant")
+	}
+	if _, err := f.redeem(t, child); err != nil {
+		t.Fatalf("the owner's live token stopped working after another client's revoke: %v", err)
+	}
+	if got := f.count(t, `SELECT count(*) FROM audit_log WHERE event_type = 'auth.token_revoked' AND $1::text IS NOT NULL`); got != 0 {
+		t.Fatalf("token_revoked audit rows = %d, want 0 for a refused revoke", got)
+	}
+}
+
+// zitadel/oidc passes an empty subject when it revokes by the raw token; the
+// audit row must still name the grant's owner.
+func TestRefreshReuseGrace_RevokeAuditNamesGrantOwner(t *testing.T) {
+	f, child := newGraceFixture(t, testReuseGrace)
+	ctx := context.Background()
+
+	if oerr := f.store.RevokeToken(ctx, child, "", "test-client"); oerr != nil {
+		t.Fatalf("revoke: %v", oerr)
+	}
+	var owner string
+	if err := f.store.DB().QueryRowContext(ctx,
+		`SELECT user_id::text FROM audit_log WHERE event_type = 'auth.token_revoked'`,
+	).Scan(&owner); err != nil {
+		t.Fatalf("expected one token_revoked audit row with a user: %v", err)
+	}
+	if owner != f.userID {
+		t.Fatalf("token_revoked user_id = %q, want grant owner %q", owner, f.userID)
+	}
+}
+
+// The re-check under the lock must re-validate the account: a user disabled
+// between presenting the token and inserting the grace child gets nothing.
+func TestRefreshReuseGrace_AccountDisabledBeforeInsertIsRefused(t *testing.T) {
+	f, _ := newGraceFixture(t, testReuseGrace)
+	f.store.stateChecker = func(u *User) error {
+		if u.Status != "active" {
+			return fmt.Errorf("account not active: %s", u.Status)
+		}
+		return nil
+	}
+	f.clk.T = f.clk.T.Add(time.Second)
+	ctx := context.Background()
+
+	rt, err := f.store.TokenRequestByRefreshToken(ctx, f.first)
+	if err != nil {
+		t.Fatalf("grace redemption: %v", err)
+	}
+	if _, err := f.store.DB().ExecContext(ctx, `UPDATE users SET status = 'disabled' WHERE id = $1`, f.userID); err != nil {
+		t.Fatalf("disable user: %v", err)
+	}
+	before := f.count(t, `SELECT count(*) FROM refresh_tokens WHERE family_id = $1`)
+
+	_, _, _, err = f.store.CreateAccessAndRefreshTokens(ctx, rt, f.first)
+	var oerr *oidc.Error
+	if !errors.As(err, &oerr) || oerr.ErrorType != oidc.InvalidGrant {
+		t.Fatalf("err = %v, want invalid_grant for a disabled account", err)
+	}
+	if after := f.count(t, `SELECT count(*) FROM refresh_tokens WHERE family_id = $1`); after != before {
+		t.Fatalf("a grace child was inserted for a disabled account: %d -> %d", before, after)
+	}
+}
+
+// Expiry found under the lock is still a 400, not a 500.
+func TestRefreshReuseGrace_ExpiryBeforeInsertIsInvalidGrant(t *testing.T) {
+	f, _ := newGraceFixture(t, testReuseGrace)
+	f.clk.T = f.clk.T.Add(time.Second)
+	ctx := context.Background()
+
+	rt, err := f.store.TokenRequestByRefreshToken(ctx, f.first)
+	if err != nil {
+		t.Fatalf("grace redemption: %v", err)
+	}
+	if _, err := f.store.DB().ExecContext(ctx,
+		`UPDATE refresh_tokens SET expires_at = $1 WHERE token_hash = $2`, f.clk.Now().Add(-time.Minute), f.store.Keys().RefreshHash(f.first),
+	); err != nil {
+		t.Fatalf("expire token: %v", err)
+	}
+
+	if _, _, _, err := f.store.CreateAccessAndRefreshTokens(ctx, rt, f.first); !isInvalidGrant(err) {
+		t.Fatalf("err = %#v, want invalid_grant", err)
 	}
 }
