@@ -137,13 +137,11 @@ sequenceDiagram
 family가 tombstone되었는지 확인하고, 되었으면 새 자식 토큰 발급을 거부한다. 이로써
 family revoke와 거의 동시에 진행되던 rotation이 끼워넣는 새 토큰까지 차단된다.
 
-**감사 기록은 사건당 한 번이다.** `auth.refresh_reuse_detected`·`auth.refresh_family_revoked`는
-tombstone을 **새로 만든** 요청만 기록한다. 이미 tombstone된 family의 토큰이 다시 들어오면
-`invalid_grant`로 거부하고 family revoke(멱등)만 다시 수행하며 감사 행은 남기지 않는다.
-토큰을 동시에 갱신한 클라이언트의 나머지 세션이나 재시도 루프가 요청마다 같은 사건을 중복
-기록하는 것을 막는다. tombstone insert의 `ON CONFLICT DO NOTHING`이 판정하므로 재사용 요청
-둘이 경합해도 기록은 하나다. 이후 거부된 시도는 서버 로그의 `request error`(`client_id` 포함)로
-확인한다.
+**감사 기록 규칙.** `auth.refresh_reuse_detected`는 재사용된 토큰이 제출될 **때마다** 제출자의 IP·User-Agent와 함께
+기록한다. 탈취 사건에서는 보통 정상 사용자가 먼저 탐지를 일으키고 공격자가 그 뒤에 (이미 폐기된) 자기 토큰을
+제출하므로, 뒤이은 제출 기록이 공격자 접속지의 유일한 증거다. `auth.refresh_family_revoked`는 family를 실제로
+폐기한 요청, 즉 tombstone을 **새로 만든** 요청만 기록한다. tombstone insert의 `ON CONFLICT DO NOTHING`이
+판정하므로 재사용 요청 둘이 경합해도 폐기 기록은 하나다.
 
 ## 계정 상태별 토큰 동작
 

@@ -233,21 +233,20 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		if err != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
-		// Audit only the request that revoked the family. A client that keeps
-		// presenting tokens from an already revoked family (the other sessions of
-		// a client that refreshed concurrently, or a retry loop) would otherwise
-		// write a fresh pair of rows per request for a single incident. The
-		// tombstone insert decides it: ON CONFLICT DO NOTHING inserts for exactly
-		// one transaction, even when two reuse requests race.
+		// Every reuse is audited with the presenter's IP and user agent: in a
+		// theft the attacker is often a later presenter (the victim trips
+		// detection first, the attacker then presents its own now-revoked
+		// token), and these rows are the only record of where it connected
+		// from. The family revoke is audited once, by the request whose
+		// tombstone insert won; ON CONFLICT DO NOTHING picks exactly one
+		// transaction even when reuse requests race.
 		//
 		// The audit rows commit in the SAME transaction as the revoke and
 		// tombstone, so they cannot be lost on their own. If any insert fails the
 		// whole tx rolls back, the tombstone with it, and the client's retry
 		// detects the reuse again and audits it then.
-		if tombstoned {
-			if err := s.auditRefreshReuseDetectionTx(ctx, qtx, rt.UserID, rt.FamilyID); err != nil {
-				return nil, op.ErrInvalidRefreshToken
-			}
+		if err := s.auditRefreshReuseDetectionTx(ctx, qtx, rt.UserID, rt.FamilyID, tombstoned); err != nil {
+			return nil, op.ErrInvalidRefreshToken
 		}
 		if err := tx.Commit(); err != nil {
 			return nil, op.ErrInvalidRefreshToken
@@ -488,14 +487,18 @@ func tombstoneRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, fam
 	return n > 0, nil
 }
 
-// auditRefreshReuseDetectionTx writes the reuse-detection and family-revoked
-// audit rows via the supplied transaction queries, so they commit atomically
-// with the family revoke. An insert error is returned (not swallowed) so the
+// auditRefreshReuseDetectionTx writes the reuse-detection audit row, and the
+// family-revoked row when familyRevoked (this request created the tombstone),
+// via the supplied transaction queries, so they commit atomically with the
+// family revoke. An insert error is returned (not swallowed) so the
 // caller can roll back the whole reuse-detection transaction.
-func (s *Storage) auditRefreshReuseDetectionTx(ctx context.Context, qtx *storeq.Queries, userID, familyID string) error {
+func (s *Storage) auditRefreshReuseDetectionTx(ctx context.Context, qtx *storeq.Queries, userID, familyID string, familyRevoked bool) error {
 	info := clientinfo.FromContext(ctx)
 	if err := s.writeAuditLogTx(ctx, qtx, &userID, EventAuthRefreshReuseDetected, info.IP, info.UserAgent, map[string]any{"family_id": familyID}); err != nil {
 		return err
+	}
+	if !familyRevoked {
+		return nil
 	}
 	return s.writeAuditLogTx(ctx, qtx, &userID, EventAuthRefreshFamilyRevoked, info.IP, info.UserAgent, map[string]any{"family_id": familyID})
 }

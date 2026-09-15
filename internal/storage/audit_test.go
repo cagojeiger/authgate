@@ -65,65 +65,82 @@ func TestAudit010And011_RefreshReuseAndFamilyRevoke(t *testing.T) {
 	}
 }
 
-// One reuse incident is audited once. Clients that refreshed concurrently keep
-// presenting tokens from the family after it is revoked: 9/11 production saw
-// six reuse requests in 2.5s from one Claude Code install, each writing its
-// own pair of rows. Later requests must still be refused, but not re-audited.
-func TestAudit010And011_ReuseOfRevokedFamilyAuditedOnce(t *testing.T) {
+// A reuse incident revokes the family once, but every reuse is evidence. In a
+// theft the victim usually trips detection first and the attacker presents its
+// own (now revoked) token afterwards, so the later presenter's IP must still be
+// recorded. Only the family revoke is not repeated.
+func TestAudit010And011_ReuseOfRevokedFamilyRecordsEachPresenter(t *testing.T) {
 	db := testutil.SetupPostgres(t)
 	clk := &clock.FixedClock{T: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)}
 	gen := idgen.CryptoGenerator{}
 	store := withTestKeys(t, New(db, clk, gen, func(user *User) error { return nil }, 15*time.Minute, 30*24*time.Hour))
-	ctx := context.Background()
 
-	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "audit-reuse-once@test.com", EmailVerified: true, Name: "Reuse Once", Provider: "google", ProviderUserID: "audit-reuse-once-sub"})
+	user, err := store.CreateUserWithIdentity(context.Background(), CreateUserWithIdentityInput{Email: "audit-reuse-each@test.com", EmailVerified: true, Name: "Reuse Each", Provider: "google", ProviderUserID: "audit-reuse-each-sub"})
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
 	now := clk.Now()
 	familyID := gen.NewUUID()
-	usedToken := "reuse-once-used-token"
-	currentToken := "reuse-once-current-token"
-	if _, err := db.ExecContext(ctx,
+	victimToken := "reuse-each-victim-token"     // already redeemed by the attacker
+	attackerToken := "reuse-each-attacker-token" // the child the attacker holds
+	if _, err := db.Exec(
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, revoked_at, used_at, created_at)
 		 VALUES (uuid_generate_v4(), $1, $2, $3, 'test-client', '{openid}', $4, $5, $5, $5)`,
-		store.Keys().RefreshHash(usedToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
+		store.Keys().RefreshHash(victimToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
 	); err != nil {
-		t.Fatalf("insert used token: %v", err)
+		t.Fatalf("insert victim token: %v", err)
 	}
-	if _, err := db.ExecContext(ctx,
+	if _, err := db.Exec(
 		`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
 		 VALUES (uuid_generate_v4(), $1, $2, $3, 'test-client', '{openid}', $4, $5)`,
-		store.Keys().RefreshHash(currentToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
+		store.Keys().RefreshHash(attackerToken), familyID, user.ID, now.Add(30*24*time.Hour), now,
 	); err != nil {
-		t.Fatalf("insert current token: %v", err)
+		t.Fatalf("insert attacker token: %v", err)
 	}
 
-	// The used token three times, then the family's newest token, which the
-	// first request revoked along with the rest of the family.
-	for _, token := range []string{usedToken, usedToken, usedToken, currentToken} {
-		if _, err := store.TokenRequestByRefreshToken(ctx, token); err == nil {
-			t.Fatal("expected invalid refresh token error for a token from a revoked family")
+	presenters := []struct {
+		token string
+		ip    string
+	}{
+		{victimToken, "198.51.100.10"},  // trips detection, revokes the family
+		{attackerToken, "203.0.113.66"}, // revoked by then
+		{attackerToken, "203.0.113.66"}, // retry
+	}
+	for _, p := range presenters {
+		ctx := clientinfo.WithContext(context.Background(), clientinfo.Info{IP: p.ip, UserAgent: "ua-" + p.ip})
+		if _, err := store.TokenRequestByRefreshToken(ctx, p.token); err == nil {
+			t.Fatalf("expected invalid refresh token error for presenter %s", p.ip)
 		}
 	}
 
-	for _, eventType := range []string{"auth.refresh_reuse_detected", "auth.refresh_family_revoked"} {
+	countRows := func(eventType, ip string) int {
+		t.Helper()
+		query := `SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = $2`
+		args := []any{user.ID, eventType}
+		if ip != "" {
+			query += ` AND host(ip_address) = $3`
+			args = append(args, ip)
+		}
 		var n int
-		if err := db.QueryRowContext(ctx,
-			`SELECT count(*) FROM audit_log WHERE user_id = $1 AND event_type = $2`, user.ID, eventType,
-		).Scan(&n); err != nil {
+		if err := db.QueryRow(query, args...).Scan(&n); err != nil {
 			t.Fatalf("count %s: %v", eventType, err)
 		}
-		if n != 1 {
-			t.Errorf("%s rows = %d, want 1 for a single incident", eventType, n)
-		}
+		return n
+	}
+
+	if got := countRows("auth.refresh_family_revoked", ""); got != 1 {
+		t.Errorf("auth.refresh_family_revoked rows = %d, want 1 for one incident", got)
+	}
+	if got := countRows("auth.refresh_reuse_detected", ""); got != len(presenters) {
+		t.Errorf("auth.refresh_reuse_detected rows = %d, want %d (one per presentation)", got, len(presenters))
+	}
+	if got := countRows("auth.refresh_reuse_detected", "203.0.113.66"); got == 0 {
+		t.Error("the later presenter's IP is missing from the audit log")
 	}
 
 	var live int
-	if err := db.QueryRowContext(ctx,
-		`SELECT count(*) FROM refresh_tokens WHERE family_id = $1 AND revoked_at IS NULL`, familyID,
-	).Scan(&live); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM refresh_tokens WHERE family_id = $1 AND revoked_at IS NULL`, familyID).Scan(&live); err != nil {
 		t.Fatalf("count live tokens: %v", err)
 	}
 	if live != 0 {
