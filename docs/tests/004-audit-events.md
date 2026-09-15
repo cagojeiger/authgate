@@ -18,6 +18,7 @@
 | ID | 시나리오 | 기대 이벤트 | 검증 포인트 |
 |----|----------|------------|-------------|
 | `audit-001` | Browser 신규 가입 | `auth.signup` | 계정 생성 직후 1회 기록, `metadata.channel`=`browser` + `metadata.client_id` + `metadata.client_name` 포함 (#204) |
+| `audit-001b` | `SIGNUP_EMAIL_DOMAINS` 밖 도메인으로 가입 시도 | `auth.signup_denied` | 계정 생성 전 1회 기록. `user_id`는 null, `metadata.reason` + `domain` + `client_id` 포함 |
 | `audit-002` | Browser/MCP/Device 로그인 성공 | `auth.login` | `metadata.channel`이 `browser/device/mcp` 중 하나로 기록 |
 | `audit-003` | Device 승인 | `auth.device_approved` | 승인 시 1회 기록, `metadata.client_id` + `metadata.client_name` 포함 (#205) |
 | `audit-004` | Device 거부 | `auth.device_denied` | 거부 시 1회 기록, `metadata.client_id` + `metadata.client_name` 포함 (#205) |

@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/kangheeyong/authgate/internal/upstream"
 )
 
 func TestIntegration_IDTokenUserinfoAssertion_EmbedsRequestedClaims(t *testing.T) {
@@ -219,3 +221,74 @@ func TestIntegration_SessionCookie_Attributes(t *testing.T) {
 }
 
 // handler-account: 성공 시 JSON 응답 shape 검증 (status, message 필드)
+
+// signup-domain-100: with SIGNUP_EMAIL_DOMAINS set, a first sign-in from an
+// address outside the list is refused at the real /login/callback before any
+// account exists, and is audited without a user.
+func TestIntegration_SignupDomainGate_RefusesOutsideDomain(t *testing.T) {
+	ts := SetupTestServerWithOptions(t, SetupOptions{EnableMCP: true, SignupEmailDomains: []string{"example.com"}})
+	ts.Upstream.User = &upstream.UserInfo{Sub: "outsider-sub", Email: "x@other.com", EmailVerified: true, Name: "Outsider"}
+
+	status := browserCallbackStatus(t, ts)
+	if status != http.StatusForbidden {
+		t.Fatalf("callback status = %d, want 403", status)
+	}
+
+	ctx := context.Background()
+	var users, signups, denied int
+	if err := ts.DB.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&users); err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if err := ts.DB.QueryRowContext(ctx, `SELECT count(*) FROM audit_log WHERE event_type = 'auth.signup'`).Scan(&signups); err != nil {
+		t.Fatalf("count auth.signup: %v", err)
+	}
+	if err := ts.DB.QueryRowContext(ctx,
+		`SELECT count(*) FROM audit_log WHERE event_type = 'auth.signup_denied' AND user_id IS NULL AND metadata->>'domain' = 'other.com' AND metadata->>'reason' = 'domain_not_allowed'`,
+	).Scan(&denied); err != nil {
+		t.Fatalf("count auth.signup_denied: %v", err)
+	}
+	if users != 0 || signups != 0 || denied != 1 {
+		t.Fatalf("users=%d auth.signup=%d auth.signup_denied=%d, want 0/0/1", users, signups, denied)
+	}
+}
+
+// signup-domain-101: an address inside the list signs up normally through the
+// same gate.
+func TestIntegration_SignupDomainGate_AdmitsListedDomain(t *testing.T) {
+	ts := SetupTestServerWithOptions(t, SetupOptions{EnableMCP: true, SignupEmailDomains: []string{"example.com"}})
+
+	tokens := completeLoginFlow(t, ts)
+	if tokens.StatusCode != http.StatusOK {
+		t.Fatalf("signup from a listed domain failed: status=%d body=%s", tokens.StatusCode, tokens.RawBody)
+	}
+}
+
+// browserCallbackStatus runs /authorize → /login → the fake IdP callback and
+// returns the callback's status without following it.
+func browserCallbackStatus(t *testing.T, ts *TestServer) int {
+	t.Helper()
+	client := NewOAuthClient(t, ts.BaseURL)
+	noFollow := *client.Client
+	noFollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+	resp, err := noFollow.Get(client.AuthorizeURL())
+	if err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	resp.Body.Close()
+	resp, err = noFollow.Get(ts.BaseURL + resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	resp.Body.Close()
+	idp, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil || idp.Query().Get("state") == "" {
+		t.Fatalf("login did not redirect to the IdP: %q", resp.Header.Get("Location"))
+	}
+	resp, err = noFollow.Get(ts.BaseURL + "/login/callback?code=fake-code&state=" + url.QueryEscape(idp.Query().Get("state")))
+	if err != nil {
+		t.Fatalf("callback: %v", err)
+	}
+	resp.Body.Close()
+	return resp.StatusCode
+}

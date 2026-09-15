@@ -34,6 +34,9 @@ const (
 	// again inside REFRESH_TOKEN_REUSE_GRACE_SEC: outcome "issued" (a grace
 	// child was minted) or "refused".
 	EventAuthRefreshReuseGrace = "auth.refresh_reuse_grace"
+	// EventAuthSignupDenied records a signup refused by SIGNUP_EMAIL_DOMAINS.
+	// No account exists at that point, so the row has no user_id.
+	EventAuthSignupDenied = "auth.signup_denied"
 )
 
 var auditMetadataAllowlist = map[string]map[string]struct{}{
@@ -52,6 +55,13 @@ var auditMetadataAllowlist = map[string]map[string]struct{}{
 		"signup":         {},
 	},
 	"auth.signup": {
+		"channel":     {},
+		"client_id":   {},
+		"client_name": {},
+	},
+	EventAuthSignupDenied: {
+		"reason":      {},
+		"domain":      {},
 		"channel":     {},
 		"client_id":   {},
 		"client_name": {},

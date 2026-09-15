@@ -16,6 +16,7 @@ type LoginService struct {
 	providerName string
 	issuer       string
 	sessionTTL   time.Duration
+	signupDomain signupDomainPolicy
 }
 
 type LoginStore interface {
@@ -60,12 +61,21 @@ func verifyAuthRequestChannel(ctx context.Context, store LoginStore, authReq *st
 // NewLoginService builds the browser login service. issuer is the public URL
 // sent as the RFC 9207 iss parameter on the error responses /login returns to
 // the client itself (prompt=none).
-func NewLoginService(store LoginStore, providerName, issuer string, sessionTTL time.Duration) *LoginService {
+//
+// signupEmailDomains restricts which email domains may create an account; nil
+// admits every address the upstream IdP authenticates. It is a parameter rather
+// than a setter so every caller has to decide what to pass: a setter could be
+// left out of the wiring without anything noticing. The parameter cannot stop a
+// caller passing nil where the configured list belongs; app.Run passes
+// cfg.SignupEmailDomains. Entries must already be normalized (config does this
+// at startup); see signupDomainPolicy.
+func NewLoginService(store LoginStore, providerName, issuer string, sessionTTL time.Duration, signupEmailDomains []string) *LoginService {
 	return &LoginService{
 		store:        store,
 		providerName: providerName,
 		issuer:       issuer,
 		sessionTTL:   sessionTTL,
+		signupDomain: signupDomainPolicy{domains: signupEmailDomains},
 	}
 }
 
@@ -312,6 +322,21 @@ func (s *LoginService) recoverUser(ctx context.Context, userID string) error {
 }
 
 func (s *LoginService) signupBrowserUser(ctx context.Context, providerName string, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
+	// The domain gate runs before the account exists, so there is no user_id to
+	// attribute the refusal to — the audit row carries the domain and the
+	// client that sent them, which is what an operator needs to answer "why
+	// can't this person sign up".
+	if ok, reason := s.signupDomain.allows(userInfo.Email, userInfo.EmailVerified); !ok {
+		s.store.AuditLog(ctx, nil, storage.EventAuthSignupDenied, ipAddress, userAgent, map[string]any{
+			"reason":      reason,
+			"domain":      emailDomain(userInfo.Email),
+			"channel":     "browser",
+			"client_id":   authReq.ClientID,
+			"client_name": resolveClientName(ctx, s.store, authReq.ClientID),
+		})
+		return nil, &CallbackResult{Action: ActionError, Error: "signup_not_allowed", ErrorCode: http.StatusForbidden}
+	}
+
 	user, err := s.store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 		Email:          userInfo.Email,
 		EmailVerified:  userInfo.EmailVerified,

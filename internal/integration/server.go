@@ -61,6 +61,9 @@ type SetupOptions struct {
 	// RefreshReuseGrace mirrors REFRESH_TOKEN_REUSE_GRACE_SEC. Zero keeps the
 	// strict reuse detection the rest of the suite asserts.
 	RefreshReuseGrace time.Duration
+	// SignupEmailDomains mirrors SIGNUP_EMAIL_DOMAINS, already normalized as
+	// config would store it. Nil keeps signup open.
+	SignupEmailDomains []string
 }
 
 // setupCryptoKeys derives test crypto keys and registers their epochs.
@@ -213,7 +216,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	}
 
 	// Services
-	loginSvc := service.NewLoginService(store, fakeProvider.Name(), srv.URL, 24*time.Hour)
+	loginSvc := service.NewLoginService(store, fakeProvider.Name(), srv.URL, 24*time.Hour, opts.SignupEmailDomains)
 	deviceSvc := service.NewDeviceService(store, fakeProvider.Name(), srv.URL, 24*time.Hour, clk)
 
 	// Handlers
