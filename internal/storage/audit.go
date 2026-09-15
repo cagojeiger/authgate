@@ -30,6 +30,10 @@ const (
 	EventAuthTokenRevoked      = "auth.token_revoked"
 	EventAuthChannelMismatch   = "auth.channel_mismatch"
 	EventAuthDeviceCodeIssued  = "auth.device_code_issued"
+	// EventAuthRefreshReuseGrace records a redeemed refresh token presented
+	// again inside REFRESH_TOKEN_REUSE_GRACE_SEC: outcome "issued" (a grace
+	// child was minted) or "refused".
+	EventAuthRefreshReuseGrace = "auth.refresh_reuse_grace"
 )
 
 var auditMetadataAllowlist = map[string]map[string]struct{}{
@@ -97,6 +101,10 @@ var auditMetadataAllowlist = map[string]map[string]struct{}{
 	},
 	EventAuthRefreshFamilyRevoked: {
 		"family_id": {},
+	},
+	EventAuthRefreshReuseGrace: {
+		"family_id": {},
+		"outcome":   {},
 	},
 }
 

@@ -31,6 +31,7 @@ func newStateChecker() func(*storage.User) error {
 func mustBuildStore(cfg *config.Config, db *sql.DB, clk clock.Clock, gen idgen.CryptoGenerator) *storage.Storage {
 	store := storage.New(db, clk, gen, newStateChecker(), cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	store.SetDevicePollInterval(devicePollInterval)
+	store.SetRefreshReuseGrace(cfg.RefreshTokenReuseGrace)
 	mustConfigureSigningKey(store, cfg.SigningKeyPath)
 	configureMCPPoliciesIfEnabled(cfg, store)
 	return store

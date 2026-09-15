@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestIntegration_RefreshAfterLogin(t *testing.T) {
@@ -65,6 +66,60 @@ func TestIntegration_RefreshConcurrent_ExactlyOneSuccess(t *testing.T) {
 	}
 	if success != 1 || fail != 1 {
 		t.Fatalf("expected exactly one success and one failure, got success=%d fail=%d", success, fail)
+	}
+}
+
+// refresh-004b: with the reuse grace on (production default), two sessions
+// redeeming the same token both get a token, and both new tokens rotate. This
+// is the 2026-09-11 Claude Code shape end to end through zitadel/oidc. The
+// requests are launched together but the test does not depend on them
+// overlapping; the interleaved storage-level case is
+// TestRefreshReuseGrace_CapHoldsWhenRequestsInterleave.
+func TestIntegration_RefreshSameTokenTwice_WithGraceBothSucceed(t *testing.T) {
+	ts := SetupTestServerWithOptions(t, SetupOptions{EnableMCP: true, RefreshReuseGrace: 5 * time.Second})
+	client := NewOAuthClient(t, ts.BaseURL)
+
+	tokens := completeLoginFlow(t, ts)
+	if tokens.StatusCode != http.StatusOK {
+		t.Fatalf("initial login failed: status=%d body=%s", tokens.StatusCode, tokens.RawBody)
+	}
+
+	var wg sync.WaitGroup
+	results := make(chan *TokenResponse, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- client.RefreshToken(tokens.RefreshToken)
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	var next []string
+	for result := range results {
+		if result.StatusCode != http.StatusOK {
+			t.Fatalf("concurrent refresh failed inside the grace: status=%d body=%s", result.StatusCode, result.RawBody)
+		}
+		next = append(next, result.RefreshToken)
+	}
+	if next[0] == "" || next[0] == next[1] {
+		t.Fatalf("expected two distinct refresh tokens, got %q and %q", next[0], next[1])
+	}
+	for i, token := range next {
+		if r := client.RefreshToken(token); r.StatusCode != http.StatusOK {
+			t.Fatalf("session %d cannot rotate its token: status=%d body=%s", i, r.StatusCode, r.RawBody)
+		}
+	}
+
+	var reuse int
+	if err := ts.DB.QueryRowContext(context.Background(),
+		`SELECT count(*) FROM audit_log WHERE event_type = 'auth.refresh_reuse_detected'`,
+	).Scan(&reuse); err != nil {
+		t.Fatalf("count reuse audits: %v", err)
+	}
+	if reuse != 0 {
+		t.Fatalf("reuse audit rows = %d, want 0", reuse)
 	}
 }
 

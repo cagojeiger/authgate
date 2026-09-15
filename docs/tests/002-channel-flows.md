@@ -58,8 +58,24 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 | `refresh-001` | `active` | valid refresh_token | 새 access/refresh 발급 | 정상 rotation |
 | `refresh-002` | `pending_deletion` | valid refresh_token | `invalid_grant` | 삭제 유예 차단 |
 | `refresh-003` | `disabled` 또는 `deleted` | valid refresh_token | `invalid_grant` | 비활성 차단 |
-| `refresh-004` | same token concurrent 2회 | `/oauth/token` | 1회 성공 + 1회 실패 | row lock/원자성 |
+| `refresh-004` | same token concurrent 2회 (유예 끔) | `/oauth/token` | 1회 성공 + 1회 실패 | row lock/원자성 |
+| `refresh-004b` | same token 2회 (유예 5초) | `/oauth/token` | 2회 성공, 두 토큰 모두 rotation 가능, reuse 감사 0 | 동시 갱신 클라이언트 보호 |
 | `refresh-005` | revoked token 재사용 | `/oauth/token` | family revoke + `invalid_grant` | 탈취 의심 처리 |
+| `refresh-006` | 교환된 토큰을 유예 안에 재제출 | `Storage` | 같은 family에 새 토큰, tombstone 없음 | 유예 발급 |
+| `refresh-007` | 교환된 토큰을 유예 밖에 재제출 | `Storage` | family revoke + tombstone | 유예 만료 |
+| `refresh-008` | `/oauth/revoke`한 토큰을 유예 안에 재제출 | `Storage` | family revoke + tombstone | 폐기 토큰은 유예 없음 |
+| `refresh-009` | 유예 안에서 상한(3개) 초과 재제출 | `Storage` | `invalid_grant`, family 유지 | 재생 발급 제한 |
+| `refresh-010` | tombstone된 family 토큰을 유예 안에 재제출 | `Storage` | `invalid_grant` | 폐기 family 부활 금지 |
+| `refresh-011` | 제출 10회가 모두 잠정 판정을 통과한 뒤 insert | `Storage` | 자식 총 3개, family 유지 | 잠금 하 상한 |
+| `refresh-012` | 자식을 id로 revoke한 뒤 부모를 유예 안에 재제출 | `Storage` | `invalid_grant`, 살아있는 토큰 0, tombstone | 끝낸 세션 부활 금지 |
+| `refresh-013` | 사용자 전체 revoke 뒤 부모를 유예 안에 재제출 | `Storage` | `invalid_grant`, 살아있는 토큰 0 | 〃 |
+| `refresh-014` | 유예 형제가 있는 상태에서 한 토큰을 `/oauth/revoke`(hash·id) | `Storage` | 형제도 rotation 불가, 살아있는 토큰 0, tombstone `reason=revoked` | revoke = grant 전체 |
+| `refresh-015` | 정상 교환과 유예 재생이 insert 순서를 바꿈 | `Storage` | `outcome=issued` 감사는 재생 IP 1건 | 감사 귀속 |
+| `refresh-016` | insert 단계에서 상한 거부 | `Storage` | `invalid_grant`(→ 400), `ErrInvalidRefreshToken` 래핑 | 500 금지 |
+| `refresh-017` | 교환된 토큰 행이 insert 전 삭제됨 | `Storage` | `invalid_grant`, 토큰 발급 없음 | 무관한 family 생성 금지 |
+| `refresh-019` | 다른 클라이언트가 같은 family의 토큰(원문·id)으로 revoke | `Storage` | grant 유지, tombstone·감사 없음 | RFC 7009 클라이언트 바인딩 |
+| `refresh-020` | 잠정 판정 뒤 계정 비활성화 / 토큰 만료 후 insert | `Storage` | `invalid_grant`, 자식 없음 | 잠금 하 재검증 |
+| `refresh-018` | 교환 안 된 토큰에 20개 동시 요청 × 5회 | `Storage` | 자식 ≤ 3, 거부는 전부 `ErrInvalidRefreshToken`, 교착 없음 | 실제 동시성 |
 
 ## Delete / Recover
 

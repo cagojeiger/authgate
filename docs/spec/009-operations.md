@@ -27,6 +27,10 @@ authgate를 처음 배포할 때 필요한 것:
    → 016_device_codes_resource: v0.10.0에서 추가된 nullable resource 컬럼.
      v0.10.1부터 Device Flow에서는 사용하지 않지만 이미 적용된 migration 이력을
      보존하기 위해 파일과 컬럼을 유지하며 번호를 재사용하지 않는다
+   → 017_refresh_tokens_parent_id: refresh_tokens에 nullable parent_id(교환 전 토큰 id)
+     컬럼과 부분 인덱스 추가. 재사용 유예 시간이 한 교환의 자식 토큰 수를 정확히 세는 데
+     쓴다. 기존 행은 NULL로 남으며 컬럼 추가는 테이블 재작성이 없다. 인덱스 생성은
+     012/015처럼 시작 시 테이블을 잠깐 잠근다(CONCURRENTLY 아님)
 
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성
@@ -87,6 +91,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `SESSION_TTL` | X | `86400` | 세션 수명 (초) |
 | `ACCESS_TOKEN_TTL` | X | `900` | access_token 수명 (초, 15분) |
 | `REFRESH_TOKEN_TTL` | X | `2592000` | refresh_token 수명 (초, 30일) |
+| `REFRESH_TOKEN_REUSE_GRACE_SEC` | X | `5` | 방금 교환된 refresh_token을 재사용 탐지 없이 한 번 더 받아주는 시간 (초, `0`~`60`, `0`이면 끔). 한 자격증명을 여러 세션이 동시에 갱신하는 클라이언트가 탈취로 오판돼 강제 로그아웃되는 것을 막는다. 규칙은 [Spec 005](005-token-lifecycle.md#재사용-유예-시간-reuse-grace) |
 | `AUDIT_LOG_PII_RETENTION_DAYS` | X | `90` | **최종 사용자** 활동 기록의 PII(`user_id`, IP, User-Agent) 익명화 전 보존일. 최소 `30`. 법정 접속기록 의무는 취급자(운영자) 대상이라 여기 해당하지 않으며, 침해조사 목적의 기간이다 |
 | `ADMIN_AUDIT_LOG_PII_RETENTION_DAYS` | X | `730` | **운영자 조치**(`admin.*`) 기록의 PII 익명화 전 보존일. 최소 `365` — 법정 접속기록 하한 |
 | `SIGNING_KEY_PATH` | X | `signing_key.pem` | JWT 서명용 RSA private key 파일 경로. 운영에서는 persistent secret/volume로 주입 |

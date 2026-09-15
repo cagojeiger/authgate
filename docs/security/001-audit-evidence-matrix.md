@@ -104,8 +104,9 @@ audit_log
 | `auth.deletion_cancelled` | pending_deletion 유저 브라우저 재로그인 복구 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.deletion_completed` | cleanup PII scrub 완료 | user_id, created_at | `reason` | `internal/storage/cleanup_runner.go` | `internal/service/cleanup_test.go` | DONE |
 | `auth.logout` | RP-Initiated Logout | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/storage/storage_integration_test.go` | DONE |
-| `auth.token_revoked` | RFC 7009 revoke에서 refresh token 매칭 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
+| `auth.token_revoked` | RFC 7009 revoke에서 refresh token 매칭 → grant(family) 전체 폐기 | user_id, IP, UA, created_at | `client_id`, `client_name` | `internal/storage/storage_auth_tokens.go` | `internal/integration/integration_audit_test.go` | DONE |
 | `auth.refresh_reuse_detected` | 폐기 refresh token 재사용 (제출마다) | user_id, IP, UA, created_at | `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
+| `auth.refresh_reuse_grace` | 유예 시간 안의 재제출 (발급·거부 모두) | user_id, IP, UA, created_at | `family_id`, `outcome` | `internal/storage/storage_auth_tokens.go` | `internal/storage/refresh_reuse_grace_integration_test.go` | DONE |
 | `auth.refresh_family_revoked` | reuse 감지 후 family revoke (family당 최초 1회) | user_id, IP, UA, created_at | `family_id` | `internal/storage/storage_auth_tokens.go` | `internal/storage/audit_test.go` | DONE |
 
 ## Endpoint Coverage Matrix

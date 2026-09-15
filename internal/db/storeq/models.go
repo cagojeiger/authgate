@@ -79,6 +79,7 @@ type RefreshToken struct {
 	RevokedAt sql.NullTime
 	UsedAt    sql.NullTime
 	CreatedAt time.Time
+	ParentID  uuid.NullUUID
 }
 
 type RefreshTokenFamily struct {

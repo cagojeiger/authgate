@@ -10,8 +10,22 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
+
+const countRefreshTokenChildren = `-- name: CountRefreshTokenChildren :one
+SELECT count(*)
+FROM refresh_tokens
+WHERE parent_id = $1::uuid
+`
+
+func (q *Queries) CountRefreshTokenChildren(ctx context.Context, parentID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRefreshTokenChildren, parentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const getRefreshFamilyIDByTokenHash = `-- name: GetRefreshFamilyIDByTokenHash :one
 SELECT family_id
@@ -65,6 +79,54 @@ func (q *Queries) GetRefreshTokenForUpdateByHash(ctx context.Context, tokenHash 
 	return i, err
 }
 
+const getRefreshTokenGrantByHash = `-- name: GetRefreshTokenGrantByHash :one
+SELECT family_id, user_id
+FROM refresh_tokens
+WHERE token_hash = $1 AND client_id = $2
+`
+
+type GetRefreshTokenGrantByHashParams struct {
+	TokenHash string
+	ClientID  string
+}
+
+type GetRefreshTokenGrantByHashRow struct {
+	FamilyID string
+	UserID   string
+}
+
+// Scoped to the client: RFC 7009 §2.1 revokes only tokens issued to the
+// requesting client.
+func (q *Queries) GetRefreshTokenGrantByHash(ctx context.Context, arg GetRefreshTokenGrantByHashParams) (GetRefreshTokenGrantByHashRow, error) {
+	row := q.db.QueryRowContext(ctx, getRefreshTokenGrantByHash, arg.TokenHash, arg.ClientID)
+	var i GetRefreshTokenGrantByHashRow
+	err := row.Scan(&i.FamilyID, &i.UserID)
+	return i, err
+}
+
+const getRefreshTokenGrantByID = `-- name: GetRefreshTokenGrantByID :one
+SELECT family_id, user_id
+FROM refresh_tokens
+WHERE id = $1 AND client_id = $2
+`
+
+type GetRefreshTokenGrantByIDParams struct {
+	ID       string
+	ClientID string
+}
+
+type GetRefreshTokenGrantByIDRow struct {
+	FamilyID string
+	UserID   string
+}
+
+func (q *Queries) GetRefreshTokenGrantByID(ctx context.Context, arg GetRefreshTokenGrantByIDParams) (GetRefreshTokenGrantByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getRefreshTokenGrantByID, arg.ID, arg.ClientID)
+	var i GetRefreshTokenGrantByIDRow
+	err := row.Scan(&i.FamilyID, &i.UserID)
+	return i, err
+}
+
 const getRefreshTokenInfoByHashAndClientID = `-- name: GetRefreshTokenInfoByHashAndClientID :one
 SELECT user_id, id
 FROM refresh_tokens
@@ -88,9 +150,26 @@ func (q *Queries) GetRefreshTokenInfoByHashAndClientID(ctx context.Context, arg 
 	return i, err
 }
 
+const hasRevokedUnredeemedRefreshTokenInFamily = `-- name: HasRevokedUnredeemedRefreshTokenInFamily :one
+SELECT EXISTS (
+    SELECT 1 FROM refresh_tokens
+    WHERE family_id = $1 AND revoked_at IS NOT NULL AND used_at IS NULL
+) AS revoked
+`
+
+// A token revoked without being redeemed was revoked on purpose (/oauth/revoke,
+// a user-wide revoke, reuse detection). Rotation always sets used_at together
+// with revoked_at.
+func (q *Queries) HasRevokedUnredeemedRefreshTokenInFamily(ctx context.Context, familyID string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasRevokedUnredeemedRefreshTokenInFamily, familyID)
+	var revoked bool
+	err := row.Scan(&revoked)
+	return revoked, err
+}
+
 const insertRefreshToken = `-- name: InsertRefreshToken :exec
-INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, resource, scopes, expires_at, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, resource, scopes, expires_at, created_at, parent_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type InsertRefreshTokenParams struct {
@@ -103,6 +182,7 @@ type InsertRefreshTokenParams struct {
 	Scopes    []string
 	ExpiresAt time.Time
 	CreatedAt time.Time
+	ParentID  uuid.NullUUID
 }
 
 func (q *Queries) InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) error {
@@ -116,6 +196,7 @@ func (q *Queries) InsertRefreshToken(ctx context.Context, arg InsertRefreshToken
 		pq.Array(arg.Scopes),
 		arg.ExpiresAt,
 		arg.CreatedAt,
+		arg.ParentID,
 	)
 	return err
 }
@@ -149,7 +230,7 @@ func (q *Queries) MarkRefreshTokenUsedAndRevokedByID(ctx context.Context, arg Ma
 	return err
 }
 
-const revokeRefreshFamily = `-- name: RevokeRefreshFamily :exec
+const revokeRefreshFamily = `-- name: RevokeRefreshFamily :execrows
 UPDATE refresh_tokens
 SET revoked_at = $1
 WHERE family_id = $2 AND revoked_at IS NULL
@@ -160,14 +241,17 @@ type RevokeRefreshFamilyParams struct {
 	FamilyID  string
 }
 
-func (q *Queries) RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error {
-	_, err := q.db.ExecContext(ctx, revokeRefreshFamily, arg.RevokedAt, arg.FamilyID)
-	return err
+func (q *Queries) RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeRefreshFamily, arg.RevokedAt, arg.FamilyID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const revokeRefreshTokenByHash = `-- name: RevokeRefreshTokenByHash :execrows
 UPDATE refresh_tokens
-SET revoked_at = $1, used_at = $1
+SET revoked_at = $1
 WHERE token_hash = $2 AND revoked_at IS NULL
 `
 
@@ -176,28 +260,15 @@ type RevokeRefreshTokenByHashParams struct {
 	TokenHash string
 }
 
+// Revocation leaves used_at alone: used_at is set only when the token is
+// redeemed at the token endpoint, which is what refresh reuse grace relies on
+// to tell a rotated token from a revoked one.
 func (q *Queries) RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeRefreshTokenByHash, arg.RevokedAt, arg.TokenHash)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-const revokeRefreshTokenByID = `-- name: RevokeRefreshTokenByID :exec
-UPDATE refresh_tokens
-SET revoked_at = $1
-WHERE id = $2 AND revoked_at IS NULL
-`
-
-type RevokeRefreshTokenByIDParams struct {
-	RevokedAt sql.NullTime
-	ID        string
-}
-
-func (q *Queries) RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error {
-	_, err := q.db.ExecContext(ctx, revokeRefreshTokenByID, arg.RevokedAt, arg.ID)
-	return err
 }
 
 const tombstoneRefreshFamily = `-- name: TombstoneRefreshFamily :execrows

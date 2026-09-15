@@ -22,6 +22,7 @@ type Querier interface {
 	AnonymizeUserAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
+	CountRefreshTokenChildren(ctx context.Context, parentID string) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
 	DeleteExpiredAuthRequestsBefore(ctx context.Context, arg DeleteExpiredAuthRequestsBeforeParams) (int64, error)
 	DeleteExpiredDeviceCodesBefore(ctx context.Context, arg DeleteExpiredDeviceCodesBeforeParams) (int64, error)
@@ -48,12 +49,20 @@ type Querier interface {
 	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (GetDeviceCodeByUserCodeRow, error)
 	GetRefreshFamilyIDByTokenHash(ctx context.Context, tokenHash string) (string, error)
 	GetRefreshTokenForUpdateByHash(ctx context.Context, tokenHash string) (GetRefreshTokenForUpdateByHashRow, error)
+	// Scoped to the client: RFC 7009 §2.1 revokes only tokens issued to the
+	// requesting client.
+	GetRefreshTokenGrantByHash(ctx context.Context, arg GetRefreshTokenGrantByHashParams) (GetRefreshTokenGrantByHashRow, error)
+	GetRefreshTokenGrantByID(ctx context.Context, arg GetRefreshTokenGrantByIDParams) (GetRefreshTokenGrantByIDRow, error)
 	GetRefreshTokenInfoByHashAndClientID(ctx context.Context, arg GetRefreshTokenInfoByHashAndClientIDParams) (GetRefreshTokenInfoByHashAndClientIDRow, error)
 	GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error)
 	GetUserByProviderSubHash(ctx context.Context, arg GetUserByProviderSubHashParams) (GetUserByProviderSubHashRow, error)
 	GetUserForTxByID(ctx context.Context, id string) (GetUserForTxByIDRow, error)
 	GetUserInfoFieldsByID(ctx context.Context, id string) (GetUserInfoFieldsByIDRow, error)
 	GetValidSessionUser(ctx context.Context, arg GetValidSessionUserParams) (GetValidSessionUserRow, error)
+	// A token revoked without being redeemed was revoked on purpose (/oauth/revoke,
+	// a user-wide revoke, reuse detection). Rotation always sets used_at together
+	// with revoked_at.
+	HasRevokedUnredeemedRefreshTokenInFamily(ctx context.Context, familyID string) (bool, error)
 	InsertActiveEpoch(ctx context.Context, arg InsertActiveEpochParams) error
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
 	InsertAuthRequest(ctx context.Context, arg InsertAuthRequestParams) error
@@ -75,9 +84,11 @@ type Querier interface {
 	RecoverPendingDeletionUserByID(ctx context.Context, arg RecoverPendingDeletionUserByIDParams) error
 	RedactAuditLogPIIByUserID(ctx context.Context, userID string) (int64, error)
 	RevokeActiveRefreshTokensByUserID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDParams) error
-	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error
+	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) (int64, error)
+	// Revocation leaves used_at alone: used_at is set only when the token is
+	// redeemed at the token endpoint, which is what refresh reuse grace relies on
+	// to tell a rotated token from a revoked one.
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
-	RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error
 	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error
 	SetUserStatusByID(ctx context.Context, arg SetUserStatusByIDParams) error
 	TombstoneRefreshFamily(ctx context.Context, arg TombstoneRefreshFamilyParams) (int64, error)

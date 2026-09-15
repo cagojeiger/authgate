@@ -61,9 +61,14 @@ type Storage struct {
 	// Defaults to 5s in New() to match the value advertised in
 	// `op.DeviceAuthorizationConfig.PollInterval`.
 	devicePollInterval time.Duration
-	registry           *clientRegistry
-	audit              *auditLogger
-	resourcePolicy     ResourceBindingPolicy
+	// refreshReuseGrace is how long after a refresh token is redeemed the same
+	// token is still accepted without tripping reuse detection. Zero (the
+	// default in New) disables the grace; the app sets it from
+	// REFRESH_TOKEN_REUSE_GRACE_SEC. See TokenRequestByRefreshToken.
+	refreshReuseGrace time.Duration
+	registry          *clientRegistry
+	audit             *auditLogger
+	resourcePolicy    ResourceBindingPolicy
 	// keys holds the PII at-rest crypto subkeys (ADR-002). nil until SetKeys is
 	// called at startup; while nil, encryption is inert. Required in production.
 	keys *crypto.Keys
@@ -100,6 +105,16 @@ func (s *Storage) ensureAudit() *auditLogger {
 // both the response shape and the server-side throttle.
 func (s *Storage) SetDevicePollInterval(d time.Duration) {
 	s.devicePollInterval = d
+}
+
+// SetRefreshReuseGrace sets the refresh token reuse grace. Zero disables it.
+func (s *Storage) SetRefreshReuseGrace(d time.Duration) {
+	s.refreshReuseGrace = d
+}
+
+// RefreshReuseGrace reports the configured refresh token reuse grace.
+func (s *Storage) RefreshReuseGrace() time.Duration {
+	return s.refreshReuseGrace
 }
 
 // SetSigningKey sets the current RSA signing key used for JWT issuance.
