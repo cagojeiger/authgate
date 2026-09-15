@@ -49,6 +49,8 @@ type Querier interface {
 	GetDeviceCodeByUserCode(ctx context.Context, userCode string) (GetDeviceCodeByUserCodeRow, error)
 	GetRefreshFamilyIDByTokenHash(ctx context.Context, tokenHash string) (string, error)
 	GetRefreshTokenForUpdateByHash(ctx context.Context, tokenHash string) (GetRefreshTokenForUpdateByHashRow, error)
+	GetRefreshTokenGrantByHash(ctx context.Context, tokenHash string) (GetRefreshTokenGrantByHashRow, error)
+	GetRefreshTokenGrantByID(ctx context.Context, id string) (GetRefreshTokenGrantByIDRow, error)
 	GetRefreshTokenInfoByHashAndClientID(ctx context.Context, arg GetRefreshTokenInfoByHashAndClientIDParams) (GetRefreshTokenInfoByHashAndClientIDRow, error)
 	GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error)
 	GetUserByProviderSubHash(ctx context.Context, arg GetUserByProviderSubHashParams) (GetUserByProviderSubHashRow, error)
@@ -80,12 +82,11 @@ type Querier interface {
 	RecoverPendingDeletionUserByID(ctx context.Context, arg RecoverPendingDeletionUserByIDParams) error
 	RedactAuditLogPIIByUserID(ctx context.Context, userID string) (int64, error)
 	RevokeActiveRefreshTokensByUserID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDParams) error
-	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error
+	RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) (int64, error)
 	// Revocation leaves used_at alone: used_at is set only when the token is
 	// redeemed at the token endpoint, which is what refresh reuse grace relies on
 	// to tell a rotated token from a revoked one.
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
-	RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error
 	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) error
 	SetUserStatusByID(ctx context.Context, arg SetUserStatusByIDParams) error
 	TombstoneRefreshFamily(ctx context.Context, arg TombstoneRefreshFamilyParams) (int64, error)

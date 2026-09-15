@@ -95,6 +95,10 @@ type RefreshTokenModel struct {
 	ExpiresAt time.Time
 	RevokedAt *time.Time
 	UsedAt    *time.Time
+	// graceRedemption marks a request TokenRequestByRefreshToken let through
+	// under the refresh reuse grace, so CreateAccessAndRefreshTokens re-checks
+	// and audits that request, whichever order concurrent requests insert in.
+	graceRedemption bool
 }
 
 func (r *RefreshTokenModel) GetAMR() []string { return nil }

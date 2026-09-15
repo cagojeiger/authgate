@@ -159,18 +159,23 @@ family revoke와 거의 동시에 진행되던 rotation이 끼워넣는 새 토�
 |------|------|
 | 토큰이 토큰 엔드포인트에서 **교환**됐다 (`used_at` 설정) | `/oauth/revoke`(hash·id), 사용자 전체 revoke, 계정 삭제, family revoke로 **폐기**된 토큰은 `used_at`을 남기지 않으므로 유예가 없다 |
 | 교환 후 유예 시간 이내 | 그 뒤의 재제출은 다시 탈취 의심이다 |
-| family가 tombstone되지 않았다 | 재사용 탐지로 폐기된 family는 되살리지 않는다 |
-| family에 **교환 없이 폐기된 토큰이 없다** | 자식 토큰을 `/oauth/revoke`한 직후 부모 토큰을 재제출해 끝낸 세션을 되살리는 것을 막는다 |
+| family가 tombstone되지 않았다 | 재사용 탐지나 `/oauth/revoke`로 폐기된 family는 되살리지 않는다 |
+| family에 **교환 없이 폐기된 토큰이 없다** | 사용자 전체 revoke처럼 tombstone 없이 토큰만 폐기된 경우에도, 부모 토큰 재제출로 끝낸 세션을 되살리지 못하게 한다 |
 | 이 교환의 자식(`parent_id`가 이 토큰)이 3개 미만 | 유예 창 안에서 한 번의 교환이 낳는 토큰 수를 제한한다. family·시각으로 세면 다른 세션이 같은 순간 교환한 토큰까지 섞이므로 부모로 센다 |
 
 앞의 네 조건 중 하나라도 어긋나면 기존 재사용 탐지(family 폐기)로 간다. 상한(3개)에 도달한 요청은 `invalid_grant`로 거부하지만
 **family는 폐기하지 않는다**. 다른 세션이 쓰는 토큰을 지키기 위해서다.
 
 **판정은 두 번 한다.** 토큰이 제출될 때 한 번(잠정), 그리고 새 토큰을 insert하기 직전에 **교환된 토큰 행을 `FOR UPDATE`로 잠근 채** 한 번 더.
+두 번째 판정은 유예로 통과한 요청이거나 이미 자식이 있는 교환에서 수행하며, 계정 상태·resource 바인딩 검증과 위 조건 전체를 다시 본다.
 같은 토큰을 교환하는 요청들은 이 잠금에서 차례로 insert하고 각자 앞 요청이 커밋한 자식을 세므로, 동시에 들어와도 상한은 정확히 지켜진다.
+이 단계의 거부도 `400 invalid_grant`다. (500으로 응답하면 클라이언트가 같은 토큰으로 재시도하고, 유예가 지난 뒤의 재시도는 family 폐기로 이어진다.)
 
-**감사**: 유예로 자식이 발급되면 `auth.refresh_reuse_grace`(`outcome: issued`), 거부되면 `outcome: refused`를
-제출자 IP·User-Agent와 함께 기록한다. 유예 창 안의 재생은 이 기능이 통과시키는 바로 그 경우라, 매 건이 증거다.
+교환된 토큰 행이 insert 직전에 사라졌다면(그 사이 계정 purge 등) 새 토큰을 발급하지 않고 `invalid_grant`로 거부한다.
+
+**감사**: 유예로 통과한 요청이 자식을 받으면 `auth.refresh_reuse_grace`(`outcome: issued`), 거부되면 `outcome: refused`를
+제출자 IP·User-Agent와 함께 기록한다. "유예로 통과한 요청"은 제출 시점 판정으로 표시하므로, 정상 교환과 재생이 insert 순서를 바꿔도
+기록되는 쪽은 재생이다. 유예 창 안의 재생은 이 기능이 통과시키는 바로 그 경우라, 매 건이 증거다.
 
 **트레이드오프**
 - 토큰을 탈취한 공격자가 정상 교환 **직후 유예 시간 안에** 제출하면 재사용 탐지 없이 토큰을 받는다(감사에는 남는다).
@@ -281,11 +286,12 @@ OIDC RP-Initiated Logout 1.0 §2의 `/end_session` 엔드포인트와 RFC 7009�
 | 행위 | 엔드포인트 | 영향 범위 | 감사 이벤트 |
 |------|------------|----------|-------------|
 | 세션 로그아웃 | `/end_session` (OIDC RP-Initiated Logout) | `sessions.revoked_at` 갱신 | `auth.logout` |
-| 토큰 폐기 | `/oauth/revoke` (RFC 7009) | `refresh_tokens.revoked_at` 갱신 (단일 토큰) | `auth.token_revoked` |
+| 토큰 폐기 | `/oauth/revoke` (RFC 7009) | 제출된 refresh token이 속한 **grant(family) 전체** `revoked_at` 갱신 + tombstone(`reason=revoked`) | `auth.token_revoked` |
 | 재사용 탐지 폐기 | (자동) | family 전체 `revoked_at` 갱신 | `auth.refresh_family_revoked` |
 
 **핵심 계약**:
 
+- `/oauth/revoke`는 제출된 토큰 한 행이 아니라 그 토큰의 **grant 전체**를 폐기한다(RFC 7009 §2.1 허용). 재사용 유예로 한 family에 살아있는 토큰이 여럿일 수 있어, 한 행만 폐기하면 다른 세션이 받은 형제 토큰이 수명 끝까지 살아남기 때문이다. id로 전달돼도(zitadel이 `GetRefreshTokenInfo` 후 id를 넘김) 같다.
 - `/end_session`은 **세션만** 폐기한다. authgate는 access token을 stateless로 발급(만료 시각만 검증)하므로 즉시 무효화할 수 없고, refresh token은 자연 만료, 명시적 `/oauth/revoke`, 또는 family 폐기 전까지 유효하다.
 - `auth.logout` 이벤트를 "세션 + 토큰 모두 무효화"로 해석해서는 안 된다. 감사 컨슈머는 refresh token 무효화 여부를 확인하려면 `auth.token_revoked` / `auth.refresh_family_revoked`를 함께 추적해야 한다.
 - RP가 로그아웃 시 토큰까지 폐기하려면 `/end_session` 호출과 별도로 `/oauth/revoke`를 호출해야 한다 (또는 두 엔드포인트가 실제로 받아들이는 인증 방식은 [Spec 004 §AS Metadata](004-mcp-login.md#authorization-server-metadata)에 광고된 그대로다).

@@ -79,6 +79,42 @@ func (q *Queries) GetRefreshTokenForUpdateByHash(ctx context.Context, tokenHash 
 	return i, err
 }
 
+const getRefreshTokenGrantByHash = `-- name: GetRefreshTokenGrantByHash :one
+SELECT family_id, user_id
+FROM refresh_tokens
+WHERE token_hash = $1
+`
+
+type GetRefreshTokenGrantByHashRow struct {
+	FamilyID string
+	UserID   string
+}
+
+func (q *Queries) GetRefreshTokenGrantByHash(ctx context.Context, tokenHash string) (GetRefreshTokenGrantByHashRow, error) {
+	row := q.db.QueryRowContext(ctx, getRefreshTokenGrantByHash, tokenHash)
+	var i GetRefreshTokenGrantByHashRow
+	err := row.Scan(&i.FamilyID, &i.UserID)
+	return i, err
+}
+
+const getRefreshTokenGrantByID = `-- name: GetRefreshTokenGrantByID :one
+SELECT family_id, user_id
+FROM refresh_tokens
+WHERE id = $1
+`
+
+type GetRefreshTokenGrantByIDRow struct {
+	FamilyID string
+	UserID   string
+}
+
+func (q *Queries) GetRefreshTokenGrantByID(ctx context.Context, id string) (GetRefreshTokenGrantByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getRefreshTokenGrantByID, id)
+	var i GetRefreshTokenGrantByIDRow
+	err := row.Scan(&i.FamilyID, &i.UserID)
+	return i, err
+}
+
 const getRefreshTokenInfoByHashAndClientID = `-- name: GetRefreshTokenInfoByHashAndClientID :one
 SELECT user_id, id
 FROM refresh_tokens
@@ -182,7 +218,7 @@ func (q *Queries) MarkRefreshTokenUsedAndRevokedByID(ctx context.Context, arg Ma
 	return err
 }
 
-const revokeRefreshFamily = `-- name: RevokeRefreshFamily :exec
+const revokeRefreshFamily = `-- name: RevokeRefreshFamily :execrows
 UPDATE refresh_tokens
 SET revoked_at = $1
 WHERE family_id = $2 AND revoked_at IS NULL
@@ -193,9 +229,12 @@ type RevokeRefreshFamilyParams struct {
 	FamilyID  string
 }
 
-func (q *Queries) RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) error {
-	_, err := q.db.ExecContext(ctx, revokeRefreshFamily, arg.RevokedAt, arg.FamilyID)
-	return err
+func (q *Queries) RevokeRefreshFamily(ctx context.Context, arg RevokeRefreshFamilyParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeRefreshFamily, arg.RevokedAt, arg.FamilyID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const revokeRefreshTokenByHash = `-- name: RevokeRefreshTokenByHash :execrows
@@ -218,22 +257,6 @@ func (q *Queries) RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefres
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-const revokeRefreshTokenByID = `-- name: RevokeRefreshTokenByID :exec
-UPDATE refresh_tokens
-SET revoked_at = $1
-WHERE id = $2 AND revoked_at IS NULL
-`
-
-type RevokeRefreshTokenByIDParams struct {
-	RevokedAt sql.NullTime
-	ID        string
-}
-
-func (q *Queries) RevokeRefreshTokenByID(ctx context.Context, arg RevokeRefreshTokenByIDParams) error {
-	_, err := q.db.ExecContext(ctx, revokeRefreshTokenByID, arg.RevokedAt, arg.ID)
-	return err
 }
 
 const tombstoneRefreshFamily = `-- name: TombstoneRefreshFamily :execrows

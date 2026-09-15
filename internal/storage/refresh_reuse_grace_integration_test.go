@@ -5,11 +5,15 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
+	"github.com/kangheeyong/authgate/internal/clientinfo"
 	"github.com/kangheeyong/authgate/internal/clock"
 )
 
@@ -141,8 +145,8 @@ func TestRefreshReuseGrace_AfterWindowDetectsReuse(t *testing.T) {
 	}
 }
 
-// A token revoked through /oauth/revoke was never redeemed, so it gets no grace
-// even a moment after the revocation.
+// A token revoked through /oauth/revoke gets no grace even a moment after the
+// revocation.
 func TestRefreshReuseGrace_RevokedTokenGetsNoGrace(t *testing.T) {
 	f, child := newGraceFixture(t, testReuseGrace)
 	ctx := context.Background()
@@ -301,5 +305,213 @@ func TestRefreshReuseGrace_DisabledDetectsReuse(t *testing.T) {
 	}
 	if !f.tombstoned(t) {
 		t.Fatal("expected reuse detection with the grace disabled")
+	}
+}
+
+// isInvalidGrant reports whether err reaches the client as 400 invalid_grant.
+// zitadel/oidc turns any other error from CreateAccessAndRefreshTokens into a
+// 500 server_error.
+func isInvalidGrant(err error) bool {
+	var oerr *oidc.Error
+	return errors.As(err, &oerr) && oerr.ErrorType == oidc.InvalidGrant && errors.Is(err, op.ErrInvalidRefreshToken)
+}
+
+// Revoking a refresh token ends the grant, including a sibling another session
+// received under the grace. Before, only the presented row was revoked and the
+// sibling kept working for the rest of its lifetime.
+func TestRefreshReuseGrace_RevokeEndsSiblingsToo(t *testing.T) {
+	for _, byID := range []bool{false, true} {
+		t.Run(fmt.Sprintf("by_id=%v", byID), func(t *testing.T) {
+			f, child := newGraceFixture(t, testReuseGrace)
+			ctx := context.Background()
+			f.clk.T = f.clk.T.Add(time.Second)
+			sibling, err := f.redeem(t, f.first)
+			if err != nil {
+				t.Fatalf("grace sibling: %v", err)
+			}
+
+			target := child
+			if byID {
+				if _, target, err = f.store.GetRefreshTokenInfo(ctx, "test-client", child); err != nil {
+					t.Fatalf("resolve child: %v", err)
+				}
+			}
+			if oerr := f.store.RevokeToken(ctx, target, f.userID, "test-client"); oerr != nil {
+				t.Fatalf("revoke: %v", oerr)
+			}
+
+			f.clk.T = f.clk.T.Add(time.Hour)
+			if _, err := f.redeem(t, sibling); err == nil {
+				t.Fatal("the grace sibling still rotates after its grant was revoked")
+			}
+			if got := f.liveTokens(t); got != 0 {
+				t.Fatalf("live tokens = %d, want 0", got)
+			}
+			var reason string
+			if err := f.store.DB().QueryRowContext(ctx, `SELECT reason FROM refresh_token_families WHERE family_id = $1`, f.familyID).Scan(&reason); err != nil {
+				t.Fatalf("expected a tombstone for the revoked grant: %v", err)
+			}
+			if reason != tombstoneReasonRevoked {
+				t.Fatalf("tombstone reason = %q, want %q", reason, tombstoneReasonRevoked)
+			}
+		})
+	}
+}
+
+// The grace audit must name the request that came in under the grace, even
+// when it inserts before the ordinary rotation it raced.
+func TestRefreshReuseGrace_AuditNamesTheGraceRequestWhateverTheOrder(t *testing.T) {
+	f, child := newGraceFixture(t, testReuseGrace)
+	f.clk.T = f.clk.T.Add(time.Second)
+	legit := clientinfo.WithContext(context.Background(), clientinfo.Info{IP: "198.51.100.1", UserAgent: "legit"})
+	replay := clientinfo.WithContext(context.Background(), clientinfo.Info{IP: "203.0.113.9", UserAgent: "replay"})
+
+	rtLegit, err := f.store.TokenRequestByRefreshToken(legit, child)
+	if err != nil {
+		t.Fatalf("ordinary redemption: %v", err)
+	}
+	rtReplay, err := f.store.TokenRequestByRefreshToken(replay, child)
+	if err != nil {
+		t.Fatalf("grace redemption: %v", err)
+	}
+	// The replay inserts first.
+	if _, _, _, err := f.store.CreateAccessAndRefreshTokens(replay, rtReplay, child); err != nil {
+		t.Fatalf("grace child: %v", err)
+	}
+	if _, _, _, err := f.store.CreateAccessAndRefreshTokens(legit, rtLegit, child); err != nil {
+		t.Fatalf("ordinary child: %v", err)
+	}
+
+	rows, err := f.store.DB().QueryContext(context.Background(),
+		`SELECT host(ip_address) FROM audit_log WHERE event_type = 'auth.refresh_reuse_grace' AND metadata->>'outcome' = 'issued'`)
+	if err != nil {
+		t.Fatalf("query grace audits: %v", err)
+	}
+	defer rows.Close()
+	var ips []string
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		ips = append(ips, ip)
+	}
+	if len(ips) != 1 || ips[0] != "203.0.113.9" {
+		t.Fatalf("grace issued audits from %v, want exactly the replay 203.0.113.9", ips)
+	}
+}
+
+// Refusals while the tokens are being created must reach the client as 400
+// invalid_grant, not 500.
+func TestRefreshReuseGrace_RefusalAtInsertIsInvalidGrant(t *testing.T) {
+	f, _ := newGraceFixture(t, testReuseGrace)
+	f.clk.T = f.clk.T.Add(time.Second)
+	ctx := context.Background()
+
+	var granted []op.RefreshTokenRequest
+	for i := 0; i < refreshReuseGraceMaxIssued+1; i++ {
+		rt, err := f.store.TokenRequestByRefreshToken(ctx, f.first)
+		if err != nil {
+			t.Fatalf("provisional check %d: %v", i, err)
+		}
+		granted = append(granted, rt)
+	}
+	var last error
+	for _, rt := range granted {
+		_, _, _, last = f.store.CreateAccessAndRefreshTokens(ctx, rt, f.first)
+	}
+	if !isInvalidGrant(last) {
+		t.Fatalf("refusal at insert = %#v, want invalid_grant wrapping ErrInvalidRefreshToken", last)
+	}
+}
+
+// A redeemed token whose row vanished before its child is inserted (an account
+// purge in between) must not mint a token into a new, unrelated family.
+func TestRefreshReuseGrace_MissingRedeemedRowIsRefused(t *testing.T) {
+	f, child := newGraceFixture(t, testReuseGrace)
+	ctx := context.Background()
+
+	rt, err := f.store.TokenRequestByRefreshToken(ctx, child)
+	if err != nil {
+		t.Fatalf("redeem: %v", err)
+	}
+	if _, err := f.store.DB().ExecContext(ctx, `DELETE FROM refresh_tokens WHERE token_hash = $1`, f.store.Keys().RefreshHash(child)); err != nil {
+		t.Fatalf("delete redeemed row: %v", err)
+	}
+	var before int
+	if err := f.store.DB().QueryRowContext(ctx, `SELECT count(*) FROM refresh_tokens`).Scan(&before); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+
+	if _, _, _, err := f.store.CreateAccessAndRefreshTokens(ctx, rt, child); !isInvalidGrant(err) {
+		t.Fatalf("err = %v, want invalid_grant", err)
+	}
+	var after int
+	if err := f.store.DB().QueryRowContext(ctx, `SELECT count(*) FROM refresh_tokens`).Scan(&after); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if after != before {
+		t.Fatalf("a token was minted from a deleted row: %d -> %d", before, after)
+	}
+}
+
+// Real concurrency: many requests present one unredeemed token at once. The
+// cap must hold, every refusal must be invalid_grant, and nothing may deadlock.
+func TestRefreshReuseGrace_ConcurrentRedemptionsRespectCap(t *testing.T) {
+	f, _ := newGraceFixture(t, testReuseGrace)
+	ctx := context.Background()
+
+	for round := 0; round < 5; round++ {
+		token := fmt.Sprintf("concurrent-%d", round)
+		if _, err := f.store.DB().ExecContext(ctx,
+			`INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, scopes, expires_at, created_at)
+			 VALUES (uuid_generate_v4(), $1, gen_random_uuid(), $2, 'test-client', '{openid}', $3, $4)`,
+			f.store.Keys().RefreshHash(token), f.userID, f.clk.Now().Add(24*time.Hour), f.clk.Now(),
+		); err != nil {
+			t.Fatalf("insert token: %v", err)
+		}
+
+		var (
+			wg      sync.WaitGroup
+			mu      sync.Mutex
+			issued  int
+			refused int
+			others  []error
+		)
+		start := make(chan struct{})
+		for i := 0; i < 20; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				_, err := f.redeem(t, token)
+				mu.Lock()
+				defer mu.Unlock()
+				switch {
+				case err == nil:
+					issued++
+				case errors.Is(err, op.ErrInvalidRefreshToken):
+					refused++
+				default:
+					others = append(others, err)
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		var children int
+		if err := f.store.DB().QueryRowContext(ctx,
+			`SELECT count(*) FROM refresh_tokens c JOIN refresh_tokens p ON c.parent_id = p.id WHERE p.token_hash = $1`,
+			f.store.Keys().RefreshHash(token),
+		).Scan(&children); err != nil {
+			t.Fatalf("count children: %v", err)
+		}
+		if len(others) > 0 {
+			t.Fatalf("round %d: unexpected errors %v", round, others)
+		}
+		if children > refreshReuseGraceMaxIssued || issued != children {
+			t.Fatalf("round %d: issued=%d children=%d refused=%d, want at most %d children", round, issued, children, refused, refreshReuseGraceMaxIssued)
+		}
 	}
 }

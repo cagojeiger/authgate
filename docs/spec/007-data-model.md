@@ -89,7 +89,7 @@ erDiagram
     refresh_token_families {
         uuid family_id PK "tombstone된 family만 행 존재 (sparse)"
         uuid user_id FK "NOT NULL, CASCADE"
-        text reason "NOT NULL, 예: reuse_detected"
+        text reason "NOT NULL, reuse_detected | revoked"
         timestamptz revoked_at "NOT NULL, DEFAULT NOW()"
     }
 
@@ -290,7 +290,7 @@ MCP
 | `auth.device_denied` | 디바이스 거부 | `{client_id, client_name}` |
 | ~~`auth.token_refreshed`~~ | 더 이상 방출하지 않음 (과거 데이터에만 존재) | — |
 | `auth.logout` | RP-Initiated Logout | `{client_id, client_name}` |
-| `auth.token_revoked` | refresh token revoke | `{client_id, client_name}` |
+| `auth.token_revoked` | refresh token revoke (grant 전체) | `{client_id, client_name}` |
 | `auth.refresh_reuse_detected` | 폐기된 refresh_token 재사용 탐지 | `{family_id}` |
 | `auth.refresh_family_revoked` | family 전체 revoke (탈취 의심) | `{family_id}` |
 | `auth.refresh_reuse_grace` | 교환된 refresh_token을 유예 시간 안에 재제출 | `{family_id, outcome: issued\|refused}` |

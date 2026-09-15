@@ -22,20 +22,25 @@ FROM refresh_tokens
 WHERE token_hash = $1
 FOR UPDATE;
 
--- name: RevokeRefreshFamily :exec
+-- name: RevokeRefreshFamily :execrows
 UPDATE refresh_tokens
 SET revoked_at = $1
 WHERE family_id = $2 AND revoked_at IS NULL;
+
+-- name: GetRefreshTokenGrantByHash :one
+SELECT family_id, user_id
+FROM refresh_tokens
+WHERE token_hash = $1;
+
+-- name: GetRefreshTokenGrantByID :one
+SELECT family_id, user_id
+FROM refresh_tokens
+WHERE id = $1;
 
 -- name: MarkRefreshTokenUsedAndRevokedByID :exec
 UPDATE refresh_tokens
 SET used_at = $1, revoked_at = $1
 WHERE id = $2;
-
--- name: RevokeRefreshTokenByID :exec
-UPDATE refresh_tokens
-SET revoked_at = $1
-WHERE id = $2 AND revoked_at IS NULL;
 
 -- name: GetRefreshTokenInfoByHashAndClientID :one
 SELECT user_id, id

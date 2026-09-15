@@ -164,7 +164,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 			return "", "", time.Time{}, err
 		}
 		if revoked {
-			return "", "", time.Time{}, op.ErrInvalidRefreshToken
+			return "", "", time.Time{}, errRefreshGrantRefused()
 		}
 	}
 
@@ -177,8 +177,12 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		// under the reuse grace. Decide it here, holding the redeemed row's lock
 		// until the new child commits, so concurrent grace requests are counted
 		// one after another and the cap holds.
+		graceRequested := false
+		if m, ok := request.(*RefreshTokenModel); ok {
+			graceRequested = m.graceRedemption
+		}
 		var parent string
-		parent, graceChild, err = s.lockAndCheckGraceChild(ctx, qtx, currentRefreshHash, now)
+		parent, graceChild, err = s.lockAndCheckGraceChild(ctx, tx, qtx, currentRefreshHash, graceRequested, now)
 		if err != nil {
 			return "", "", time.Time{}, err
 		}
@@ -260,6 +264,7 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 			if err := tx.Commit(); err != nil {
 				return nil, err
 			}
+			rt.graceRedemption = true
 			return rt, nil
 		case grace == graceRefuse:
 			// Past the cap but still inside the window: refuse this request, but
@@ -277,7 +282,7 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		// Tombstone the family in the same tx as the revoke. RevokeRefreshFamily
 		// only flips existing rows; the tombstone is what CreateAccessAndRefreshTokens
 		// checks so a child rotating in just after the revoke is still refused.
-		tombstoned, err := tombstoneRefreshFamilyOnReuse(ctx, qtx, rt.FamilyID, rt.UserID, now)
+		tombstoned, err := tombstoneRefreshFamily(ctx, qtx, rt.FamilyID, rt.UserID, tombstoneReasonReuse, now)
 		if err != nil {
 			return nil, op.ErrInvalidRefreshToken
 		}
@@ -345,20 +350,21 @@ func (s *Storage) TerminateSession(ctx context.Context, userID string, clientID 
 	return nil
 }
 
+// RevokeToken revokes the grant a refresh token belongs to: every token in its
+// family, plus a tombstone so no further child can be issued into it. Revoking
+// only the presented row stopped being enough once the reuse grace let a family
+// hold more than one live token (the sibling a concurrent session received);
+// RFC 7009 §2.1 lets the server revoke the whole grant.
+//
+// tokenOrTokenID is the refresh token itself, or its row id as zitadel/oidc
+// passes it after GetRefreshTokenInfo.
 func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID string, clientID string) *oidc.Error {
-	now := s.clock.Now()
-	q := storeq.New(s.db)
 	info := clientinfo.FromContext(ctx)
-
-	if tryRevokeRefreshByHash(ctx, q, s.keys.RefreshHash(tokenOrTokenID), now) {
-		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, info.IP, info.UserAgent, map[string]any{
-			"client_id":   clientID,
-			"client_name": s.auditClientName(ctx, clientID),
-		})
-		return nil
+	revoked, err := s.revokeRefreshGrant(ctx, tokenOrTokenID)
+	if err != nil {
+		slog.ErrorContext(ctx, "revoke refresh grant", "error", err)
 	}
-
-	if tryRevokeRefreshByIDReturning(ctx, q, tokenOrTokenID, now) {
+	if revoked {
 		s.AuditLog(ctx, &userID, EventAuthTokenRevoked, info.IP, info.UserAgent, map[string]any{
 			"client_id":   clientID,
 			"client_name": s.auditClientName(ctx, clientID),
@@ -367,6 +373,59 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 
 	// RFC 7009: always return 200 regardless of whether anything was revoked
 	return nil
+}
+
+// revokeRefreshGrant revokes the family of the refresh token identified by
+// tokenOrTokenID and tombstones it. It reports whether any live token was
+// revoked.
+func (s *Storage) revokeRefreshGrant(ctx context.Context, tokenOrTokenID string) (bool, error) {
+	now := s.clock.Now()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	qtx := storeq.New(tx)
+
+	familyID, userID, err := lookupRefreshGrant(ctx, qtx, s.keys.RefreshHash(tokenOrTokenID), tokenOrTokenID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	n, err := qtx.RevokeRefreshFamily(ctx, storeq.RevokeRefreshFamilyParams{
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		FamilyID:  familyID,
+	})
+	if err != nil {
+		return false, err
+	}
+	if _, err := tombstoneRefreshFamily(ctx, qtx, familyID, userID, tombstoneReasonRevoked, now); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func lookupRefreshGrant(ctx context.Context, qtx *storeq.Queries, tokenHash, tokenID string) (familyID, userID string, err error) {
+	row, err := qtx.GetRefreshTokenGrantByHash(ctx, tokenHash)
+	if err == nil {
+		return row.FamilyID, row.UserID, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", "", err
+	}
+	if _, perr := uuid.Parse(tokenID); perr != nil {
+		return "", "", sql.ErrNoRows
+	}
+	byID, err := qtx.GetRefreshTokenGrantByID(ctx, tokenID)
+	if err != nil {
+		return "", "", err
+	}
+	return byID.FamilyID, byID.UserID, nil
 }
 
 func (s *Storage) GetRefreshTokenInfo(ctx context.Context, clientID string, token string) (string, string, error) {
@@ -583,21 +642,32 @@ func (s *Storage) countRedemptionChildren(ctx context.Context, qtx *storeq.Queri
 	return qtx.CountRefreshTokenChildren(ctx, rt.ID)
 }
 
+// errRefreshGrantRefused is returned when a refresh token is refused while the
+// new tokens are being created. zitadel/oidc maps only *oidc.Error values from
+// that step to their own status; a plain storage error there becomes a 500
+// server_error, which invites the retry that trips reuse detection.
+func errRefreshGrantRefused() error {
+	return oidc.ErrInvalidGrant().WithParent(op.ErrInvalidRefreshToken)
+}
+
 // lockAndCheckGraceChild locks the refresh token being rotated and returns its
-// id (the new child's parent) and whether the child about to be inserted is a
-// grace child, i.e. the redemption already has a child. The lock is held until the caller's transaction ends,
-// so requests redeeming the same token insert one at a time and each sees the
-// children committed before it.
+// id (the new child's parent) and whether the child is issued under the reuse
+// grace. The lock is held until the caller's transaction ends, so requests
+// redeeming the same token insert one at a time and each sees the children
+// committed before it.
 //
-// The first child of a redemption is ordinary rotation and passes. A further
-// child must still pass refreshReuseGraceDecision; otherwise the rotation is
-// refused with ErrInvalidRefreshToken and nothing is inserted.
-func (s *Storage) lockAndCheckGraceChild(ctx context.Context, qtx *storeq.Queries, tokenHash string, now time.Time) (string, bool, error) {
+// The rotation is re-checked under the lock (account state, resource binding,
+// and the full grace decision including the cap) when the request came through
+// the grace (graceRequested) or the redemption already has a child. The first
+// child of an ordinary rotation passes without it. A refusal inserts nothing.
+//
+// A missing row is refused: the token was redeemed a moment ago, so it can only
+// have been deleted since (an account purge), and minting from it would start
+// an unrelated family.
+func (s *Storage) lockAndCheckGraceChild(ctx context.Context, tx *sql.Tx, qtx *storeq.Queries, tokenHash string, graceRequested bool, now time.Time) (string, bool, error) {
 	rt, err := loadRefreshTokenForUpdate(ctx, qtx, tokenHash)
 	if errors.Is(err, op.ErrInvalidRefreshToken) {
-		// No such row: nothing to rotate from (e.g. it was cleaned up). The
-		// family lookup already fell back to a fresh family.
-		return "", false, nil
+		return "", false, errRefreshGrantRefused()
 	}
 	if err != nil {
 		return "", false, err
@@ -609,8 +679,11 @@ func (s *Storage) lockAndCheckGraceChild(ctx context.Context, qtx *storeq.Querie
 	if err != nil {
 		return "", false, err
 	}
-	if children == 0 {
+	if !graceRequested && children == 0 {
 		return rt.ID, false, nil
+	}
+	if err := s.validateRefreshTokenRequest(ctx, tx, rt, now); err != nil {
+		return "", false, err
 	}
 	grace, err := s.refreshReuseGraceDecision(ctx, qtx, rt, now)
 	if err != nil {
@@ -618,9 +691,9 @@ func (s *Storage) lockAndCheckGraceChild(ctx context.Context, qtx *storeq.Querie
 	}
 	if grace != graceIssue {
 		s.auditRefreshReuseGrace(ctx, rt.UserID, rt.FamilyID, "refused")
-		return "", false, op.ErrInvalidRefreshToken
+		return "", false, errRefreshGrantRefused()
 	}
-	return rt.ID, true, nil
+	return rt.ID, graceRequested, nil
 }
 
 // auditRefreshReuseGrace records a redemption handled by the reuse grace with
@@ -635,21 +708,27 @@ func (s *Storage) auditRefreshReuseGrace(ctx context.Context, userID, familyID, 
 }
 
 func revokeRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, familyID string, now time.Time) error {
-	return qtx.RevokeRefreshFamily(ctx, storeq.RevokeRefreshFamilyParams{
+	_, err := qtx.RevokeRefreshFamily(ctx, storeq.RevokeRefreshFamilyParams{
 		RevokedAt: sql.NullTime{Time: now, Valid: true},
 		FamilyID:  familyID,
 	})
+	return err
 }
 
-// tombstoneRefreshFamilyOnReuse records a permanent per-family tombstone so a
-// child token cannot be issued into the family later (checked by
+const (
+	tombstoneReasonReuse   = "reuse_detected"
+	tombstoneReasonRevoked = "revoked"
+)
+
+// tombstoneRefreshFamily records a permanent per-family tombstone so a child
+// token cannot be issued into the family later (checked by
 // CreateAccessAndRefreshTokens). Idempotent via ON CONFLICT DO NOTHING; it
 // reports whether this call created the tombstone.
-func tombstoneRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, familyID, userID string, now time.Time) (bool, error) {
+func tombstoneRefreshFamily(ctx context.Context, qtx *storeq.Queries, familyID, userID, reason string, now time.Time) (bool, error) {
 	n, err := qtx.TombstoneRefreshFamily(ctx, storeq.TombstoneRefreshFamilyParams{
 		FamilyID:  familyID,
 		UserID:    userID,
-		Reason:    "reuse_detected",
+		Reason:    reason,
 		RevokedAt: now,
 	})
 	if err != nil {
@@ -694,36 +773,6 @@ func (s *Storage) validateRefreshTokenRequest(ctx context.Context, tx *sql.Tx, r
 		}
 	}
 	return nil
-}
-
-// tryRevokeRefreshByHash revokes the row matching tokenHash (computed by the
-// caller with Keys.RefreshHash) and reports whether a row was affected.
-func tryRevokeRefreshByHash(ctx context.Context, q *storeq.Queries, tokenHash string, now time.Time) bool {
-	rows, err := q.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
-		RevokedAt: sql.NullTime{Time: now, Valid: true},
-		TokenHash: tokenHash,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "revoke refresh token by hash", "error", err)
-		return false
-	}
-	return rows > 0
-}
-
-// tryRevokeRefreshByIDReturning attempts to revoke a refresh token by UUID ID and returns true if a row was affected.
-func tryRevokeRefreshByIDReturning(ctx context.Context, q *storeq.Queries, tokenOrTokenID string, now time.Time) bool {
-	if _, err := uuid.Parse(tokenOrTokenID); err != nil {
-		return false
-	}
-	err := q.RevokeRefreshTokenByID(ctx, storeq.RevokeRefreshTokenByIDParams{
-		RevokedAt: sql.NullTime{Time: now, Valid: true},
-		ID:        tokenOrTokenID,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "revoke refresh token by id", "error", err)
-		return false
-	}
-	return true
 }
 
 // GetAuthRequestModel fetches the auth request by ID and returns the concrete model.

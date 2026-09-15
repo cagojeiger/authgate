@@ -69,6 +69,11 @@ Browser / Device / MCP / Refresh / Delete 각 채널이 공통 상태기계를 �
 | `refresh-011` | 제출 10회가 모두 잠정 판정을 통과한 뒤 insert | `Storage` | 자식 총 3개, family 유지 | 잠금 하 상한 |
 | `refresh-012` | 자식을 id로 revoke한 뒤 부모를 유예 안에 재제출 | `Storage` | `invalid_grant`, 살아있는 토큰 0, tombstone | 끝낸 세션 부활 금지 |
 | `refresh-013` | 사용자 전체 revoke 뒤 부모를 유예 안에 재제출 | `Storage` | `invalid_grant`, 살아있는 토큰 0 | 〃 |
+| `refresh-014` | 유예 형제가 있는 상태에서 한 토큰을 `/oauth/revoke`(hash·id) | `Storage` | 형제도 rotation 불가, 살아있는 토큰 0, tombstone `reason=revoked` | revoke = grant 전체 |
+| `refresh-015` | 정상 교환과 유예 재생이 insert 순서를 바꿈 | `Storage` | `outcome=issued` 감사는 재생 IP 1건 | 감사 귀속 |
+| `refresh-016` | insert 단계에서 상한 거부 | `Storage` | `invalid_grant`(→ 400), `ErrInvalidRefreshToken` 래핑 | 500 금지 |
+| `refresh-017` | 교환된 토큰 행이 insert 전 삭제됨 | `Storage` | `invalid_grant`, 토큰 발급 없음 | 무관한 family 생성 금지 |
+| `refresh-018` | 교환 안 된 토큰에 20개 동시 요청 × 5회 | `Storage` | 자식 ≤ 3, 거부는 전부 `ErrInvalidRefreshToken`, 교착 없음 | 실제 동시성 |
 
 ## Delete / Recover
 
