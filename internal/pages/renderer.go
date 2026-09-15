@@ -19,7 +19,7 @@ var templateFS embed.FS
 var pages = map[string]*template.Template{}
 
 func init() {
-	for _, name := range []string{"device_entry.html", "device_approve.html", "result.html", "error.html"} {
+	for _, name := range []string{"device_entry.html", "device_approve.html", "result.html", "error.html", "logout_confirm.html", "logout_done.html"} {
 		pages[name] = template.Must(template.ParseFS(templateFS, "templates/layout.html", "templates/"+name))
 	}
 }
@@ -111,6 +111,26 @@ type ResultData struct {
 	Message   string
 }
 
+// LogoutParam is one RP-Initiated Logout request parameter carried through the
+// confirmation form, so the confirmed POST is validated against exactly what
+// the relying party sent.
+type LogoutParam struct {
+	Name  string
+	Value string
+}
+
+type LogoutConfirmData struct {
+	Brand     Brand
+	PageTitle string
+	Params    []LogoutParam
+	CSRFToken string
+}
+
+type LogoutDoneData struct {
+	Brand     Brand
+	PageTitle string
+}
+
 func RenderError(w io.Writer, data ErrorData) error {
 	data.PageTitle = "Error"
 	return pages["error.html"].ExecuteTemplate(w, "error.html", data)
@@ -129,4 +149,14 @@ func RenderDeviceApprove(w io.Writer, data DeviceApproveData) error {
 func RenderResult(w io.Writer, data ResultData) error {
 	data.PageTitle = "Device sign-in"
 	return pages["result.html"].ExecuteTemplate(w, "result.html", data)
+}
+
+func RenderLogoutConfirm(w io.Writer, data LogoutConfirmData) error {
+	data.PageTitle = "Sign out"
+	return pages["logout_confirm.html"].ExecuteTemplate(w, "logout_confirm.html", data)
+}
+
+func RenderLogoutDone(w io.Writer, data LogoutDoneData) error {
+	data.PageTitle = "Sign out"
+	return pages["logout_done.html"].ExecuteTemplate(w, "logout_done.html", data)
 }

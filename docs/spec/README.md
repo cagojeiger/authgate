@@ -15,7 +15,7 @@ authgate가 제공하는 전체 서비스 경험을 정의한다.
 | 002 | [브라우저 로그인](002-browser-login.md) | 웹 앱에서 Auth Code + PKCE로 토큰 발급 | 웹 앱 사용자 |
 | 003 | [Device 로그인](003-device-login.md) | CLI에서 Device Code로 토큰 발급 | CLI 사용자 |
 | 004 | [MCP Authorization](004-mcp-login.md) | AI 도구가 protected resource 계약으로 토큰 발급 | AI 도구 (Claude, Cursor) |
-| 005 | [토큰 Lifecycle](005-token-lifecycle.md) | 토큰 갱신, 검증, 폐기 | 앱 개발자 |
+| 005 | [토큰 Lifecycle](005-token-lifecycle.md) | 토큰 갱신, 검증, 폐기, 로그아웃 | 앱 개발자 |
 | 006 | [계정 Lifecycle](006-account-lifecycle.md) | 계정 상태 관리, 삭제, 복구 | 사용자 + 운영자 |
 
 ### 시스템 (구현 기반)

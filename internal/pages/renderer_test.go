@@ -37,6 +37,18 @@ func renderAll(t *testing.T, brand Brand) map[string]string {
 	}
 	out["error"] = sb.String()
 
+	sb.Reset()
+	if err := RenderLogoutConfirm(&sb, LogoutConfirmData{Brand: brand, Params: []LogoutParam{{Name: "state", Value: "s"}}, CSRFToken: "tok"}); err != nil {
+		t.Fatalf("logout confirm: %v", err)
+	}
+	out["logout_confirm"] = sb.String()
+
+	sb.Reset()
+	if err := RenderLogoutDone(&sb, LogoutDoneData{Brand: brand}); err != nil {
+		t.Fatalf("logout done: %v", err)
+	}
+	out["logout_done"] = sb.String()
+
 	return out
 }
 
@@ -166,5 +178,28 @@ func TestLoadBrand_DefaultName(t *testing.T) {
 	}
 	if b.Name != "authgate" {
 		t.Errorf("Name = %q, want the authgate fallback", b.Name)
+	}
+}
+
+// pages-008: the logout confirmation form carries the relying party's
+// parameters back as hidden fields. They arrive from the query string, so a
+// hostile value must not break out of its attribute.
+func TestRenderLogoutConfirm_EscapesCarriedParams(t *testing.T) {
+	var sb strings.Builder
+	if err := RenderLogoutConfirm(&sb, LogoutConfirmData{
+		Brand:     Brand{Name: "acme"},
+		Params:    []LogoutParam{{Name: "state", Value: `"><img src=x onerror=alert(1)>`}},
+		CSRFToken: "tok",
+	}); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	html := sb.String()
+	if strings.Contains(html, "<img src=x") {
+		t.Fatalf("carried param was not escaped:\n%s", html)
+	}
+	for _, want := range []string{`name="state"`, `name="csrf_token" value="tok"`, `name="confirm"`, `action="/end_session"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("confirm page is missing %s", want)
+		}
 	}
 }

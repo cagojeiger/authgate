@@ -216,6 +216,8 @@ func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.
 		{http.MethodGet, "/device"},
 		{http.MethodPost, "/device/approve"},
 		{http.MethodGet, "/device/auth/callback"},
+		{http.MethodGet, "/end_session"},
+		{http.MethodPost, "/end_session"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -226,6 +228,7 @@ func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.
 				cfg,
 				handler.NewLoginHandler(nil, nil, true, pages.Brand{Name: "authgate"}),
 				handler.NewDeviceHandler(nil, nil, true, pages.Brand{Name: "authgate"}),
+				handler.NewLogoutHandler(nil, nil, true, pages.Brand{Name: "authgate"}),
 				handler.NewMCPLoginHandler(nil, nil, true, pages.Brand{Name: "authgate"}),
 				newRouteLimiters(cfg),
 			)

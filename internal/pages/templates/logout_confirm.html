@@ -1,0 +1,18 @@
+{{define "content"}}
+<div>
+  <h1>Sign out of {{.Brand.Name}}?</h1>
+</div>
+
+<p>You are signed in to {{.Brand.Name}} in this browser. Signing out ends your {{.Brand.Name}} sign-in in every browser, so the next sign-in asks you to choose an account again. Applications you already use stay signed in until their own sessions end.</p>
+
+<div class="note">If you did not ask to sign out, you can close this page. Nothing changes until you confirm.</div>
+
+<form method="POST" action="/end_session">
+  {{range .Params}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
+  {{end}}<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <div class="btn-row">
+    <button type="submit" name="confirm" value="yes" class="btn">Sign out</button>
+  </div>
+</form>
+{{end}}
+{{template "layout" .}}

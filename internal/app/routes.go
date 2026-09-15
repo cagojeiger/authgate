@@ -23,6 +23,7 @@ func registerRoutes(
 	provider http.Handler,
 	loginHandler *handler.LoginHandler,
 	deviceHandler *handler.DeviceHandler,
+	logoutHandler *handler.LogoutHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
 	isShuttingDown *atomic.Bool,
 ) {
@@ -35,7 +36,7 @@ func registerRoutes(
 
 	registerOAuthMetadataRoute(mux, cfg)
 	registerProviderRoutes(mux, cfg, store, provider, lim)
-	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, mcpLoginHandler, lim)
+	registerAuthgateRoutes(mux, cfg, loginHandler, deviceHandler, logoutHandler, mcpLoginHandler, lim)
 	registerHealthRoutes(mux, db, isShuttingDown)
 }
 
@@ -131,6 +132,7 @@ func registerAuthgateRoutes(
 	cfg *config.Config,
 	loginHandler *handler.LoginHandler,
 	deviceHandler *handler.DeviceHandler,
+	logoutHandler *handler.LogoutHandler,
 	mcpLoginHandler *handler.MCPLoginHandler,
 	lim routeLimiters,
 ) {
@@ -145,6 +147,10 @@ func registerAuthgateRoutes(
 	mux.Handle("/device", authLimiter(http.HandlerFunc(deviceHandler.HandleDevicePage)))
 	mux.Handle("/device/approve", tokenLimiter(http.HandlerFunc(deviceHandler.HandleDeviceApprove)))
 	mux.Handle("/device/auth/callback", authLimiter(http.HandlerFunc(deviceHandler.HandleDeviceCallback)))
+	// Takes precedence over the provider catch-all: zitadel's own end_session
+	// cannot end a session without id_token_hint, never clears the session
+	// cookie and never asks the user to confirm.
+	mux.Handle("/end_session", authLimiter(http.HandlerFunc(logoutHandler.HandleEndSession)))
 }
 
 func registerHealthRoutes(mux *http.ServeMux, db *sql.DB, isShuttingDown *atomic.Bool) {

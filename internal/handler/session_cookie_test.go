@@ -57,3 +57,19 @@ func findCookie(t *testing.T, cookies []*http.Cookie, name string) *http.Cookie 
 	t.Fatalf("cookie %q was not set", name)
 	return nil
 }
+
+// session-cookie-003: logout expires the cookie with the same Name, Path,
+// SameSite, HttpOnly and Secure it was issued with. A mismatch makes the
+// browser treat the deletion as a different cookie and keep the session.
+func TestClearSessionCookie_MatchesIssuedAttributes(t *testing.T) {
+	rec := httptest.NewRecorder()
+	clearSessionCookie(rec, false)
+
+	c := findCookie(t, rec.Result().Cookies(), sessionCookieName)
+	if c.MaxAge >= 0 || c.Value != "" {
+		t.Errorf("MaxAge = %d, Value = %q, want an expired empty cookie", c.MaxAge, c.Value)
+	}
+	if c.Path != "/" || c.SameSite != http.SameSiteLaxMode || !c.HttpOnly || !c.Secure {
+		t.Errorf("cookie = %+v, want Path=/, Lax, HttpOnly, Secure like setSessionCookie", c)
+	}
+}
