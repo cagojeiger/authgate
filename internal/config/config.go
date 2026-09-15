@@ -61,10 +61,14 @@ type Config struct {
 	AdminAuditLogPIIRetention time.Duration
 	DevMode                   bool
 	EnableMCP                 bool
-	ClientConfigPath          string
-	MigrationsPath            string
-	SigningKeyPath            string
-	BrandName                 string
+	// MCPCIMDHostAllowlist names the hosts that may serve a CIMD client
+	// document. Nil means the built-in default (claude.ai, chatgpt.com); the
+	// single entry "*" admits every host. The MCP adapter validates entries.
+	MCPCIMDHostAllowlist []string
+	ClientConfigPath     string
+	MigrationsPath       string
+	SigningKeyPath       string
+	BrandName            string
 	// BrandLogoPath points at an SVG inlined into the device-flow pages. Empty
 	// renders the brand name alone, which is the neutral default.
 	BrandLogoPath string
@@ -118,6 +122,7 @@ func Load() (*Config, error) {
 		AdminAuditLogPIIRetention: time.Duration(envInt("ADMIN_AUDIT_LOG_PII_RETENTION_DAYS", 730)) * 24 * time.Hour,
 		DevMode:                   envBool("DEV_MODE", false),
 		EnableMCP:                 envBool("ENABLE_MCP", true),
+		MCPCIMDHostAllowlist:      envCommaList("MCP_CIMD_HOST_ALLOWLIST"),
 		ClientConfigPath:          envDefault("CLIENT_CONFIG", "/etc/authgate/clients.yaml"),
 		MigrationsPath:            envDefault("MIGRATIONS_PATH", "/migrations"),
 		SigningKeyPath:            envDefault("SIGNING_KEY_PATH", "signing_key.pem"),

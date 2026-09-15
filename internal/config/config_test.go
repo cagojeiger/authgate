@@ -16,7 +16,7 @@ func clearEnv() {
 		"OIDC_HTTP_TIMEOUT_SEC",
 		"SESSION_TTL", "ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "REFRESH_TOKEN_REUSE_GRACE_SEC",
 		"AUDIT_LOG_PII_RETENTION_DAYS", "ADMIN_AUDIT_LOG_PII_RETENTION_DAYS",
-		"DEV_MODE", "ENABLE_MCP",
+		"DEV_MODE", "ENABLE_MCP", "MCP_CIMD_HOST_ALLOWLIST",
 		"PII_ENC_ROOT_KEY_ID", "PII_ENC_ROOT_SECRET",
 		"PII_LOOKUP_ROOT_KEY_ID", "PII_LOOKUP_ROOT_SECRET",
 		"SIGNING_KEY_PATH",
@@ -677,5 +677,27 @@ func TestLoad_RefreshTokenReuseGraceBounds(t *testing.T) {
 				t.Errorf("error = %v, want one mentioning REFRESH_TOKEN_REUSE_GRACE_SEC", err)
 			}
 		})
+	}
+}
+
+func TestLoad_MCPCIMDHostAllowlist(t *testing.T) {
+	clearEnv()
+	setMinimal()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.MCPCIMDHostAllowlist != nil {
+		t.Errorf("unset MCPCIMDHostAllowlist = %v, want nil (built-in default)", cfg.MCPCIMDHostAllowlist)
+	}
+
+	os.Setenv("MCP_CIMD_HOST_ALLOWLIST", " claude.ai , chatgpt.com ,")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := cfg.MCPCIMDHostAllowlist; len(got) != 2 || got[0] != "claude.ai" || got[1] != "chatgpt.com" {
+		t.Errorf("MCPCIMDHostAllowlist = %v, want [claude.ai chatgpt.com]", got)
 	}
 }

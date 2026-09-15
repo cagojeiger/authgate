@@ -33,7 +33,7 @@ func TestCIMDFetcher_LRUEvictsOldest(t *testing.T) {
 	serverURL = srv.URL
 
 	const cap = 4
-	fetcher := &HTTPCIMDFetcher{
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost,
 		client:   srv.Client(),
 		clock:    clock.RealClock{},
 		cacheTTL: 5 * time.Minute,

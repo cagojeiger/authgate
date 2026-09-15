@@ -82,7 +82,7 @@ func TestCIMDFetcher_RejectsNonCanonicalAtGate(t *testing.T) {
 	defer srv.Close()
 
 	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
 
 	// httptest URL is https://127.0.0.1:<port>/, so :443 stripping and host
 	// case don't apply directly; exercise path-aliasing instead, which is

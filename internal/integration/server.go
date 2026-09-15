@@ -122,7 +122,11 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	// (ADR-002): signup/lookup require them, so every test server wires them.
 	setupCryptoKeys(t, store)
 	if opts.EnableMCP {
-		cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
+		hostPolicy, err := mcpadapter.NewCIMDHostPolicy(mcpadapter.DefaultCIMDHosts)
+		if err != nil {
+			t.Fatalf("cimd host policy: %v", err)
+		}
+		cimdFetcher := mcpadapter.NewHTTPCIMDFetcher(hostPolicy)
 		clientPolicy := mcpadapter.NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), cimdFetcher)
 		store.SetClientResolutionPolicy(clientPolicy)
 		store.SetResourceBindingPolicy(mcpadapter.NewResourceBindingPolicy(storage.NewCoreResourceBindingPolicy(), clientPolicy))

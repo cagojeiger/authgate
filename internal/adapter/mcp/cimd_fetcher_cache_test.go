@@ -28,7 +28,7 @@ func TestCIMDFetcher_CacheHit(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	clientID := serverURL + "/client.json"
 
 	// First fetch — network call
@@ -59,7 +59,7 @@ func TestCIMDFetcher_NegativeCachesErrors(t *testing.T) {
 	defer srv.Close()
 
 	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
-	fetcher := &HTTPCIMDFetcher{
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost,
 		client:   srv.Client(),
 		clock:    clk,
 		cacheTTL: 5 * time.Minute,
@@ -108,7 +108,7 @@ func TestCIMDFetcher_CacheExpiry(t *testing.T) {
 
 	// Use FixedClock so we can advance time
 	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
 	clientID := serverURL + "/client.json"
 
 	// First fetch — network call
@@ -165,7 +165,7 @@ func TestCIMDFetcher_RespectsCacheControlMaxAgeAboveFloor(t *testing.T) {
 	serverURL = srv.URL
 
 	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
 	clientID := serverURL + "/client.json"
 
 	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {
@@ -211,7 +211,7 @@ func TestCIMDFetcher_FloorTTLOnNoStore(t *testing.T) {
 	serverURL = srv.URL
 
 	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
 	clientID := serverURL + "/client.json"
 
 	if _, err := fetcher.FetchClient(context.Background(), clientID); err != nil {

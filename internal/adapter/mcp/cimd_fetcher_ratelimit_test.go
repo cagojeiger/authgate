@@ -24,7 +24,7 @@ func TestCIMDFetcher_RateLimitsRepeatedFailures(t *testing.T) {
 	defer srv.Close()
 
 	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
-	fetcher := &HTTPCIMDFetcher{
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost,
 		client:   srv.Client(),
 		clock:    clk,
 		cacheTTL: 5 * time.Minute,
@@ -83,7 +83,7 @@ func TestCIMDFetcher_RateLimitIsPerClientID(t *testing.T) {
 	serverURL = srv.URL
 
 	clk := &clock.FixedClock{T: time.Date(2026, 4, 2, 0, 0, 0, 0, time.UTC)}
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clk, cacheTTL: 5 * time.Minute}
 
 	failID := serverURL + failPath
 	for i := 0; i < cimdFailureLimit+1; i++ {
