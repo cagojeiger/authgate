@@ -31,7 +31,7 @@ func TestCIMDFetcher_Success(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	clientID := serverURL + "/oauth/client.json"
 
 	client, err := fetcher.FetchClient(context.Background(), clientID)
@@ -70,7 +70,7 @@ func TestCIMDFetcher_ClientIDMismatch(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/oauth/client.json")
 	if err == nil {
 		t.Fatal("expected error for client_id mismatch, got nil")
@@ -85,7 +85,7 @@ func TestCIMDFetcher_ServerDown(t *testing.T) {
 	client := srv.Client()
 	srv.Close()
 
-	fetcher := &HTTPCIMDFetcher{client: client, clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: client, clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), "https://localhost:99999/client.json")
 	if err == nil {
 		t.Fatal("expected error for server down, got nil")
@@ -104,7 +104,7 @@ func TestCIMDFetcher_MissingClientName(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for missing client_name, got nil")
@@ -120,7 +120,7 @@ func TestCIMDFetcher_HTTP404(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/oauth/client.json")
 	if err == nil {
 		t.Fatal("expected error for 404, got nil")
@@ -134,7 +134,7 @@ func TestCIMDFetcher_InvalidContentType(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/oauth/client.json")
 	if err == nil {
 		t.Fatal("expected error for invalid content-type, got nil")

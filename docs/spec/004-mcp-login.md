@@ -292,11 +292,12 @@ authgate의 CIMD 처리:
 ```text
 /authorize?client_id=https://app.example.com/oauth/client.json&...
   1. client_id가 URL 형식인지 감지 (HTTPS + path 포함)
-  2. 해당 URL에서 메타데이터 JSON fetch
-  3. 검증:
+  2. client_id의 host가 MCP_CIMD_HOST_ALLOWLIST에 있는지 확인 (없으면 fetch 없이 invalid_client)
+  3. 해당 URL에서 메타데이터 JSON fetch
+  4. 검증:
      - client_id 필드가 fetch한 URL과 정확히 일치
      - redirect_uri가 메타데이터의 redirect_uris에 포함
-  4. 검증 성공 → 메모리에서 ClientModel 생성 → 플로우 진행
+  5. 검증 성공 → 메모리에서 ClientModel 생성 → 플로우 진행
 ```
 
 ### URL-form static client_id 금지
@@ -326,6 +327,7 @@ CIMD fetch의 네트워크 제약. IETF draft에서 MUST/SHOULD인 것과 authga
 | 규칙 | 근거 | 값 |
 |------|------|-----|
 | HTTPS 필수 | IETF draft MUST | `https://` + path 필수 |
+| host 허용 목록 | authgate 정책 | `client_id`의 host가 `MCP_CIMD_HOST_ALLOWLIST`(기본 `claude.ai`, `chatgpt.com`)에 정확히 일치해야 한다. 포트는 비교하지 않는다. 목록 밖이면 요청 없이 거부하고 캐시·실패 카운트에도 남기지 않는다. CIMD는 문서 하나만 서빙하면 누구나 클라이언트가 되고 redirect_uris도 스스로 정하는데, MCP 채널은 기존 세션이 있으면 동의 화면 없이 승인한다. 허용 목록이 없으면 공격자 문서로 만든 authorize 링크 한 번에 로그인된 사용자의 MCP 토큰이 공격자 redirect_uri로 간다. 목록은 개별 클라이언트가 아니라 host 운영자를 신뢰한다: 그 host의 문서는 redirect_uris가 host 자신의 콜백(또는 사용자 로컬)을 가리키고, 콜백이 로그인을 시작한 사용자 세션에 state를 묶는다고 본다 |
 | private/loopback/unspecified IP 거부 | IETF draft SHOULD (SSRF) | `0.0.0.0`, `::`, `127.0.0.1`, `10/8`, `172.16/12`, `192.168/16`, link-local, multicast 전부 차단 |
 | 특수용도 대역 거부 | authgate 정책 (SSRF) | CGNAT `100.64/10`(RFC 6598 — EKS 등 클라우드 파드 대역), `192.0.0/24`, TEST-NET 3종, `198.18/15`(벤치마킹), `240/4`, NAT64 `64:ff9b::/96`, `100::/64`, `2001:db8::/32` 차단 |
 | IPv4-mapped IPv6 정규화 | authgate 정책 | `::ffff:x.x.x.x` → IPv4로 변환 후 검사 |

@@ -88,7 +88,15 @@ func configureMCPPoliciesIfEnabled(cfg *config.Config, store *storage.Storage) {
 	if !cfg.EnableMCP {
 		return
 	}
-	cimdFetcher := mcpadapter.NewHTTPCIMDFetcher()
+	hosts := cfg.MCPCIMDHostAllowlist
+	if hosts == nil {
+		hosts = mcpadapter.DefaultCIMDHosts
+	}
+	hostPolicy, err := mcpadapter.NewCIMDHostPolicy(hosts)
+	if err != nil {
+		log.Fatalf("MCP_CIMD_HOST_ALLOWLIST: %v", err)
+	}
+	cimdFetcher := mcpadapter.NewHTTPCIMDFetcher(hostPolicy)
 	coreResolver := storage.NewCoreClientResolutionPolicy(store)
 	// General client resolution (e.g. /authorize) may fetch CIMD documents.
 	clientPolicy := mcpadapter.NewClientResolutionPolicy(coreResolver, cimdFetcher)

@@ -29,7 +29,7 @@ func TestCIMDFetcher_UnsupportedAuthMethod(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for unsupported auth method, got nil")
@@ -53,7 +53,7 @@ func TestCIMDFetcher_UnsupportedResponseType(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for unsupported response_type, got nil")
@@ -75,7 +75,7 @@ func TestCIMDFetcher_OversizedDocument(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), srv.URL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for oversized document, got nil")
@@ -99,7 +99,7 @@ func TestCIMDFetcher_GrantTypesMustIncludeAuthorizationCode(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for grant_types without authorization_code, got nil")
@@ -125,7 +125,7 @@ func TestCIMDFetcher_IgnoresUnsupportedAdditionalGrantTypes(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	client, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err != nil {
 		t.Fatalf("FetchClient failed: %v", err)
@@ -149,7 +149,7 @@ func TestCIMDFetcher_ClientNameTooLong(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for too long client_name, got nil")
@@ -176,7 +176,7 @@ func TestCIMDFetcher_TooManyRedirectURIs(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for too many redirect_uris, got nil")
@@ -199,7 +199,7 @@ func TestCIMDFetcher_RedirectURITooLong(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for too long redirect_uri, got nil")
@@ -229,7 +229,7 @@ func TestCIMDFetcher_TooManyGrantTypes(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for too many grant_types, got nil")
@@ -253,7 +253,7 @@ func TestCIMDFetcher_TooManyResponseTypes(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json")
 	if err == nil {
 		t.Fatal("expected error for too many response_types, got nil")
@@ -277,7 +277,7 @@ func TestCIMDFetcher_RedirectRejected(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fetcher := &HTTPCIMDFetcher{
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost,
 		client:   srv.Client(),
 		clock:    clock.RealClock{},
 		cacheTTL: 5 * time.Minute,
@@ -315,7 +315,7 @@ func TestCIMDFetcher_QueryClientIDAcceptsQuerylessDocument(t *testing.T) {
 	serverURL = srv.URL
 
 	requested := serverURL + "/client.json?token_endpoint_auth_method=none"
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	client, err := fetcher.FetchClient(context.Background(), requested)
 	if err != nil {
 		t.Fatalf("FetchClient() error = %v, want nil", err)
@@ -340,7 +340,7 @@ func TestCIMDFetcher_ClientIDPathMismatchRejected(t *testing.T) {
 	defer srv.Close()
 	serverURL = srv.URL
 
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	_, err := fetcher.FetchClient(context.Background(), serverURL+"/client.json?token_endpoint_auth_method=none")
 	if err == nil {
 		t.Fatal("expected client_id mismatch error, got nil")

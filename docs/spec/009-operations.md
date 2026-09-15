@@ -111,6 +111,7 @@ authgate를 처음 배포할 때 필요한 것:
 | `METRICS_ADDR` | X | — | 별도 metrics listener 주소. 비워두면 disabled. 설정 시 Go runtime/process Prometheus metrics만 노출. 운영에서는 `127.0.0.1:9090` 또는 private network address 사용. |
 | `DEV_MODE` | X | `false` | true 시: insecure 허용, cookie Secure=false |
 | `ENABLE_MCP` | X | `true` | MCP optional adapter 활성화 여부 (`/mcp/*`, CIMD/resource binding) |
+| `MCP_CIMD_HOST_ALLOWLIST` | X | `claude.ai,chatgpt.com` | CIMD 클라이언트 문서를 받아올 수 있는 host 목록 (콤마 구분, 소문자, 정확 일치 — 서브도메인은 따로 적어야 한다). 목록 밖 host의 `client_id`는 fetch 없이 `invalid_client`로 거부된다. `*` 한 항목만 두면 모든 host를 허용한다(권장하지 않음: MCP 채널은 동의 화면이 없어 누구나 만든 문서로 로그인된 사용자의 MCP 토큰을 받아갈 수 있다). 잘못된 값이면 시작을 거부한다. `ENABLE_MCP=false`면 쓰지 않는다 |
 | `CLIENT_CONFIG` | X | `/etc/authgate/clients.yaml` | 클라이언트 설정 YAML 파일 경로 (없으면 무시) |
 | `MIGRATIONS_PATH` | X | `/migrations` | golang-migrate 마이그레이션 디렉터리 경로 (Docker 이미지 기본, 로컬 개발은 `./migrations`) |
 | `BRAND_NAME` | X | `authgate` | 디바이스 플로우 및 에러 페이지 좌측 상단에 표시되는 브랜드 이름 |
@@ -382,6 +383,9 @@ code 교환이면 클라이언트의 로그인 채널(`browser`/`mcp`), device �
 
 MCP 클라이언트는 YAML에 등록하지 않는다. CIMD (`draft-ietf-oauth-client-id-metadata-document`)를 사용하여
 클라이언트가 HTTPS URL에 메타데이터를 호스팅하고, authgate가 on-demand로 fetch한다.
+메타데이터를 받아올 수 있는 host는 `MCP_CIMD_HOST_ALLOWLIST`(기본 `claude.ai`, `chatgpt.com`)로 제한된다.
+새 MCP 클라이언트(예: 다른 AI 앱)를 쓰려면 그 `client_id` URL의 host를 목록에 추가하고 재시작한다.
+거부된 요청은 `cimd: client_id host is not in MCP_CIMD_HOST_ALLOWLIST` 경고 로그에 host가 남는다.
 상세는 [Spec 004](004-mcp-login.md)의 CIMD 섹션을 참조한다.
 
 ### 클라이언트 제거

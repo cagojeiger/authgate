@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
@@ -65,6 +67,7 @@ const (
 
 // HTTPCIMDFetcher fetches CIMD metadata via HTTP with SSRF protection and caching.
 type HTTPCIMDFetcher struct {
+	hosts     CIMDHostPolicy
 	client    *http.Client
 	clock     clock.Clock
 	cache     *cimdCache
@@ -148,10 +151,16 @@ func isCanonicalCIMDClientID(clientID string) bool {
 	return canonicalCIMDKey(clientID) == clientID
 }
 
+// errCIMDHostNotAllowed is returned for a client_id whose host is outside the
+// allowlist. No request is made for it.
+var errCIMDHostNotAllowed = errors.New("cimd: client_id host is not allowed")
+
 // NewHTTPCIMDFetcher creates a CIMD fetcher with an SSRF-safe HTTP client
-// (see newSSRFSafeHTTPClient in cimd_transport.go).
-func NewHTTPCIMDFetcher() *HTTPCIMDFetcher {
+// (see newSSRFSafeHTTPClient in cimd_transport.go) that only fetches documents
+// from hosts the policy admits.
+func NewHTTPCIMDFetcher(hosts CIMDHostPolicy) *HTTPCIMDFetcher {
 	return &HTTPCIMDFetcher{
+		hosts:    hosts,
 		client:   newSSRFSafeHTTPClient(),
 		clock:    clock.RealClock{},
 		cacheTTL: 5 * time.Minute,
@@ -164,6 +173,12 @@ func (f *HTTPCIMDFetcher) FetchClient(ctx context.Context, clientID string) (*st
 	}
 	if !isCanonicalCIMDClientID(clientID) {
 		return nil, fmt.Errorf("cimd: client_id must be in canonical form (lowercase ASCII host, no default port, clean path)")
+	}
+	// Checked before the cache and the failure tracker: a refused host costs
+	// no outbound request, so there is nothing to cache or rate-limit.
+	if !f.hosts.allowsClientID(clientID) {
+		slog.WarnContext(ctx, "cimd: client_id host is not in MCP_CIMD_HOST_ALLOWLIST", "host", cimdHost(clientID))
+		return nil, errCIMDHostNotAllowed
 	}
 
 	cache := f.ensureCache()

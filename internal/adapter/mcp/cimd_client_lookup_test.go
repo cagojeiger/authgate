@@ -63,7 +63,7 @@ func TestGetClientByClientID_CIMD(t *testing.T) {
 	serverURL = srv.URL
 
 	store := newStoreForClientLookup()
-	fetcher := &HTTPCIMDFetcher{client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
+	fetcher := &HTTPCIMDFetcher{hosts: anyCIMDHost, client: srv.Client(), clock: clock.RealClock{}, cacheTTL: 5 * time.Minute}
 	store.SetClientResolutionPolicy(NewClientResolutionPolicy(storage.NewCoreClientResolutionPolicy(store), fetcher))
 
 	clientID := serverURL + "/oauth/client.json"
