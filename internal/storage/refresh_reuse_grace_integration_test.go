@@ -84,6 +84,10 @@ func (f *graceFixture) liveTokens(t *testing.T) int {
 	return f.count(t, `SELECT count(*) FROM refresh_tokens WHERE family_id = $1 AND revoked_at IS NULL`)
 }
 
+func (f *graceFixture) graceAudits(t *testing.T, outcome string) int {
+	return f.count(t, `SELECT count(*) FROM audit_log WHERE metadata->>'family_id' = $1::text AND event_type = 'auth.refresh_reuse_grace' AND metadata->>'outcome' = '`+outcome+`'`)
+}
+
 func (f *graceFixture) reuseAudits(t *testing.T) int {
 	return f.count(t, `SELECT count(*) FROM audit_log WHERE metadata->>'family_id' = $1::text AND event_type = 'auth.refresh_reuse_detected'`)
 }
@@ -109,6 +113,9 @@ func TestRefreshReuseGrace_SiblingRedemptionIssuesIntoSameFamily(t *testing.T) {
 	}
 	if got := f.reuseAudits(t); got != 0 {
 		t.Fatalf("reuse audit rows = %d, want 0", got)
+	}
+	if got := f.graceAudits(t, "issued"); got != 1 {
+		t.Fatalf("grace issued audit rows = %d, want 1", got)
 	}
 	// Both sessions can keep rotating.
 	for name, token := range map[string]string{"child": child, "sibling": sibling} {
@@ -172,6 +179,95 @@ func TestRefreshReuseGrace_CapRefusesWithoutRevokingFamily(t *testing.T) {
 	}
 	if got := f.liveTokens(t); got != refreshReuseGraceMaxIssued {
 		t.Fatalf("live tokens = %d, want %d", got, refreshReuseGraceMaxIssued)
+	}
+	if got := f.graceAudits(t, "refused"); got != 1 {
+		t.Fatalf("grace refused audit rows = %d, want 1", got)
+	}
+}
+
+// The cap must hold when requests interleave: every presentation passes the
+// provisional check before any of them inserts its child. This is the order
+// concurrent requests take, made deterministic.
+func TestRefreshReuseGrace_CapHoldsWhenRequestsInterleave(t *testing.T) {
+	f, _ := newGraceFixture(t, testReuseGrace)
+	f.clk.T = f.clk.T.Add(time.Second)
+	ctx := context.Background()
+
+	const requests = 10
+	var granted []op.RefreshTokenRequest
+	for i := 0; i < requests; i++ {
+		rt, err := f.store.TokenRequestByRefreshToken(ctx, f.first)
+		if err != nil {
+			t.Fatalf("provisional grace check %d refused: %v", i, err)
+		}
+		granted = append(granted, rt)
+	}
+	issued := 0
+	for _, rt := range granted {
+		if _, _, _, err := f.store.CreateAccessAndRefreshTokens(ctx, rt, f.first); err == nil {
+			issued++
+		} else if !errors.Is(err, op.ErrInvalidRefreshToken) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	// The first redemption already made one child, so the cap leaves room for
+	// refreshReuseGraceMaxIssued-1 more.
+	if want := refreshReuseGraceMaxIssued - 1; issued != want {
+		t.Fatalf("grace children issued = %d, want %d", issued, want)
+	}
+	if got := f.liveTokens(t); got != refreshReuseGraceMaxIssued {
+		t.Fatalf("live tokens = %d, want %d", got, refreshReuseGraceMaxIssued)
+	}
+	if f.tombstoned(t) {
+		t.Fatal("reaching the cap must not tombstone the family")
+	}
+}
+
+// Revoking a session must not be undone by replaying the token it was rotated
+// from. zitadel's /oauth/revoke resolves the token and revokes it by id.
+func TestRefreshReuseGrace_ParentReplayAfterChildRevokeIsReuse(t *testing.T) {
+	f, child := newGraceFixture(t, testReuseGrace)
+	ctx := context.Background()
+
+	_, childID, err := f.store.GetRefreshTokenInfo(ctx, "test-client", child)
+	if err != nil {
+		t.Fatalf("resolve child: %v", err)
+	}
+	if oerr := f.store.RevokeToken(ctx, childID, f.userID, "test-client"); oerr != nil {
+		t.Fatalf("revoke child by id: %v", oerr)
+	}
+	f.clk.T = f.clk.T.Add(time.Second)
+
+	if _, err := f.redeem(t, f.first); !errors.Is(err, op.ErrInvalidRefreshToken) {
+		t.Fatalf("err = %v, want ErrInvalidRefreshToken when replaying the parent of a revoked token", err)
+	}
+	if got := f.liveTokens(t); got != 0 {
+		t.Fatalf("live tokens = %d, want 0: the revoked session came back", got)
+	}
+	if !f.tombstoned(t) {
+		t.Fatal("expected reuse detection to tombstone the family")
+	}
+}
+
+// The same holds after every token of the user is revoked while the account
+// stays active.
+func TestRefreshReuseGrace_ParentReplayAfterUserWideRevokeIsReuse(t *testing.T) {
+	f, _ := newGraceFixture(t, testReuseGrace)
+	ctx := context.Background()
+
+	if _, err := f.store.DB().ExecContext(ctx,
+		`UPDATE refresh_tokens SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL`, f.clk.Now(), f.userID,
+	); err != nil {
+		t.Fatalf("revoke all tokens of the user: %v", err)
+	}
+	f.clk.T = f.clk.T.Add(time.Second)
+
+	if _, err := f.redeem(t, f.first); !errors.Is(err, op.ErrInvalidRefreshToken) {
+		t.Fatalf("err = %v, want ErrInvalidRefreshToken", err)
+	}
+	if got := f.liveTokens(t); got != 0 {
+		t.Fatalf("live tokens = %d, want 0", got)
 	}
 }
 

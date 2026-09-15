@@ -27,6 +27,10 @@ authgate를 처음 배포할 때 필요한 것:
    → 016_device_codes_resource: v0.10.0에서 추가된 nullable resource 컬럼.
      v0.10.1부터 Device Flow에서는 사용하지 않지만 이미 적용된 migration 이력을
      보존하기 위해 파일과 컬럼을 유지하며 번호를 재사용하지 않는다
+   → 017_refresh_tokens_parent_id: refresh_tokens에 nullable parent_id(교환 전 토큰 id)
+     컬럼과 부분 인덱스 추가. 재사용 유예 시간이 한 교환의 자식 토큰 수를 정확히 세는 데
+     쓴다. 기존 행은 NULL로 남으며 컬럼 추가는 테이블 재작성이 없다. 인덱스 생성은
+     012/015처럼 시작 시 테이블을 잠깐 잠근다(CONCURRENTLY 아님)
 
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성

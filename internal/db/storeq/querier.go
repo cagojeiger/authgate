@@ -22,9 +22,7 @@ type Querier interface {
 	AnonymizeUserAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
-	// Tokens the family gained since a redemption, not counting the redeemed token
-	// itself (its created_at can equal the redemption time).
-	CountRefreshTokensInFamilySince(ctx context.Context, arg CountRefreshTokensInFamilySinceParams) (int64, error)
+	CountRefreshTokenChildren(ctx context.Context, parentID string) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
 	DeleteExpiredAuthRequestsBefore(ctx context.Context, arg DeleteExpiredAuthRequestsBeforeParams) (int64, error)
 	DeleteExpiredDeviceCodesBefore(ctx context.Context, arg DeleteExpiredDeviceCodesBeforeParams) (int64, error)
@@ -57,6 +55,10 @@ type Querier interface {
 	GetUserForTxByID(ctx context.Context, id string) (GetUserForTxByIDRow, error)
 	GetUserInfoFieldsByID(ctx context.Context, id string) (GetUserInfoFieldsByIDRow, error)
 	GetValidSessionUser(ctx context.Context, arg GetValidSessionUserParams) (GetValidSessionUserRow, error)
+	// A token revoked without being redeemed was revoked on purpose (/oauth/revoke,
+	// a user-wide revoke, reuse detection). Rotation always sets used_at together
+	// with revoked_at.
+	HasRevokedUnredeemedRefreshTokenInFamily(ctx context.Context, familyID string) (bool, error)
 	InsertActiveEpoch(ctx context.Context, arg InsertActiveEpochParams) error
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
 	InsertAuthRequest(ctx context.Context, arg InsertAuthRequestParams) error

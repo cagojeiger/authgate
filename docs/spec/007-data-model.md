@@ -83,6 +83,7 @@ erDiagram
         timestamptz revoked_at "nullable, revoke 시 설정"
         timestamptz used_at "nullable, rotation 시 설정"
         timestamptz created_at "NOT NULL, DEFAULT NOW()"
+        uuid parent_id "nullable, 교환 전 토큰 id (FK 없음)"
     }
 
     refresh_token_families {
@@ -190,6 +191,7 @@ PK/UNIQUE/FK 제약 인덱스 외에 현재 명시적으로 생성하는 보조 
 | `sessions_user_id_idx` | `sessions (user_id)` | user 삭제 cascade 시 full scan 방지 (migration 012) |
 | `refresh_tokens_user_id_idx` | `refresh_tokens (user_id)` | user 삭제 cascade 시 full scan 방지 (migration 012) |
 | `refresh_tokens_family_id_idx` | `refresh_tokens (family_id)` | reuse 감지 family revoke (`WHERE family_id=$`) full scan 방지 (migration 012) |
+| `refresh_tokens_parent_id_idx` | `refresh_tokens (parent_id) WHERE parent_id IS NOT NULL` | 재사용 유예의 교환별 자식 수 집계 (migration 017) |
 | `refresh_token_families_user_id_idx` | `refresh_token_families (user_id)` | user 삭제 cascade 시 full scan 방지 (migration 013) |
 
 현재 `sessions.expires_at`, `auth_requests.expires_at`, `device_codes.expires_at`, `refresh_tokens.expires_at/revoked_at`에는 별도 보조 인덱스를 만들지 않는다. 운영에서 조회 패턴이 커지면 다음 원칙으로 인덱스를 추가한다:
@@ -291,6 +293,7 @@ MCP
 | `auth.token_revoked` | refresh token revoke | `{client_id, client_name}` |
 | `auth.refresh_reuse_detected` | 폐기된 refresh_token 재사용 탐지 | `{family_id}` |
 | `auth.refresh_family_revoked` | family 전체 revoke (탈취 의심) | `{family_id}` |
+| `auth.refresh_reuse_grace` | 교환된 refresh_token을 유예 시간 안에 재제출 | `{family_id, outcome: issued\|refused}` |
 | `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 | `{status, channel, phase}` |
 
 `metadata`는 `Storage.AuditLog`에서 event별 allowlist를 통과한 key만 저장한다.

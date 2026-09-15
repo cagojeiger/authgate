@@ -26,6 +26,7 @@
 | `audit-008` | pending_deletion/disabled/deleted 로그인 시도 | `auth.inactive_user` | `metadata.status` 포함 |
 | `audit-009` | refresh token 재사용 탐지 | `auth.refresh_reuse_detected` | `metadata.family_id` 기록 |
 | `audit-010` | family 전체 revoke | `auth.refresh_family_revoked` | `metadata.family_id` 기록 |
+| `audit-010c` | 교환된 토큰을 유예 안에 재제출 / 상한 초과 | `auth.refresh_reuse_grace` | 발급 시 `outcome=issued` 1행, 상한 거부 시 `outcome=refused` 1행, `metadata.family_id` 기록 |
 | `audit-010b` | 이미 revoke된 family의 토큰을 다른 IP에서 반복 제출 | `auth.refresh_reuse_detected`, `auth.refresh_family_revoked` | reuse는 제출마다 1행(뒤 제출자 IP 포함), family revoke는 1행, 모든 제출 `invalid_grant`, 살아있는 토큰 0 |
 | `audit-011` | client 컨텍스트가 있는 모든 이벤트 | (해당 이벤트) | `metadata.client_id` + `metadata.client_name`이 함께 기록 (#147) |
 | `audit-012` | OIDC RP-Initiated Logout (`/end_session`) 호출 | `auth.logout` | **세션 폐기**만 의미. 발급된 refresh 토큰은 자연 만료/명시적 revoke 전까지 유효. `metadata.client_id` + `client_name` 함께 기록 (#191, [Spec 005 Logout vs. Revoke](../spec/005-token-lifecycle.md#logout-vs-revoke-191)) |

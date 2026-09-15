@@ -12,8 +12,8 @@ SET revoked_at = $1
 WHERE token_hash = $2 AND revoked_at IS NULL;
 
 -- name: InsertRefreshToken :exec
-INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, resource, scopes, expires_at, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, resource, scopes, expires_at, created_at, parent_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
 
 -- name: GetRefreshTokenForUpdateByHash :one
 SELECT id, token_hash, family_id, user_id, client_id, COALESCE(resource, '') AS resource,
@@ -47,12 +47,19 @@ INSERT INTO refresh_token_families (family_id, user_id, reason, revoked_at)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (family_id) DO NOTHING;
 
--- name: CountRefreshTokensInFamilySince :one
--- Tokens the family gained since a redemption, not counting the redeemed token
--- itself (its created_at can equal the redemption time).
+-- name: CountRefreshTokenChildren :one
 SELECT count(*)
 FROM refresh_tokens
-WHERE family_id = sqlc.arg(family_id) AND created_at >= sqlc.arg(since) AND id <> sqlc.arg(redeemed_id);
+WHERE parent_id = sqlc.arg(parent_id)::uuid;
+
+-- name: HasRevokedUnredeemedRefreshTokenInFamily :one
+-- A token revoked without being redeemed was revoked on purpose (/oauth/revoke,
+-- a user-wide revoke, reuse detection). Rotation always sets used_at together
+-- with revoked_at.
+SELECT EXISTS (
+    SELECT 1 FROM refresh_tokens
+    WHERE family_id = $1 AND revoked_at IS NOT NULL AND used_at IS NULL
+) AS revoked;
 
 -- name: IsRefreshFamilyRevoked :one
 SELECT EXISTS (

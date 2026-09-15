@@ -169,8 +169,26 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	}
 
 	var currentRefreshHash string
+	var parentID uuid.NullUUID
+	graceChild := false
 	if currentRefreshToken != "" {
 		currentRefreshHash = s.keys.RefreshHash(currentRefreshToken)
+		// A redeemed token that already has a child is being redeemed again
+		// under the reuse grace. Decide it here, holding the redeemed row's lock
+		// until the new child commits, so concurrent grace requests are counted
+		// one after another and the cap holds.
+		var parent string
+		parent, graceChild, err = s.lockAndCheckGraceChild(ctx, qtx, currentRefreshHash, now)
+		if err != nil {
+			return "", "", time.Time{}, err
+		}
+		if parent != "" {
+			id, perr := uuid.Parse(parent)
+			if perr != nil {
+				return "", "", time.Time{}, perr
+			}
+			parentID = uuid.NullUUID{UUID: id, Valid: true}
+		}
 	}
 	if err := revokeRefreshTokenIfPresent(ctx, qtx, currentRefreshHash, now); err != nil {
 		return "", "", time.Time{}, err
@@ -186,6 +204,7 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		Scopes:    derived.scopes,
 		ExpiresAt: now.Add(s.refreshTokenTTL),
 		CreatedAt: now,
+		ParentID:  parentID,
 	})
 	if err != nil {
 		return "", "", time.Time{}, err
@@ -193,6 +212,9 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 
 	if err = tx.Commit(); err != nil {
 		return "", "", time.Time{}, err
+	}
+	if graceChild {
+		s.auditRefreshReuseGrace(ctx, derived.userID, derived.familyID, "issued")
 	}
 
 	// A successful refresh grant is deliberately not audited. It is the highest
@@ -230,18 +252,19 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		case err != nil:
 			return nil, err
 		case grace == graceIssue:
+			// Provisional: CreateAccessAndRefreshTokens decides again under the
+			// row lock before it inserts, and audits the outcome.
 			if err := s.validateRefreshTokenRequest(ctx, tx, rt, now); err != nil {
 				return nil, err
 			}
 			if err := tx.Commit(); err != nil {
 				return nil, err
 			}
-			slog.InfoContext(ctx, "refresh token reuse within grace", "family_id", rt.FamilyID)
 			return rt, nil
 		case grace == graceRefuse:
 			// Past the cap but still inside the window: refuse this request, but
 			// do not revoke the family the other sessions are using.
-			slog.WarnContext(ctx, "refresh token reuse within grace refused: cap reached", "family_id", rt.FamilyID)
+			s.auditRefreshReuseGrace(ctx, rt.UserID, rt.FamilyID, "refused")
 			return nil, op.ErrInvalidRefreshToken
 		}
 	}
@@ -488,9 +511,8 @@ func isRefreshTokenUsedOrRevoked(rt *RefreshTokenModel) bool {
 	return rt.RevokedAt != nil || rt.UsedAt != nil
 }
 
-// refreshReuseGraceMaxIssued caps the tokens a family may gain from one
-// redemption inside the grace: the regular child plus grace children. It bounds
-// what a replay inside the window can obtain.
+// refreshReuseGraceMaxIssued caps the children one redemption may have: the
+// regular child plus grace children.
 const refreshReuseGraceMaxIssued = 3
 
 type refreshReuseGrace int
@@ -500,8 +522,8 @@ const (
 	graceNone refreshReuseGrace = iota
 	// graceIssue: redeem the token again into the same family.
 	graceIssue
-	// graceRefuse: inside the window but the cap is reached; refuse without
-	// revoking the family.
+	// graceRefuse: inside the window but the grace is exhausted or no longer
+	// safe; refuse without revoking the family.
 	graceRefuse
 )
 
@@ -510,19 +532,20 @@ const (
 //
 //   - the grace is enabled;
 //   - the token was redeemed: used_at is set, and revoked in that same step.
-//     Revocation through /oauth/revoke, account deletion or a family revoke
-//     never sets used_at, so a revoked token gets no grace;
+//     Revocation (/oauth/revoke by hash or id, a user-wide revoke, account
+//     deletion, a family revoke) never sets used_at, so a revoked token gets
+//     no grace;
 //   - the redemption was at most the grace ago;
 //   - the family is not tombstoned by reuse detection.
 //
-// Within the grace the token is redeemed again while the family has gained
-// fewer than refreshReuseGraceMaxIssued tokens since the redemption, and
-// refused (graceRefuse) after that.
+// Inside the window the token is redeemed again (graceIssue) unless a token in
+// the family has since been revoked on purpose, which would otherwise let a
+// replay bring back a session its owner ended, or the redemption already has
+// refreshReuseGraceMaxIssued children. Either refuses (graceRefuse).
 //
-// Requests presenting the same token are serialized by the FOR UPDATE row lock,
-// but the child each leads to is inserted in a later transaction, so concurrent
-// requests can each count before the others commit. The cap is therefore
-// approximate under concurrency; the grace window still bounds it.
+// This runs twice: provisionally when the token is presented, and again under
+// the redeemed row's lock right before the child is inserted
+// (lockAndCheckGraceChild), which is what makes the cap exact.
 func (s *Storage) refreshReuseGraceDecision(ctx context.Context, qtx *storeq.Queries, rt *RefreshTokenModel, now time.Time) (refreshReuseGrace, error) {
 	if s.refreshReuseGrace <= 0 || rt.UsedAt == nil || rt.RevokedAt == nil || !rt.RevokedAt.Equal(*rt.UsedAt) {
 		return graceNone, nil
@@ -537,18 +560,78 @@ func (s *Storage) refreshReuseGraceDecision(ctx context.Context, qtx *storeq.Que
 	if tombstoned {
 		return graceNone, nil
 	}
-	issued, err := qtx.CountRefreshTokensInFamilySince(ctx, storeq.CountRefreshTokensInFamilySinceParams{
-		FamilyID:   rt.FamilyID,
-		Since:      *rt.UsedAt,
-		RedeemedID: rt.ID,
-	})
+	revokedOnPurpose, err := qtx.HasRevokedUnredeemedRefreshTokenInFamily(ctx, rt.FamilyID)
 	if err != nil {
 		return graceNone, err
 	}
-	if issued >= refreshReuseGraceMaxIssued {
+	if revokedOnPurpose {
+		return graceNone, nil
+	}
+	children, err := s.countRedemptionChildren(ctx, qtx, rt)
+	if err != nil {
+		return graceNone, err
+	}
+	if children >= refreshReuseGraceMaxIssued {
 		return graceRefuse, nil
 	}
 	return graceIssue, nil
+}
+
+// countRedemptionChildren counts the tokens rotated from rt. Tokens issued
+// before parent_id existed have no parent recorded and are not counted.
+func (s *Storage) countRedemptionChildren(ctx context.Context, qtx *storeq.Queries, rt *RefreshTokenModel) (int64, error) {
+	return qtx.CountRefreshTokenChildren(ctx, rt.ID)
+}
+
+// lockAndCheckGraceChild locks the refresh token being rotated and returns its
+// id (the new child's parent) and whether the child about to be inserted is a
+// grace child, i.e. the redemption already has a child. The lock is held until the caller's transaction ends,
+// so requests redeeming the same token insert one at a time and each sees the
+// children committed before it.
+//
+// The first child of a redemption is ordinary rotation and passes. A further
+// child must still pass refreshReuseGraceDecision; otherwise the rotation is
+// refused with ErrInvalidRefreshToken and nothing is inserted.
+func (s *Storage) lockAndCheckGraceChild(ctx context.Context, qtx *storeq.Queries, tokenHash string, now time.Time) (string, bool, error) {
+	rt, err := loadRefreshTokenForUpdate(ctx, qtx, tokenHash)
+	if errors.Is(err, op.ErrInvalidRefreshToken) {
+		// No such row: nothing to rotate from (e.g. it was cleaned up). The
+		// family lookup already fell back to a fresh family.
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if rt.UsedAt == nil {
+		return rt.ID, false, nil
+	}
+	children, err := s.countRedemptionChildren(ctx, qtx, rt)
+	if err != nil {
+		return "", false, err
+	}
+	if children == 0 {
+		return rt.ID, false, nil
+	}
+	grace, err := s.refreshReuseGraceDecision(ctx, qtx, rt, now)
+	if err != nil {
+		return "", false, err
+	}
+	if grace != graceIssue {
+		s.auditRefreshReuseGrace(ctx, rt.UserID, rt.FamilyID, "refused")
+		return "", false, op.ErrInvalidRefreshToken
+	}
+	return rt.ID, true, nil
+}
+
+// auditRefreshReuseGrace records a redemption handled by the reuse grace with
+// the presenter's IP and user agent. A replay inside the window is exactly what
+// the grace lets through, so every grace child and every refusal is evidence.
+func (s *Storage) auditRefreshReuseGrace(ctx context.Context, userID, familyID, outcome string) {
+	info := clientinfo.FromContext(ctx)
+	s.AuditLog(ctx, &userID, EventAuthRefreshReuseGrace, info.IP, info.UserAgent, map[string]any{
+		"family_id": familyID,
+		"outcome":   outcome,
+	})
 }
 
 func revokeRefreshFamilyOnReuse(ctx context.Context, qtx *storeq.Queries, familyID string, now time.Time) error {

@@ -10,25 +10,18 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
-const countRefreshTokensInFamilySince = `-- name: CountRefreshTokensInFamilySince :one
+const countRefreshTokenChildren = `-- name: CountRefreshTokenChildren :one
 SELECT count(*)
 FROM refresh_tokens
-WHERE family_id = $1 AND created_at >= $2 AND id <> $3
+WHERE parent_id = $1::uuid
 `
 
-type CountRefreshTokensInFamilySinceParams struct {
-	FamilyID   string
-	Since      time.Time
-	RedeemedID string
-}
-
-// Tokens the family gained since a redemption, not counting the redeemed token
-// itself (its created_at can equal the redemption time).
-func (q *Queries) CountRefreshTokensInFamilySince(ctx context.Context, arg CountRefreshTokensInFamilySinceParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countRefreshTokensInFamilySince, arg.FamilyID, arg.Since, arg.RedeemedID)
+func (q *Queries) CountRefreshTokenChildren(ctx context.Context, parentID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRefreshTokenChildren, parentID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -109,9 +102,26 @@ func (q *Queries) GetRefreshTokenInfoByHashAndClientID(ctx context.Context, arg 
 	return i, err
 }
 
+const hasRevokedUnredeemedRefreshTokenInFamily = `-- name: HasRevokedUnredeemedRefreshTokenInFamily :one
+SELECT EXISTS (
+    SELECT 1 FROM refresh_tokens
+    WHERE family_id = $1 AND revoked_at IS NOT NULL AND used_at IS NULL
+) AS revoked
+`
+
+// A token revoked without being redeemed was revoked on purpose (/oauth/revoke,
+// a user-wide revoke, reuse detection). Rotation always sets used_at together
+// with revoked_at.
+func (q *Queries) HasRevokedUnredeemedRefreshTokenInFamily(ctx context.Context, familyID string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasRevokedUnredeemedRefreshTokenInFamily, familyID)
+	var revoked bool
+	err := row.Scan(&revoked)
+	return revoked, err
+}
+
 const insertRefreshToken = `-- name: InsertRefreshToken :exec
-INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, resource, scopes, expires_at, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO refresh_tokens (id, token_hash, family_id, user_id, client_id, resource, scopes, expires_at, created_at, parent_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type InsertRefreshTokenParams struct {
@@ -124,6 +134,7 @@ type InsertRefreshTokenParams struct {
 	Scopes    []string
 	ExpiresAt time.Time
 	CreatedAt time.Time
+	ParentID  uuid.NullUUID
 }
 
 func (q *Queries) InsertRefreshToken(ctx context.Context, arg InsertRefreshTokenParams) error {
@@ -137,6 +148,7 @@ func (q *Queries) InsertRefreshToken(ctx context.Context, arg InsertRefreshToken
 		pq.Array(arg.Scopes),
 		arg.ExpiresAt,
 		arg.CreatedAt,
+		arg.ParentID,
 	)
 	return err
 }

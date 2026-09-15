@@ -70,9 +70,12 @@ func TestIntegration_RefreshConcurrent_ExactlyOneSuccess(t *testing.T) {
 }
 
 // refresh-004b: with the reuse grace on (production default), two sessions
-// refreshing the same token at once both succeed, and both new tokens rotate.
-// This is the 2026-09-11 Claude Code incident, end to end through zitadel/oidc.
-func TestIntegration_RefreshConcurrent_WithGraceBothSucceed(t *testing.T) {
+// redeeming the same token both get a token, and both new tokens rotate. This
+// is the 2026-09-11 Claude Code shape end to end through zitadel/oidc. The
+// requests are launched together but the test does not depend on them
+// overlapping; the interleaved storage-level case is
+// TestRefreshReuseGrace_CapHoldsWhenRequestsInterleave.
+func TestIntegration_RefreshSameTokenTwice_WithGraceBothSucceed(t *testing.T) {
 	ts := SetupTestServerWithOptions(t, SetupOptions{EnableMCP: true, RefreshReuseGrace: 5 * time.Second})
 	client := NewOAuthClient(t, ts.BaseURL)
 
