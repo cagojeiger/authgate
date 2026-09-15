@@ -396,6 +396,25 @@ Go runtime/process Prometheus metrics를 노출한다. 운영에서는
 | runtime/process | `METRICS_ADDR` opt-in 후 내부 Prometheus scrape | goroutine, heap, GC, process resource 급증 |
 | audit 쓰기 실패 | `slog.Error` 로그 (`audit log: marshal metadata`, `audit log: insert`) | 침해 탐지 인프라 silent broken (#208) |
 
+### 서버 로그
+
+서버 로그는 stderr에 slog text 형식(`time=… level=… msg=… key=value`)으로 나온다. 요청 처리 중 기록되는 줄에는 요청 속성이 자동으로 붙는다.
+
+| 속성 | 붙는 요청 | 값 |
+|------|----------|-----|
+| `request_id` | 전체 | `X-Request-ID` (없거나 형식이 틀리면 새로 생성). ingress 접근 로그의 `request_id`와 같은 값이라 두 로그를 이어 볼 수 있다 |
+| `path` | 전체 | 요청 경로. 쿼리 문자열은 넣지 않는다 (`state`, `code` 등이 섞이므로) |
+| `client_id` | `/oauth/token`, `/oauth/revoke`, `/oauth/introspect`, `/oauth/device/authorize` | 폼의 `client_id`, 없으면 HTTP Basic 사용자명 (form-decode). Basic 비밀번호는 읽지 않는다 |
+| `grant_type` | 위와 같음 | 폼의 `grant_type` |
+
+토큰 발급 실패는 `level=WARN msg="request error"`로 남는다 (zitadel/oidc). 예:
+
+```text
+level=WARN msg="request error" oidc_error.parent=invalid_refresh_token oidc_error.type=invalid_grant request_id=… path=/oauth/token client_id=notegate-web grant_type=refresh_token
+```
+
+기동 실패(`log.Fatal`)는 `level=ERROR`로 남고 프로세스가 종료된다.
+
 ### audit_log 쓰기 실패 모니터링
 
 `Storage.AuditLog`는 best-effort write이므로 marshal/insert 실패가 비즈니스 트랜잭션을 차단하지 않는다. 그러나 감사 로그가 silent하게 누락되면 침해 탐지 능력 자체가 무력화되므로 실패는 구조화 로그로 남긴다.

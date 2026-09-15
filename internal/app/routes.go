@@ -97,15 +97,15 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 	mux.Handle("/authorize", authLimiter(middleware.AuthorizationResponseIssuer(cfg.PublicURL, authorize)))
 	mux.Handle("/authorize/callback", middleware.AuthorizationResponseIssuer(cfg.PublicURL, provider))
 	tokenWithAtJWT := storage.WrapAccessTokenJWTType(provider, store)
-	mux.Handle("/oauth/token", tokenLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/oauth/token", tokenLimiter(middleware.TokenLogContext(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource, err := storage.ResourceFromRequestStrict(r)
 		if err != nil {
 			writeInvalidTargetError(w, err)
 			return
 		}
 		tokenWithAtJWT.ServeHTTP(w, r.WithContext(storage.WithResource(r.Context(), resource)))
-	})))
-	mux.Handle("/oauth/revoke", tokenLimiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}))))
+	mux.Handle("/oauth/revoke", tokenLimiter(middleware.TokenLogContext(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !cfg.EnableMCP {
 			provider.ServeHTTP(w, r)
 			return
@@ -120,9 +120,9 @@ func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *stora
 			}
 		}
 		provider.ServeHTTP(w, r)
-	})))
-	mux.Handle("/oauth/introspect", tokenLimiter(provider))
-	mux.Handle("/oauth/device/authorize", tokenLimiter(provider))
+	}))))
+	mux.Handle("/oauth/introspect", tokenLimiter(middleware.TokenLogContext(provider)))
+	mux.Handle("/oauth/device/authorize", tokenLimiter(middleware.TokenLogContext(provider)))
 	mux.Handle("/", provider)
 }
 
