@@ -30,9 +30,10 @@ type fakeIdP struct {
 	key            *rsa.PrivateKey
 	keyID          string
 	userInfoResp   map[string]any
-	tokenStatus    int    // non-zero overrides token endpoint HTTP status
-	userinfoStatus int    // non-zero overrides userinfo endpoint HTTP status
-	nonce          string // echoed into the id_token's nonce claim (set by the test from the authorize request)
+	tokenStatus    int            // non-zero overrides token endpoint HTTP status
+	userinfoStatus int            // non-zero overrides userinfo endpoint HTTP status
+	nonce          string         // echoed into the id_token's nonce claim (set by the test from the authorize request)
+	idTokenExtra   map[string]any // extra claims signed into the id_token
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -102,14 +103,18 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 
 		sub, _ := idp.userInfoResp["sub"].(string)
 		now := time.Now()
-		idToken, err := jwt.Signed(sig).Claims(map[string]any{
+		claims := map[string]any{
 			"iss":   srvURL,
 			"sub":   sub,
 			"aud":   testClientID,
 			"exp":   now.Add(5 * time.Minute).Unix(),
 			"iat":   now.Unix(),
 			"nonce": idp.nonce,
-		}).Serialize()
+		}
+		for k, v := range idp.idTokenExtra {
+			claims[k] = v
+		}
+		idToken, err := jwt.Signed(sig).Claims(claims).Serialize()
 		if err != nil {
 			http.Error(w, "sign error", http.StatusInternalServerError)
 			return
@@ -427,6 +432,44 @@ func TestOIDCProvider_EmailVerified_Absent(t *testing.T) {
 	}
 	if info.EmailVerified {
 		t.Error("email_verified absent in IdP response but UserInfo.EmailVerified=true")
+	}
+}
+
+// ── oidc-map-005: Google hosted domain (hd) ──────────────────────────────────
+// Client access policies match google_workspace_domains against hd, so it has
+// to survive the mapping, and it is read only from the verified ID token: the
+// unsigned userinfo response is never a source.
+
+func TestOIDCProvider_HostedDomain(t *testing.T) {
+	tests := []struct {
+		name         string
+		idTokenHD    any
+		userinfoHD   any
+		wantHostedDN string
+	}{
+		{name: "from id token", idTokenHD: "corp.example", wantHostedDN: "corp.example"},
+		{name: "id token wins over userinfo", idTokenHD: "corp.example", userinfoHD: "other.example", wantHostedDN: "corp.example"},
+		{name: "userinfo alone ignored", userinfoHD: "corp.example", wantHostedDN: ""},
+		{name: "absent", wantHostedDN: ""},
+		{name: "non-string ignored", idTokenHD: 42, wantHostedDN: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idp := newFakeIdP(t)
+			if tt.idTokenHD != nil {
+				idp.idTokenExtra = map[string]any{"hd": tt.idTokenHD}
+			}
+			if tt.userinfoHD != nil {
+				idp.userInfoResp["hd"] = tt.userinfoHD
+			}
+			info, err := exchangeForTest(t, idp, idp.newProvider(t), "fake-code")
+			if err != nil {
+				t.Fatalf("Exchange: %v", err)
+			}
+			if info.HostedDomain != tt.wantHostedDN {
+				t.Errorf("HostedDomain = %q, want %q", info.HostedDomain, tt.wantHostedDN)
+			}
+		})
 	}
 }
 

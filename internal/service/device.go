@@ -30,6 +30,7 @@ type DeviceStore interface {
 	DenyDeviceCode(ctx context.Context, userCode string) error
 	ApproveDeviceCode(ctx context.Context, userCode, subject string) error
 	ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error)
+	SetIdentityHostedDomain(ctx context.Context, provider, providerUserID, hostedDomain string) error
 }
 
 func NewDeviceService(store DeviceStore, providerName string, publicURL string, sessionTTL time.Duration, clk clock.Clock) *DeviceService {
@@ -133,7 +134,13 @@ func (s *DeviceService) CompleteDeviceLogin(ctx context.Context, state string, i
 	if result != nil {
 		return result
 	}
+	if r := recordHostedDomain(ctx, s.store, s.providerName, userInfo, user); r != nil {
+		return &DevicePageResult{Action: DeviceError, Error: r.Error, ErrorCode: r.ErrorCode}
+	}
 	if result := s.ensureDeviceCallbackAccess(ctx, user, ipAddress, userAgent); result != nil {
+		return result
+	}
+	if result := s.ensureDeviceCallbackClientAccess(ctx, deviceCode.ClientID, user, userInfo, ipAddress, userAgent); result != nil {
 		return result
 	}
 
@@ -180,7 +187,7 @@ func (s *DeviceService) HandleDeviceApprove(ctx context.Context, userCode, actio
 
 	switch action {
 	case "approve":
-		return s.approveDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
+		return s.approveDeviceCode(ctx, userCode, user, ipAddress, userAgent)
 	case "deny":
 		s.denyDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
 		return &DeviceApproveResult{Success: false, Message: "You denied the authorization request. You can close this window."}
@@ -246,6 +253,27 @@ func (s *DeviceService) ensureDeviceCallbackAccess(ctx context.Context, user *st
 	return &DevicePageResult{Action: DeviceError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 }
 
+// ensureDeviceCallbackClientAccess evaluates the client's access policy for
+// the account at the device callback, against both what the IdP just asserted
+// and what approval will see (see checkExistingAccountAccess). A refusal creates
+// no session and leaves the device code pending. A client that cannot be
+// resolved is left to approval, which refuses it; the callback grants nothing by
+// itself.
+func (s *DeviceService) ensureDeviceCallbackClientAccess(ctx context.Context, clientID string, user *storage.User, userInfo *upstream.UserInfo, ipAddress, userAgent string) *DevicePageResult {
+	client, err := s.store.ResolveClient(ctx, clientID)
+	if err != nil || client == nil {
+		return nil
+	}
+	if !checkExistingAccountAccess(ctx, s.store, client, "device", user, userInfo, ipAddress, userAgent) {
+		return &DevicePageResult{Action: DeviceError, Error: deviceAccessDeniedMessage, ErrorCode: http.StatusForbidden}
+	}
+	return nil
+}
+
+// deviceAccessDeniedMessage is shown when the client's access policy refuses
+// the signed-in account on the device pages.
+const deviceAccessDeniedMessage = "This account is not allowed to use this application. You can close this window."
+
 func (s *DeviceService) denyDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) {
 	dc, metadata, err := s.loadDeviceAuditContext(ctx, userCode)
 	if err != nil {
@@ -276,8 +304,14 @@ func (s *DeviceService) denyDeviceCode(ctx context.Context, userCode, userID, ip
 	s.store.AuditLog(ctx, &userID, "auth.device_denied", ipAddress, userAgent, metadata)
 }
 
-func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode, userID, ipAddress, userAgent string) *DeviceApproveResult {
-	_, metadata, err := s.loadDeviceAuditContext(ctx, userCode)
+// approveDeviceCode binds the device code to the user. The client's access
+// policy is checked first: approval is the last interactive step of the device
+// flow, and once it succeeds the CLI's next poll receives tokens. A refused
+// approval leaves the code pending, so the user can sign in with another
+// account before it expires.
+func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode string, user *storage.User, ipAddress, userAgent string) *DeviceApproveResult {
+	userID := user.ID
+	dc, metadata, err := s.loadDeviceAuditContext(ctx, userCode)
 	if err != nil {
 		// audit-011 requires client_id on the auth.device_approved row, so a
 		// failed lookup must abort the mutation+audit pair rather than emit a
@@ -288,6 +322,19 @@ func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode, userID,
 			"error", err,
 		)
 		return &DeviceApproveResult{Success: false, Message: "Device code expired or already processed.", ErrorCode: http.StatusBadRequest}
+	}
+	// The policy must be known before approving; a client that cannot be
+	// resolved is refused rather than treated as public.
+	client, err := s.store.ResolveClient(ctx, dc.ClientID)
+	if err != nil || client == nil {
+		slog.WarnContext(ctx, "device approve: aborting (client lookup failed)",
+			"user_id", userID,
+			"error", err,
+		)
+		return &DeviceApproveResult{Success: false, Message: "Device code expired or already processed.", ErrorCode: http.StatusBadRequest}
+	}
+	if !checkClientAccess(ctx, s.store, client, "device", &userID, storage.AccessSubject(user), false, ipAddress, userAgent) {
+		return &DeviceApproveResult{Success: false, Message: deviceAccessDeniedMessage, ErrorCode: http.StatusForbidden}
 	}
 	if err := s.store.ApproveDeviceCode(ctx, userCode, userID); err != nil {
 		return &DeviceApproveResult{Success: false, Message: "Device code expired or already processed.", ErrorCode: http.StatusBadRequest}

@@ -118,6 +118,7 @@ rp 라이브러리가 ID token을 검증하므로, fake IdP는:
 | `oidc-map-002` | email_verified=true | `"email_verified": true` | `UserInfo.EmailVerified == true` | **email_verified 버그 수정 회귀 테스트 (핵심)** |
 | `oidc-map-003` | email_verified=false | `"email_verified": false` | `UserInfo.EmailVerified == false` | false도 정상 매핑 |
 | `oidc-map-004` | email_verified 누락 | 필드 없음 | `UserInfo.EmailVerified == false` | 기본값 처리 |
+| `oidc-map-005` | Google `hd` | ID token에만 / ID token·userinfo 다름 / userinfo에만 / 없음 / 문자열 아님 | 검증된 ID token 값만 사용; userinfo에만 있으면 빈 값 (userinfo는 서명되지 않음) | 클라이언트 `access`의 `google_workspace_domains` 근거 |
 
 ### 전체 통합
 

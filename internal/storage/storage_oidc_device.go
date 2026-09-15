@@ -166,13 +166,22 @@ func (s *Storage) GetDeviceAuthorizatonState(ctx context.Context, clientID, devi
 	// already run stateChecker at issuance; the device branch otherwise
 	// would mint tokens for a user whose status flipped between approve
 	// and poll.
-	if dc.State == "approved" && dc.Subject != nil && s.stateChecker != nil {
+	//
+	// The client's access policy is re-evaluated the same way, so a policy
+	// tightened between approval and poll refuses the approved code too.
+	access := s.ensureRegistry().staticAccess(dc.ClientID)
+	if dc.State == "approved" && dc.Subject != nil && (s.stateChecker != nil || access.Restricted()) {
 		user, lookupErr := s.getUserByID(ctx, tx, *dc.Subject)
 		if lookupErr != nil {
 			return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "subject lookup failed"}
 		}
-		if checkErr := s.stateChecker(user); checkErr != nil {
-			return nil, &oidc.Error{ErrorType: "invalid_grant", Description: checkErr.Error()}
+		if s.stateChecker != nil {
+			if checkErr := s.stateChecker(user); checkErr != nil {
+				return nil, &oidc.Error{ErrorType: "invalid_grant", Description: checkErr.Error()}
+			}
+		}
+		if accessErr := s.enforceStaticClientAccess(ctx, access, dc.ClientID, "device", user); accessErr != nil {
+			return nil, accessErr
 		}
 	}
 

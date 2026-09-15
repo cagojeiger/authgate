@@ -6,7 +6,8 @@ VALUES ($1, $2, $3, $4, $5);
 SELECT u.id, u.email_verified, u.status,
        u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
        u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
-       u.created_at, u.updated_at
+       u.created_at, u.updated_at,
+       COALESCE((SELECT ui.hosted_domain FROM user_identities ui WHERE ui.user_id = u.id ORDER BY ui.created_at DESC LIMIT 1), '')::text AS hosted_domain
 FROM sessions s
 JOIN users u ON s.user_id = u.id
 WHERE s.token_hash = sqlc.arg(token_hash)::text

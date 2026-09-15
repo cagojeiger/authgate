@@ -133,4 +133,5 @@ type UserIdentity struct {
 	ProviderSubNonce       []byte
 	ProviderSubEncKeyID    sql.NullString
 	ProviderSubEncVersion  sql.NullInt32
+	HostedDomain           sql.NullString
 }

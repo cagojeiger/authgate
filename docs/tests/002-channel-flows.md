@@ -16,12 +16,6 @@ Browser / Device / MCP / Refresh / Logout / Delete 각 채널이 공통 상태�
 | `browser-004` | `disabled` | Browser 로그인 | `account_inactive` | 차단 |
 | `browser-004b` | `deleted` | Browser 로그인 | Spec 001 신규 가입 서브플로우 진입 | 재가입 경로 |
 | `browser-005` | `pending_deletion`, 복구 후 auth_request 완료 상태 반영 실패 | Browser 재로그인 | 다음 재시도에서 정상 완료 | 복구 후 재시도 멱등성 |
-| `signup-domain-006` | `*.example.com` 설정 | `sub.example.com` / `example.com` / `notexample.com` | 순서대로 허용 / 거부 / 거부 | 와일드카드는 라벨 경계를 지키고 상위 도메인을 포함하지 않음 |
-| `signup-domain-007` | `*.example.com`, `korp.com` 설정 | `a@.example.com`, `a@..example.com`, 켈빈 기호 `K`orp.com, 끝 공백 | `email_malformed` 거부 | 이메일 도메인도 ASCII DNS 이름이어야 함 |
-| `signup-domain-008` | `*.example.com` 설정 | 대문자 주소 / 미검증 주소 | 허용 / `email_unverified` | 와일드카드도 대소문자 무시·검증 요구 |
-| `signup-domain-100` | 미가입, `SIGNUP_EMAIL_DOMAINS` 밖 도메인 | 실제 `/login/callback` | 403, `users` 0, `auth.signup` 0, `auth.signup_denied` 1(user_id null, domain) | 계정 생성 **전** 차단 (통합) |
-| `signup-domain-101` | 미가입, 허용 도메인 | 실제 Browser 로그인 | 토큰 발급 | 게이트가 정상 가입을 막지 않음 (통합) |
-| `signup-domain-102` | 기존 `active`, 도메인 목록 밖 | Browser 로그인 | 정상 로그인 | 가입만 제한 — 기존 계정 잠기지 않음 |
 
 ### prompt 파라미터 (Browser / MCP 공통)
 
@@ -43,6 +37,32 @@ Browser / Device / MCP / Refresh / Logout / Delete 각 채널이 공통 상태�
 
 단위 테스트(`login-prompt-001`~`006`, `008`, `009`)는 `internal/service/login_unit_test.go`, `login-prompt-007`은
 `internal/storage/codes_integration_test.go`, `*-prompt-00N` 통합 테스트는 `internal/integration/integration_prompt_test.go`에 있다.
+
+### 클라이언트 접근 정책 (Browser / MCP / Device / Refresh)
+
+| ID | 초기 상태 | 입력 | 기대 결과 | 검증 포인트 |
+|----|----------|------|----------|-------------|
+| `client-access-001`~`004` | `access` 없음 / `public` / allow·deny 정책 | `Policy.Evaluate` | deny 우선, hd 정확 일치(NULL 불일치), 와일드카드 라벨 경계·상위 도메인 제외, 미검증 email은 이메일 규칙 불일치(`email_unverified`), ASCII 대소문자만 무시(켈빈 기호 불일치) | 평가 매트릭스 |
+| `client-access-010`~`011` | - | `clientaccess.New` | 잘못된 도메인·`*.com`·점 없는 도메인·중간 `*`·hd 와일드카드·잘못된 이메일·빈 allow 거부, 정규화·중복 제거 | 설정 검증 |
+| `client-access-020`~`021` | - | YAML `access` 디코딩 (KnownFields 켜짐/꺼짐 모두) | `public`·mapping 허용, 다른 스칼라·`allow` 누락·빈 `allow`·`access`/`allow` 안의 알 수 없는 키·`deny.email_domains` 거부 | 엄격 디코딩 |
+| `client-access-030`~`031` | - | `LoadClientConfig` | 정책이 `ResolveClient`로 전달, `access: public`은 명시적 공개, 빈 `access:`/`null`/null을 가리키는 YAML alias 거부 | 시작 시 로드 |
+| `client-access-200`~`202` | 미가입, 제한 클라이언트 | `/login/callback` | 거부: `access_denied` redirect, 계정·세션 없음, `auth.access_denied` 1(user_id nil, `signup: true`) / 허용: 가입 + hd 저장 | 계정 생성 **전** 차단 |
+| `client-access-203`~`205` | 기존 계정 | `/login/callback` | 거부 시 세션 없음, 방금 받은 hd로 평가·기록, hd 기록 실패는 500 | 최신 hd |
+| `client-access-206`~`207` | `disabled` / `pending_deletion` + 거부 정책 | `/login/callback`, `/login` | `account_inactive`(`auth.inactive_user`만) / `access_denied`, 복구 안 함 | 판정 순서 |
+| `client-access-208` | 세션 (browser·mcp) | `/login`, `/mcp/login`, prompt 없음·`none` | 거부 계정 `access_denied`(login_required 아님), 저장된 hd 계정·공개 클라이언트는 auto-approve | 세션 재사용 |
+| `client-access-209` | mcp 클라이언트 auth_request | `/login` | `channel_mismatch`, `auth.access_denied` 없음 | 채널 검증 우선 |
+| `client-access-210` | 기존 계정 | `/mcp/callback` | 거부 시 세션 없음, hd 기록 | MCP 콜백 |
+| `client-access-211` | 기존 계정 (저장 email ≠ IdP email) | `/login/callback`, `/mcp/callback`, `/device/auth/callback` | 저장 email 허용 + IdP email deny → 거부(`deny_listed`) / 저장 verified + IdP 미검증 → 거부(`email_unverified`) / 저장 email deny + IdP email 허용 → 통과, `auth.access_denied` 없음 | 콜백은 IdP가 준 email로 평가 |
+| `client-access-220`~`221` | 세션 계정 | `/device/approve`, `/device/auth/callback` | 거부 시 403 + 읽을 수 있는 거부 메시지, 승인 안 함, 거부 버튼은 통과 / 콜백이 hd 기록 | Device |
+| `client-access-300` | - | `Storage` 가입·`SetIdentityHostedDomain` | 모든 사용자 조회에 hosted_domain, 갱신·NULL 초기화, 같은 값은 쓰지 않음(xmin 불변), 최신 identity가 NULL이면 오래된 identity 값으로 대체 안 함 | 저장 |
+| `client-access-301`~`305` | refresh token | `Storage` refresh (유예 끔/켬, 잠금 하 재검증, stateChecker 없음) | `invalid_grant` + `auth.access_denied` 1, 재사용 처리·tombstone 없음, 정책 복원 시 갱신 | Refresh |
+| `client-access-100`~`105` | 실제 테스트 서버 + 제한 클라이언트 | 가입 거부 / 허용 email / hd 저장·이탈 / 세션 재사용 / refresh / deny 우선 | `302 /callback?error=access_denied&state=test-state&iss`, users 0 / 토큰 발급 / hd 컬럼 / 공개 test-client는 계속 재사용 / `invalid_grant` / `deny_listed` | 통합 |
+| `client-access-106` | 콜백까지 끝나 code 보유 | 정책에 계정 deny 추가(`LoadClients`) 후 code 교환 | 400 `invalid_grant`, 토큰·refresh token 없음, `auth.access_denied` 1(`channel: browser`, `deny_listed`) | code 교환 재평가 |
+| `client-access-107` | device code 승인됨 | 정책에 계정 deny 추가 후 polling → 정책 해제 후 polling | 400 거부, `auth.access_denied` 1(`channel: device`), code는 `approved` 유지 / 해제 후 200 토큰 | device polling 재평가 |
+
+`client-access-001`~`021`은 `internal/clientaccess/clientaccess_test.go`, `030`~`031`은 `internal/storage/clients_test.go`,
+`2xx`는 `internal/service/client_access_unit_test.go`, `300`~`305`는 `internal/storage/client_access_integration_test.go`,
+`100`~`107`은 `internal/integration/integration_client_access_test.go`에 있다.
 
 ### Browser code → token 교환
 

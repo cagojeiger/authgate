@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+
+	"github.com/kangheeyong/authgate/internal/clientaccess"
 )
 
 // clientRegistry owns the in-memory static client table and the active client
@@ -45,9 +47,41 @@ func (r *clientRegistry) Load(clients []ClientConfigEntry) {
 			AllowedGrantTypeList:     StringArray(c.AllowedGrantTypes),
 			SkipPKCE:                 c.SkipPKCE,
 			IDTokenUserinfoAssertion: c.IDTokenUserinfoAssertion,
+			Access:                   c.Access,
 		}
 		r.clients.Store(c.ClientID, cm)
 	}
+}
+
+// staticAccess returns the access policy of a statically registered client,
+// or nil. It reads the in-memory table only: callers on the token path hold a
+// row lock, and resolving through the policy could fetch a CIMD document over
+// the network. CIMD clients are never in this table and have no policy.
+func (r *clientRegistry) staticAccess(clientID string) *clientaccess.Policy {
+	v, ok := r.clients.Load(clientID)
+	if !ok {
+		return nil
+	}
+	return v.(*ClientModel).Access
+}
+
+// staticLoginChannel returns the login channel of a statically registered
+// client, or "".
+func (r *clientRegistry) staticLoginChannel(clientID string) string {
+	v, ok := r.clients.Load(clientID)
+	if !ok {
+		return ""
+	}
+	return v.(*ClientModel).LoginChannel
+}
+
+// staticName returns the display name of a statically registered client, or "".
+func (r *clientRegistry) staticName(clientID string) string {
+	v, ok := r.clients.Load(clientID)
+	if !ok {
+		return ""
+	}
+	return v.(*ClientModel).Name
 }
 
 // SetPolicy overrides the resolution policy; a nil policy restores the core
@@ -66,4 +100,8 @@ func (r *clientRegistry) Resolve(ctx context.Context, clientID string) (*ClientM
 		r.policy = coreClientResolutionPolicy{reg: r}
 	}
 	return r.policy.ResolveClient(ctx, clientID)
+}
+
+func (s *Storage) staticClientName(clientID string) string {
+	return s.ensureRegistry().staticName(clientID)
 }

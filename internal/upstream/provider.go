@@ -8,6 +8,9 @@ type UserInfo struct {
 	Email         string
 	EmailVerified bool
 	Name          string
+	// HostedDomain is the Google Workspace domain (the hd claim) the account
+	// belongs to; empty for consumer accounts and IdPs that do not send one.
+	HostedDomain string
 }
 
 // Provider abstracts the upstream OIDC IdP.

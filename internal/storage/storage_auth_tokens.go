@@ -104,13 +104,22 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 	if err := s.resourcePolicy.ValidateTokenRequest(ctx, ar.ClientID, ar.Resource, requestResource); err != nil {
 		return nil, err
 	}
-	if s.stateChecker != nil && ar.Subject != nil && *ar.Subject != "" {
+	// The client's access policy is evaluated again here, not only at the
+	// callback: a policy tightened between the callback and the exchange must
+	// not still mint tokens from a code issued before it.
+	access := s.ensureRegistry().staticAccess(ar.ClientID)
+	if (s.stateChecker != nil || access.Restricted()) && ar.Subject != nil && *ar.Subject != "" {
 		user, err := s.GetUserByID(ctx, *ar.Subject)
 		if err != nil {
 			return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "subject lookup failed"}
 		}
-		if err := s.stateChecker(user); err != nil {
-			return nil, &oidc.Error{ErrorType: "invalid_grant", Description: err.Error()}
+		if s.stateChecker != nil {
+			if err := s.stateChecker(user); err != nil {
+				return nil, &oidc.Error{ErrorType: "invalid_grant", Description: err.Error()}
+			}
+		}
+		if err := s.enforceStaticClientAccess(ctx, access, ar.ClientID, s.ensureRegistry().staticLoginChannel(ar.ClientID), user); err != nil {
+			return nil, err
 		}
 	}
 	return ar, err
@@ -785,16 +794,23 @@ func (s *Storage) validateRefreshTokenRequest(ctx context.Context, tx *sql.Tx, r
 		return err
 	}
 
+	// The client's access policy is re-evaluated on every refresh so removing
+	// an account from it takes effect within one access-token lifetime, not
+	// only at the next interactive login.
+	access := s.ensureRegistry().staticAccess(rt.ClientID)
+	if s.stateChecker == nil && !access.Restricted() {
+		return nil
+	}
+	user, err := s.getUserByID(ctx, tx, rt.UserID)
+	if err != nil {
+		return op.ErrInvalidRefreshToken
+	}
 	if s.stateChecker != nil {
-		user, err := s.getUserByID(ctx, tx, rt.UserID)
-		if err != nil {
-			return op.ErrInvalidRefreshToken
-		}
 		if err := s.stateChecker(user); err != nil {
 			return &oidc.Error{ErrorType: "invalid_grant", Description: err.Error()}
 		}
 	}
-	return nil
+	return s.enforceStaticClientAccess(ctx, access, rt.ClientID, "refresh", user)
 }
 
 // GetAuthRequestModel fetches the auth request by ID and returns the concrete model.

@@ -1,10 +1,13 @@
 package storage
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kangheeyong/authgate/internal/clientaccess"
 )
 
 func writeClientConfigFile(t *testing.T, body string) string {
@@ -560,5 +563,106 @@ clients:
 func TestLoadClientConfig_RepositorySampleLoads(t *testing.T) {
 	if _, err := LoadClientConfig("../../clients.yaml"); err != nil {
 		t.Fatalf("clients.yaml: %v", err)
+	}
+}
+
+const accessClientPrefix = `
+clients:
+  - client_id: gitea
+    client_type: public
+    login_channel: browser
+    name: Gitea
+    redirect_uris: ["https://git.example.com/callback"]
+    allowed_scopes: [openid, email]
+    allowed_grant_types: [authorization_code, refresh_token]
+`
+
+// client-access-030: an access block loads into a restricted policy that
+// ResolveClient hands to every channel, and "access: public" loads as the
+// explicit public policy.
+func TestLoadClientConfig_AccessPolicy(t *testing.T) {
+	cfg, err := LoadClientConfig(writeClientConfigFile(t, accessClientPrefix+`    access:
+      allow:
+        google_workspace_domains: [corp.example]
+        email_domains: [partner.example, "*.partner.example"]
+        emails: [someone@gmail.com]
+      deny:
+        emails: [former@corp.example]
+  - client_id: open
+    client_type: public
+    name: Open
+    redirect_uris: ["https://open.example.com/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+    access: public
+  - client_id: legacy
+    client_type: public
+    name: Legacy
+    redirect_uris: ["https://legacy.example.com/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`))
+	if err != nil {
+		t.Fatalf("LoadClientConfig: %v", err)
+	}
+	if !cfg.Clients[0].Access.Restricted() {
+		t.Fatal("gitea access policy not restricted")
+	}
+	if cfg.Clients[1].Access == nil || cfg.Clients[1].Access.Restricted() {
+		t.Fatalf("access: public = %+v, want explicit public policy", cfg.Clients[1].Access)
+	}
+	if cfg.Clients[2].Access != nil {
+		t.Fatalf("omitted access = %+v, want nil", cfg.Clients[2].Access)
+	}
+
+	s := &Storage{}
+	s.LoadClients(cfg.Clients)
+	client, err := s.ResolveClient(context.Background(), "gitea")
+	if err != nil {
+		t.Fatalf("ResolveClient: %v", err)
+	}
+	if client.Access != cfg.Clients[0].Access {
+		t.Fatal("ResolveClient did not carry the access policy")
+	}
+	if d := client.Access.Evaluate(clientaccess.Subject{Email: "x@eu.partner.example", EmailVerified: true}); !d.Allowed {
+		t.Fatalf("loaded policy refused an allowed subject: %+v", d)
+	}
+	if d := client.Access.Evaluate(clientaccess.Subject{Email: "former@corp.example", HostedDomain: "corp.example"}); d.Allowed {
+		t.Fatal("loaded policy ignored the deny list")
+	}
+	if got := s.ensureRegistry().staticAccess("gitea"); got != client.Access {
+		t.Fatal("staticAccess did not return the loaded policy")
+	}
+	if got := s.ensureRegistry().staticAccess("unknown"); got != nil {
+		t.Fatal("staticAccess returned a policy for an unregistered client")
+	}
+}
+
+// client-access-031: a malformed access block stops startup. Unknown keys
+// inside access are refused under the file's strict decoding, and an empty
+// access key, including an alias that resolves to null, is refused instead of
+// reading as public.
+func TestLoadClientConfig_RejectsBadAccess(t *testing.T) {
+	for name, tc := range map[string]struct{ access, want string }{
+		"unknown key in access": {"    access:\n      alow:\n        emails: [a@b.example]\n", "alow"},
+		"unknown key in allow":  {"    access:\n      allow:\n        email_domain: [b.example]\n", "email_domain"},
+		"empty allow":           {"    access:\n      allow: {}\n", "at least one"},
+		"missing allow":         {"    access:\n      deny:\n        emails: [a@b.example]\n", "allow is required"},
+		"bad domain":            {"    access:\n      allow:\n        email_domains: [\"*.com\"]\n", "no dot"},
+		"bad email":             {"    access:\n      allow:\n        emails: [someone]\n", "single address"},
+		"empty access":          {"    access:\n", "access is empty"},
+		"null access":           {"    access: null\n", "access is empty"},
+		"alias to null":         {"    skip_pkce: &nul ~\n    access: *nul\n", "access is empty"},
+		"other scalar":          {"    access: everyone\n", "public"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadClientConfig(writeClientConfigFile(t, accessClientPrefix+tc.access))
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %q does not mention %q", err, tc.want)
+			}
+		})
 	}
 }

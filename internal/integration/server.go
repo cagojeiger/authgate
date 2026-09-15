@@ -15,6 +15,7 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/op"
 
 	mcpadapter "github.com/kangheeyong/authgate/internal/adapter/mcp"
+	"github.com/kangheeyong/authgate/internal/clientaccess"
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/crypto"
 	"github.com/kangheeyong/authgate/internal/handler"
@@ -61,10 +62,15 @@ type SetupOptions struct {
 	// RefreshReuseGrace mirrors REFRESH_TOKEN_REUSE_GRACE_SEC. Zero keeps the
 	// strict reuse detection the rest of the suite asserts.
 	RefreshReuseGrace time.Duration
-	// SignupEmailDomains mirrors SIGNUP_EMAIL_DOMAINS, already normalized as
-	// config would store it. Nil keeps signup open.
-	SignupEmailDomains []string
+	// RestrictedClientAccess, when set, registers RestrictedClientID: a
+	// browser client like test-client that only admits accounts this access
+	// policy allows. test-client itself stays public.
+	RestrictedClientAccess *clientaccess.Policy
 }
+
+// RestrictedClientID is the browser client registered with
+// SetupOptions.RestrictedClientAccess.
+const RestrictedClientID = "restricted-client"
 
 // setupCryptoKeys derives test crypto keys and registers their epochs.
 func setupCryptoKeys(t *testing.T, store *storage.Storage) {
@@ -162,6 +168,9 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 			AllowedGrantTypes: []string{"authorization_code"},
 		},
 	})
+	if opts.RestrictedClientAccess != nil {
+		store.LoadClients([]storage.ClientConfigEntry{RestrictedClientEntry(srv.URL, opts.RestrictedClientAccess)})
+	}
 	if opts.EnableMCP {
 		store.LoadClients([]storage.ClientConfigEntry{
 			{
@@ -216,7 +225,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 	}
 
 	// Services
-	loginSvc := service.NewLoginService(store, fakeProvider.Name(), srv.URL, 24*time.Hour, opts.SignupEmailDomains)
+	loginSvc := service.NewLoginService(store, fakeProvider.Name(), srv.URL, 24*time.Hour)
 	deviceSvc := service.NewDeviceService(store, fakeProvider.Name(), srv.URL, 24*time.Hour, clk)
 
 	// Handlers
@@ -322,6 +331,22 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 		Clock:    clk,
 		BaseURL:  srv.URL,
 		Upstream: fakeProvider,
+	}
+}
+
+// RestrictedClientEntry is the registration of RestrictedClientID with the
+// given access policy. Loading it again with another policy stands in for a
+// restart with an edited clients.yaml.
+func RestrictedClientEntry(baseURL string, access *clientaccess.Policy) storage.ClientConfigEntry {
+	return storage.ClientConfigEntry{
+		ClientID:          RestrictedClientID,
+		ClientType:        "public",
+		LoginChannel:      "browser",
+		Name:              "Restricted Test",
+		RedirectURIs:      []string{baseURL + "/callback"},
+		AllowedScopes:     []string{"openid", "profile", "email", "offline_access"},
+		AllowedGrantTypes: []string{"authorization_code", "refresh_token"},
+		Access:            access,
 	}
 }
 

@@ -199,6 +199,13 @@ refresh 허용 조건: `user.Status = 'active'`.
 authgate는 `storage.TokenRequestByRefreshToken` 구현 안에서 refresh_token → user를 조회하고
 `user.Status` 기반으로 차단 여부를 판단해야 한다.
 
+**클라이언트 접근 정책**: 클라이언트에 `access` 정책이 있으면 refresh마다 계정의 저장된 email·email_verified·hosted_domain으로
+다시 평가하고, 거부되면 `invalid_grant`와 `auth.access_denied`(`channel: refresh`)를 남긴다. 토큰을 소비·revoke하지 않으며
+재사용으로도 취급하지 않는다. 재사용 유예 경로(잠금 하 재검증 포함)에서도 같다. 정책 조회는 메모리의 정적 클라이언트 표만 보며
+CIMD fetch를 일으키지 않는다([009 운영](009-operations.md#클라이언트-접근-정책-access)).
+authorization code 교환(`invalid_grant`, `channel`은 클라이언트의 로그인 채널)과 승인된 device code polling(`channel: device`)도
+같은 방식으로 저장된 값으로 다시 평가하므로, 콜백·승인 뒤 교환 전에 좁힌 정책이 토큰 발급을 막는다.
+
 **access_token(JWT)은 stateless라 서버에서 즉시 폐기할 수 없다.**
 disabled/deleted 계정의 access_token은 만료(15분)를 기다린다.
 즉시 차단이 필요하면 앱이 자체 blocklist를 운영한다 (sub 기반).
@@ -369,6 +376,7 @@ WHERE expires_at < NOW() - INTERVAL '1 hour';
 | refresh_token 이미 사용됨 | `invalid_grant` | 400 | rotation 위반 |
 | 재사용 탐지 (탈취 의심) | `invalid_grant` | 400 | family 전체 revoke + 재로그인 |
 | 계정 disabled/deleted/pending_deletion | `invalid_grant` | 400 | 토큰 갱신 차단 |
+| 클라이언트 `access` 정책이 계정 거부 | `invalid_grant` | 400 | 토큰 갱신 차단, `auth.access_denied` 기록. 정책이 다시 허용하면 같은 토큰으로 갱신 가능 |
 | client_id 불일치 | `invalid_client` | 400 | |
 | CIMD fetch 실패 (URL 소멸/타임아웃) | `invalid_client` | 400 | MCP 클라이언트 재등록 + 재로그인 필요. Spec 004 참조 |
 | CIMD grant_types 변경 (`refresh_token` 제거됨) | `invalid_client` | 400 | 지원 grant가 철회됨. 지원하지 않는 추가 grant는 무시됨 |

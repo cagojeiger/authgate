@@ -56,9 +56,16 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 			return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 		}
 		if err == nil {
+			client, errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, &user.ID)
+			if errMsg != "" {
+				return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
+			}
+			if !checkClientAccess(ctx, s.store, client, "mcp", &user.ID, storage.AccessSubject(user), false, ipAddress, userAgent) {
+				return accessDeniedRedirect(s.issuer, authReq)
+			}
 			// mcp never recovers (CheckAccess denies pending_deletion for mcp),
 			// so recovered is always false.
-			return completeReusedSessionLogin(ctx, s.store, "mcp", user, authReq, sessionID, ipAddress, userAgent, false)
+			return completeReusedSessionLogin(ctx, s.store, "mcp", client.Name, user, authReq, sessionID, ipAddress, userAgent, false)
 		}
 	}
 
@@ -97,10 +104,11 @@ func (s *MCPLoginService) CompleteMCPLogin(ctx context.Context, state string, in
 		return &CallbackResult{Action: ActionError, Error: "invalid_target", ErrorCode: http.StatusBadRequest}
 	}
 
-	clientName, errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, nil)
+	client, errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, nil)
 	if errMsg != "" {
 		return &CallbackResult{Action: ActionError, Error: errMsg, ErrorCode: statusCode}
 	}
+	clientName := client.Name
 
 	userInfo := info
 
@@ -112,9 +120,15 @@ func (s *MCPLoginService) CompleteMCPLogin(ctx context.Context, state string, in
 	if err != nil {
 		return &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
+	if result := recordHostedDomain(ctx, s.store, providerName, userInfo, user); result != nil {
+		return result
+	}
 	if CheckAccess(user.Status, "mcp") != AccessAllow {
 		s.store.AuditLog(ctx, &user.ID, "auth.inactive_user", ipAddress, userAgent, map[string]any{"status": user.Status, "channel": "mcp"})
 		return &CallbackResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
+	}
+	if !checkExistingAccountAccess(ctx, s.store, client, "mcp", user, userInfo, ipAddress, userAgent) {
+		return callbackResultFrom(accessDeniedRedirect(s.issuer, authReq))
 	}
 
 	sessionID, err := s.store.CreateSession(ctx, user.ID, s.sessionTTL)

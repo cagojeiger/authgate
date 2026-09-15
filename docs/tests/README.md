@@ -15,6 +15,10 @@
 | 004 | [감사 이벤트 테스트](004-audit-events.md) | `audit_log.event_type`와 metadata 기록 검증 |
 | 005 | [Upstream Provider 테스트](005-upstream-provider.md) | OIDCProvider discovery/exchange/userinfo 검증 |
 
+클라이언트 접근 정책(`access`) 테스트는 002의 "클라이언트 접근 정책" 절에 모았다. 파일:
+`internal/clientaccess/clientaccess_test.go`, `internal/service/client_access_unit_test.go`,
+`internal/storage/client_access_integration_test.go`, `internal/integration/integration_client_access_test.go`.
+
 보안/컴플라이언스 관점의 evidence mapping은
 [Security 001 Audit Evidence Matrix](../security/001-audit-evidence-matrix.md)를
 참조한다.

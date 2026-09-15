@@ -67,6 +67,9 @@ func (h *MCPLoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request)
 			}
 			//nolint:gosec // Internal redirect to the fixed OIDC callback with a service-issued auth request ID.
 			http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
+		case service.ActionRedirectToClient:
+			//nolint:gosec // Authorization error response to the auth request's redirect_uri, which zitadel validated against the client.
+			http.Redirect(w, r, result.RedirectURL, http.StatusFound)
 		case service.ActionError:
 			h.renderError(w, result.ErrorCode, result.Error)
 		default:

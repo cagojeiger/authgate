@@ -168,7 +168,7 @@ func (p *OIDCProvider) Callback(w http.ResponseWriter, r *http.Request, onSucces
 	}
 	cb := rp.UserinfoCallback[*oidc.IDTokenClaims, *oidc.UserInfo](
 		func(w http.ResponseWriter, r *http.Request, tokens *oidc.Tokens[*oidc.IDTokenClaims], state string, _ rp.RelyingParty, info *oidc.UserInfo) {
-			onSuccess(w, r, state, mapUserInfo(info))
+			onSuccess(w, r, state, mapUserInfo(tokens, info))
 		},
 	)
 	rp.CodeExchangeHandler[*oidc.IDTokenClaims](cb, p.rp).ServeHTTP(w, r)
@@ -183,13 +183,28 @@ func generateNonce() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-func mapUserInfo(info *oidc.UserInfo) *UserInfo {
+func mapUserInfo(tokens *oidc.Tokens[*oidc.IDTokenClaims], info *oidc.UserInfo) *UserInfo {
 	return &UserInfo{
 		Sub:           info.Subject,
 		Email:         info.Email,
 		EmailVerified: bool(info.EmailVerified),
 		Name:          info.Name,
+		HostedDomain:  hostedDomain(tokens),
 	}
+}
+
+// hostedDomain returns Google's hd claim from the ID token only. By the time
+// the callback runs, the ID token's signature, issuer, audience, expiry and
+// nonce have been verified, and Google documents hd as an ID token claim. The
+// userinfo response is not consulted: it carries no signature, and on another
+// issuer hd there could be a claim the user controls.
+func hostedDomain(tokens *oidc.Tokens[*oidc.IDTokenClaims]) string {
+	if tokens != nil && tokens.IDTokenClaims != nil {
+		if hd, ok := tokens.IDTokenClaims.Claims["hd"].(string); ok {
+			return hd
+		}
+	}
+	return ""
 }
 
 // hostRewriteTransport rewrites the host of outgoing HTTP requests.

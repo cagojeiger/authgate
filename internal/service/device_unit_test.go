@@ -20,6 +20,14 @@ type fakeDeviceStore struct {
 	denyDeviceCodeFn          func(ctx context.Context, userCode string) error
 	approveDeviceCodeFn       func(ctx context.Context, userCode, subject string) error
 	resolveClientFn           func(ctx context.Context, clientID string) (*storage.ClientModel, error)
+	setHostedDomainFn         func(ctx context.Context, provider, providerUserID, hostedDomain string) error
+}
+
+func (f *fakeDeviceStore) SetIdentityHostedDomain(ctx context.Context, provider, providerUserID, hostedDomain string) error {
+	if f.setHostedDomainFn == nil {
+		return nil
+	}
+	return f.setHostedDomainFn(ctx, provider, providerUserID, hostedDomain)
 }
 
 func (f *fakeDeviceStore) GetDeviceCodeByUserCode(ctx context.Context, userCode string) (*storage.DeviceCodeModel, error) {

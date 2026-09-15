@@ -38,7 +38,7 @@ PKCE S256이 MCP 채널 계약의 일부이기 때문이다 ([Spec 004](004-mcp-
 |--------|------|----------|------|
 | GET | `/authorize` | zitadel 라이브러리 | 인증 시작 (PKCE, redirect_uri, client_id 검증, auth_request 생성) |
 | GET | `/login` | authgate 핸들러 | `prompt` 확인 → 세션 확인 → 유효하면 auto-approve, 없으면 IdP redirect (`prompt=none`이면 `login_required`) |
-| GET | `/login/callback` | authgate 핸들러 | IdP 코드 교환 → 신규/기존 판별 → 세션 생성 |
+| GET | `/login/callback` | authgate 핸들러 | IdP 코드 교환 → 신규/기존 판별 → 클라이언트 접근 정책 → 세션 생성 |
 | POST | `/oauth/token` | zitadel 라이브러리 | code + code_verifier (+ client_secret) → 토큰 발급 |
 | GET | `/.well-known/openid-configuration` | zitadel 라이브러리 | OIDC Discovery |
 | GET | `/keys` | zitadel 라이브러리 | 공개키 (토큰 검증용) |
@@ -175,6 +175,21 @@ sequenceDiagram
 - **`consent`**: authgate에는 동의 화면이 없어 `consent`를 없는 것으로 취급한다. MCP 채널은 CIMD로 3rd-party 클라이언트도 받지만 동의 화면은 역시 없다([Spec 004](004-mcp-login.md)).
 - `/login`은 prompt와 무관하게 먼저 auth_request를 조회하므로, 존재하지 않는 auth_request는 IdP로 보내기 전에 `auth_request_not_found`로 끝난다.
 
+## 클라이언트 접근 정책
+
+클라이언트에 `access` 정책이 있으면([009 운영](009-operations.md#클라이언트-접근-정책-access)) 세션 재사용과 콜백 모두 토큰을 내기 전에 평가한다.
+
+| 경로 | 평가 대상 | 순서 |
+|------|----------|------|
+| `/login` 세션 재사용 | 세션 계정의 저장된 email·email_verified·hosted_domain | 비활성 계정 → 채널 검증 → **정책** → `pending_deletion` 복구 → 완료 |
+| `/login/callback` 신규 | IdP가 준 email·email_verified·hd | 채널 검증 → **정책** → 가입 |
+| `/login/callback` 기존 | IdP가 방금 준 email·email_verified·hd (저장된 가입 당시 email이 아님) | 채널 검증 → hd 기록 → 비활성 계정 → **정책** → 복구 → 세션 |
+| code 교환 (`/oauth/token`) | 계정의 저장된 email·email_verified·hosted_domain | 상태 검사 → **정책** → 토큰 (거부 시 400 `invalid_grant`) |
+
+거부 시 클라이언트 `redirect_uri`로 `error=access_denied`, `state`, `iss`를 붙여 `302`한다. `prompt=none`도 같다
+(`login_required`는 대화형 로그인을 유도하지만 대화형으로도 풀리지 않는다). 거부된 로그인은 세션을 만들지 않고
+탈퇴 요청을 취소하지 않는다.
+
 ## 토큰 내용
 
 ```json
@@ -214,6 +229,7 @@ sequenceDiagram
 | client_secret 불일치 | `invalid_client` | 401 | confidential 클라이언트만 |
 | 채널 불일치 (`login_channel: mcp` 클라이언트의 auth_request를 브라우저 경로로 완료 시도) | `channel_mismatch` | 400 | `auth.channel_mismatch` audit 후 거부. `/login`, `/login/callback` 둘 다에서 강제 |
 | `prompt=none` + 유효한 세션 없음 또는 비활성 계정 | `login_required` | 302 | 클라이언트 `redirect_uri`로 오류 응답 (`state`, `iss` 포함) |
+| 클라이언트 `access` 정책이 계정 거부 (가입·기존 계정·세션 재사용, `prompt=none` 포함) | `access_denied` | 302 | 클라이언트 `redirect_uri`로 오류 응답 (`state`, `iss` 포함). 세션 생성·재사용 안 함, `auth.access_denied` 기록 |
 | `prompt=none`과 다른 값 동시 지정 | `invalid_request` | 302 | zitadel이 `/authorize`에서 거부 |
 
 ## pending_deletion 복구

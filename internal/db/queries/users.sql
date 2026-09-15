@@ -12,32 +12,42 @@ INSERT INTO user_identities (
     id, user_id, provider,
     provider_sub_hash, provider_sub_hash_key_id, provider_sub_hash_version,
     provider_sub_ciphertext, provider_sub_nonce, provider_sub_enc_key_id, provider_sub_enc_version,
-    created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+    created_at, hosted_domain
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
+
+-- name: SetIdentityHostedDomain :exec
+-- Records the hosted domain of an upstream login; NULL clears it when the
+-- account no longer has one. An unchanged value writes nothing.
+UPDATE user_identities
+SET hosted_domain = sqlc.narg(hosted_domain)
+WHERE provider = sqlc.arg(provider) AND provider_sub_hash = sqlc.arg(provider_sub_hash)
+  AND hosted_domain IS DISTINCT FROM sqlc.narg(hosted_domain);
 
 -- name: GetUserByProviderSubHash :one
 SELECT u.id, u.email_verified, u.status,
        u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
        u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
-       u.created_at, u.updated_at
+       u.created_at, u.updated_at, ui.hosted_domain
 FROM users u
 JOIN user_identities ui ON u.id = ui.user_id
 WHERE ui.provider = $1 AND ui.provider_sub_hash = $2;
 
 -- name: GetUserByID :one
-SELECT id, email_verified, status,
-       email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
-       name_ciphertext, name_nonce, name_enc_key_id, name_enc_version,
-       created_at, updated_at
-FROM users
-WHERE id = $1;
+SELECT u.id, u.email_verified, u.status,
+       u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
+       u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
+       u.created_at, u.updated_at,
+       COALESCE((SELECT ui.hosted_domain FROM user_identities ui WHERE ui.user_id = u.id ORDER BY ui.created_at DESC LIMIT 1), '')::text AS hosted_domain
+FROM users u
+WHERE u.id = $1;
 
 -- name: GetUserForTxByID :one
-SELECT id, email_verified, status,
-       email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
-       name_ciphertext, name_nonce, name_enc_key_id, name_enc_version
-FROM users
-WHERE id = $1;
+SELECT u.id, u.email_verified, u.status,
+       u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
+       u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
+       COALESCE((SELECT ui.hosted_domain FROM user_identities ui WHERE ui.user_id = u.id ORDER BY ui.created_at DESC LIMIT 1), '')::text AS hosted_domain
+FROM users u
+WHERE u.id = $1;
 
 -- name: GetUserInfoFieldsByID :one
 SELECT id, email_verified,
