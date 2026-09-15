@@ -5,6 +5,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/db/migrator"
 	"github.com/kangheeyong/authgate/internal/handler"
 	"github.com/kangheeyong/authgate/internal/idgen"
+	"github.com/kangheeyong/authgate/internal/logctx"
 	"github.com/kangheeyong/authgate/internal/middleware"
 	"github.com/kangheeyong/authgate/internal/pages"
 	"github.com/kangheeyong/authgate/internal/service"
@@ -27,6 +29,16 @@ import (
 const devicePollInterval = 5 * time.Second
 
 func Run() {
+	// Every slog record written with a request context carries that request's
+	// log attributes (request_id, path, and client_id/grant_type on token
+	// endpoints). zitadel/oidc logs failed grants through slog.Default(), so
+	// this is what makes those lines attributable to a client.
+	slog.SetDefault(slog.New(logctx.NewHandler(slog.NewTextHandler(os.Stderr, nil))))
+	// SetDefault routes the log package through slog. authgate only calls
+	// log.Fatal*, and net/http reports server errors through it, so those lines
+	// are errors rather than the bridge's default INFO.
+	slog.SetLogLoggerLevel(slog.LevelError)
+
 	cfg := mustLoadConfig()
 	db := mustOpenDB(cfg)
 	defer func() { _ = db.Close() }()

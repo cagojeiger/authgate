@@ -1,16 +1,20 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"github.com/kangheeyong/authgate/internal/pages"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/kangheeyong/authgate/internal/config"
 	"github.com/kangheeyong/authgate/internal/handler"
+	"github.com/kangheeyong/authgate/internal/logctx"
 	"github.com/kangheeyong/authgate/internal/middleware"
 )
 
@@ -168,6 +172,34 @@ func TestRegisterProviderRoutes_RateLimitsSensitiveOAuthEndpoints(t *testing.T) 
 			registerProviderRoutes(mux, cfg, nil, provider, newRouteLimiters(cfg))
 
 			assertRateLimited(t, mux, tt.method, tt.path)
+		})
+	}
+}
+
+// zitadel/oidc logs a failed grant with the request context. Every token-style
+// route must put the client into that context, or the server log cannot say
+// which client failed.
+func TestRegisterProviderRoutes_TokenEndpointsLogClient(t *testing.T) {
+	for _, path := range []string{"/oauth/token", "/oauth/revoke", "/oauth/introspect", "/oauth/device/authorize"} {
+		t.Run(path, func(t *testing.T) {
+			var buf bytes.Buffer
+			logger := slog.New(logctx.NewHandler(slog.NewTextHandler(&buf, nil)))
+			provider := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				logger.WarnContext(r.Context(), "request error")
+				w.WriteHeader(http.StatusBadRequest)
+			})
+			mux := http.NewServeMux()
+			cfg := rateLimitTestConfig()
+			registerProviderRoutes(mux, cfg, nil, provider, newRouteLimiters(cfg))
+
+			form := url.Values{"client_id": {"gitea"}, "grant_type": {"authorization_code"}}
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			mux.ServeHTTP(httptest.NewRecorder(), req)
+
+			if got := buf.String(); !strings.Contains(got, "client_id=gitea") {
+				t.Fatalf("%s: log line %q is missing client_id", path, got)
+			}
 		})
 	}
 }
