@@ -431,3 +431,134 @@ clients:
 		t.Fatalf("LoginChannel = %q, want browser", cfg.Clients[0].LoginChannel)
 	}
 }
+
+// A misspelled or unknown key is rejected instead of silently ignored, at the
+// top level and inside a client.
+func TestLoadClientConfig_RejectsUnknownFields(t *testing.T) {
+	for name, body := range map[string]string{
+		"client field": `
+clients:
+  - client_id: my-app
+    client_type: public
+    login_channel: browser
+    name: App
+    redirect_uris: ["http://localhost:3000/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+    skip_pcke: true
+`,
+		"top-level field": `
+client:
+  - client_id: my-app
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := LoadClientConfig(writeClientConfigFile(t, body)); err == nil {
+				t.Fatal("expected an error for an unknown field")
+			}
+		})
+	}
+}
+
+// An empty file is an empty configuration, as before strict decoding. That
+// includes a file whose clients are all commented out.
+func TestLoadClientConfig_EmptyFileIsEmptyConfig(t *testing.T) {
+	for name, body := range map[string]string{
+		"empty":         "",
+		"comments only": "# no clients yet\n",
+		"separator":     "---\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := LoadClientConfig(writeClientConfigFile(t, body))
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if len(cfg.Clients) != 0 {
+				t.Fatalf("clients = %d, want 0", len(cfg.Clients))
+			}
+		})
+	}
+}
+
+// Content after a document separator would be dropped unparsed, so a second
+// document is rejected, including the case where the first one is empty.
+func TestLoadClientConfig_RejectsMultipleDocuments(t *testing.T) {
+	client := `clients:
+  - client_id: my-app
+    client_type: public
+    login_channel: browser
+    name: App
+    redirect_uris: ["http://localhost:3000/callback"]
+    allowed_scopes: [openid]
+    allowed_grant_types: [authorization_code]
+`
+	for name, body := range map[string]string{
+		"empty first document": "---\n---\n" + client,
+		"second document":      client + "---\nskip_pcke: true\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := LoadClientConfig(writeClientConfigFile(t, body)); err == nil {
+				t.Fatal("expected an error for multiple YAML documents")
+			}
+		})
+	}
+}
+
+// Every field in use by the production deployment still loads under strict
+// decoding. Secret hashes are placeholders. Keep this in step with the
+// deployed authgate-clients ConfigMap whenever it gains a key.
+func TestLoadClientConfig_ProductionShapeStillLoads(t *testing.T) {
+	body := `
+clients:
+  - client_id: opsgate-mcp
+    client_type: public
+    login_channel: mcp
+    name: Opsgate MCP
+    url: https://opsgate.example.com
+    redirect_uris: [http://localhost/callback, http://127.0.0.1/callback]
+    allowed_scopes: [openid, profile, email, offline_access]
+    allowed_grant_types: [authorization_code, refresh_token]
+  - client_id: notegate-cli
+    client_type: public
+    login_channel: browser
+    name: Notegate CLI
+    url: https://notegate.example.com
+    redirect_uris: [http://127.0.0.1/callback]
+    allowed_scopes: [openid, profile, email, offline_access]
+    allowed_grant_types: ["urn:ietf:params:oauth:grant-type:device_code", refresh_token]
+  - client_id: gitea
+    client_type: confidential
+    client_secret_hash: "$2y$12$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012"
+    skip_pkce: true
+    login_channel: browser
+    name: Gitea
+    url: https://gitea.example.com
+    redirect_uris: [https://gitea.example.com/user/oauth2/authgate/callback]
+    allowed_scopes: [openid, profile, email]
+    allowed_grant_types: [authorization_code]
+  - client_id: cloudflare-access
+    client_type: confidential
+    client_secret_hash: "$2y$12$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012"
+    id_token_userinfo_assertion: true
+    login_channel: browser
+    name: Cloudflare Access
+    url: https://example.cloudflareaccess.com
+    redirect_uris: [https://example.cloudflareaccess.com/cdn-cgi/access/callback]
+    allowed_scopes: [openid, profile, email]
+    allowed_grant_types: [authorization_code]
+`
+	cfg, err := LoadClientConfig(writeClientConfigFile(t, body))
+	if err != nil {
+		t.Fatalf("production-shaped config no longer loads: %v", err)
+	}
+	if len(cfg.Clients) != 4 {
+		t.Fatalf("clients = %d, want 4", len(cfg.Clients))
+	}
+}
+
+// The repository's own sample configuration loads.
+func TestLoadClientConfig_RepositorySampleLoads(t *testing.T) {
+	if _, err := LoadClientConfig("../../clients.yaml"); err != nil {
+		t.Fatalf("clients.yaml: %v", err)
+	}
+}

@@ -1,8 +1,11 @@
 package storage
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -53,9 +56,25 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		return nil, err
 	}
 
+	// Unknown fields are an error, not ignored. A misspelled key would
+	// otherwise vanish without a trace, and for a security setting that means
+	// the protection silently does not apply ("skip_pcke: false" is harmless,
+	// but a misspelled restriction is not).
 	var cfg ClientConfigFile
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
+		if !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+	} else {
+		// Only one document is read, so anything after a "---" separator would
+		// be dropped unparsed, and an empty first document ("---\n---\nclients:")
+		// would load no clients at all. Reject a second document instead.
+		var extra yaml.Node
+		if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("parse %s: multiple YAML documents are not supported", path)
+		}
 	}
 
 	seen := make(map[string]bool, len(cfg.Clients))
