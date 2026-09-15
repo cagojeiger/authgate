@@ -31,7 +31,7 @@ func setupLoginService(t *testing.T) (*LoginService, *storage.Storage, *upstream
 		},
 	}
 
-	svc := NewLoginService(store, fakeProvider.Name(), "http://authgate.test", 24*time.Hour, nil)
+	svc := NewLoginService(store, fakeProvider.Name(), "http://authgate.test", 24*time.Hour)
 	return svc, store, fakeProvider.User
 }
 

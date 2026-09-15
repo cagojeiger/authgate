@@ -16,7 +16,6 @@ type LoginService struct {
 	providerName string
 	issuer       string
 	sessionTTL   time.Duration
-	signupDomain signupDomainPolicy
 }
 
 type LoginStore interface {
@@ -30,6 +29,7 @@ type LoginStore interface {
 	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	GetAuthRequestModel(ctx context.Context, id string) (*storage.AuthRequestModel, error)
 	ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error)
+	SetIdentityHostedDomain(ctx context.Context, provider, providerUserID, hostedDomain string) error
 }
 
 // verifyAuthRequestChannel ensures the auth_request's client uses the expected
@@ -37,14 +37,15 @@ type LoginStore interface {
 // returns an error message + HTTP status suitable for a *LoginResult or
 // *CallbackResult. Lookup errors return ("internal_error", 500); a clean match
 // returns ("", 0).
-// It resolves the client once and returns its display name so the caller's
-// success audit can reuse it instead of resolving a second time — for MCP
-// clients a resolve may trigger an outbound CIMD fetch, so collapsing the two
-// lookups avoids a duplicate fetch per login (#302 M2).
-func verifyAuthRequestChannel(ctx context.Context, store LoginStore, authReq *storage.AuthRequestModel, expected, ipAddress, userAgent string, userID *string) (clientName string, errMsg string, statusCode int) {
+// It resolves the client once and returns it so the caller's access-policy
+// check and success audit can reuse it instead of resolving a second time — for
+// MCP clients a resolve may trigger an outbound CIMD fetch, so collapsing the
+// lookups avoids a duplicate fetch per login (#302 M2). The client is non-nil
+// whenever errMsg is empty.
+func verifyAuthRequestChannel(ctx context.Context, store LoginStore, authReq *storage.AuthRequestModel, expected, ipAddress, userAgent string, userID *string) (client *storage.ClientModel, errMsg string, statusCode int) {
 	client, err := store.ResolveClient(ctx, authReq.ClientID)
 	if err != nil || client == nil {
-		return "", "internal_error", http.StatusInternalServerError
+		return nil, "internal_error", http.StatusInternalServerError
 	}
 	if client.LoginChannel != expected {
 		store.AuditLog(ctx, userID, storage.EventAuthChannelMismatch, ipAddress, userAgent, map[string]any{
@@ -53,29 +54,20 @@ func verifyAuthRequestChannel(ctx context.Context, store LoginStore, authReq *st
 			"client_id":        authReq.ClientID,
 			"client_name":      client.Name,
 		})
-		return client.Name, "channel_mismatch", http.StatusBadRequest
+		return client, "channel_mismatch", http.StatusBadRequest
 	}
-	return client.Name, "", 0
+	return client, "", 0
 }
 
 // NewLoginService builds the browser login service. issuer is the public URL
 // sent as the RFC 9207 iss parameter on the error responses /login returns to
 // the client itself (prompt=none).
-//
-// signupEmailDomains restricts which email domains may create an account; nil
-// admits every address the upstream IdP authenticates. It is a parameter rather
-// than a setter so every caller has to decide what to pass: a setter could be
-// left out of the wiring without anything noticing. The parameter cannot stop a
-// caller passing nil where the configured list belongs; app.Run passes
-// cfg.SignupEmailDomains. Entries must already be normalized (config does this
-// at startup); see signupDomainPolicy.
-func NewLoginService(store LoginStore, providerName, issuer string, sessionTTL time.Duration, signupEmailDomains []string) *LoginService {
+func NewLoginService(store LoginStore, providerName, issuer string, sessionTTL time.Duration) *LoginService {
 	return &LoginService{
 		store:        store,
 		providerName: providerName,
 		issuer:       issuer,
 		sessionTTL:   sessionTTL,
-		signupDomain: signupDomainPolicy{domains: signupEmailDomains},
 	}
 }
 
@@ -160,18 +152,14 @@ func (s *LoginService) accountInactive(ctx context.Context, authReq *storage.Aut
 // completeReusedSessionLogin runs the shared tail of a session-reuse login for
 // the browser and mcp channels (device flow has a different shape — it shows an
 // approval page instead of auto-completing). The caller has already resolved
-// the session, run CheckAccess, and performed any channel-specific recovery;
+// the session, run CheckAccess, verified the channel binding, checked the
+// client's access policy, and performed any channel-specific recovery;
 // `recovered` is only ever true for the browser channel, which is the only one
-// whose CheckAccess returns AccessRecover. The caller has also loaded authReq.
-// This verifies the channel binding, audits a deletion-cancelled recovery when
-// applicable, completes the request, and writes the auth.login audit — all
-// identically across channels except for the channel label.
-func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel string, user *storage.User, authReq *storage.AuthRequestModel, sessionID, ipAddress, userAgent string, recovered bool) *LoginResult {
+// whose CheckAccess returns AccessRecover. This audits a deletion-cancelled
+// recovery when applicable, completes the request, and writes the auth.login
+// audit — identically across channels except for the channel label.
+func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel, clientName string, user *storage.User, authReq *storage.AuthRequestModel, sessionID, ipAddress, userAgent string, recovered bool) *LoginResult {
 	authRequestID := authReq.ID
-	clientName, errMsg, code := verifyAuthRequestChannel(ctx, store, authReq, channel, ipAddress, userAgent, &user.ID)
-	if errMsg != "" {
-		return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
-	}
 	if recovered {
 		store.AuditLog(ctx, &user.ID, storage.EventAuthDeletionCancelled, ipAddress, userAgent, lifecycleAuditMetadata(
 			channel, sessionID, authReq.ClientID, clientName,
@@ -191,20 +179,35 @@ func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel s
 	return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
 }
 
+// handleExistingSession decides a login that has a usable session. The order
+// keeps each refusal to one meaningful audit row: an account that may not sign
+// in at all is reported as inactive before the client is even considered; a
+// request on the wrong channel gets channel_mismatch; only then does the
+// client's access policy run, and it runs before recovery so a refused login
+// never cancels the account's pending deletion as a side effect.
 func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authReq *storage.AuthRequestModel, mode promptMode, sessionID, ipAddress, userAgent string) *LoginResult {
-	recovered := false
-	switch CheckAccess(user.Status, "browser") {
-	case AccessDeny:
+	access := CheckAccess(user.Status, "browser")
+	if access == AccessDeny {
 		s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
 		return s.accountInactive(ctx, authReq, mode, ipAddress, userAgent)
+	}
 
-	case AccessRecover:
+	client, errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, &user.ID)
+	if errMsg != "" {
+		return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
+	}
+	if !checkClientAccess(ctx, s.store, client, "browser", &user.ID, storage.AccessSubject(user), false, ipAddress, userAgent) {
+		return accessDeniedRedirect(s.issuer, authReq)
+	}
+
+	recovered := false
+	if access == AccessRecover {
 		// Recovering cancels the user's pending deletion. That must follow an
 		// interaction the user started, not a background prompt=none check a
 		// relying party may run on every page load.
 		if mode == promptSilent {
 			s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
-			return loginRequired(ctx, s.store, "browser", s.issuer, authReq, ipAddress, userAgent)
+			return authorizationErrorRedirect(s.issuer, authReq, "login_required")
 		}
 		if err := s.recoverUser(ctx, user.ID); err != nil {
 			return &LoginResult{Action: ActionError, Error: "failed to recover account", ErrorCode: http.StatusInternalServerError}
@@ -212,7 +215,7 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 		recovered = true
 	}
 
-	return completeReusedSessionLogin(ctx, s.store, "browser", user, authReq, sessionID, ipAddress, userAgent, recovered)
+	return completeReusedSessionLogin(ctx, s.store, "browser", client.Name, user, authReq, sessionID, ipAddress, userAgent, recovered)
 }
 
 // CallbackResult describes what the handler should do after HandleCallback.
@@ -246,12 +249,13 @@ func (s *LoginService) completeBrowserLogin(ctx context.Context, authRequestID s
 	if result != nil {
 		return result
 	}
-	clientName, errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, nil)
+	client, errMsg, statusCode := verifyAuthRequestChannel(ctx, s.store, authReq, "browser", ipAddress, userAgent, nil)
 	if errMsg != "" {
 		return &CallbackResult{Action: ActionError, Error: errMsg, ErrorCode: statusCode}
 	}
+	clientName := client.Name
 
-	user, signedUp, recovered, result := s.prepareBrowserCallbackUser(ctx, userInfo, authReq, ipAddress, userAgent)
+	user, signedUp, recovered, result := s.prepareBrowserCallbackUser(ctx, userInfo, authReq, client, ipAddress, userAgent)
 	if result != nil {
 		return result
 	}
@@ -284,15 +288,32 @@ func (s *LoginService) completeBrowserLogin(ctx context.Context, authRequestID s
 // request context — duplicate getCallbackAuthRequest calls would otherwise
 // race against expiration/cleanup between fetch and audit (Codex review NIT
 // on PR #218).
-func (s *LoginService) prepareBrowserCallbackUser(ctx context.Context, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, ipAddress, userAgent string) (*storage.User, bool, bool, *CallbackResult) {
+//
+// The client's access policy runs before signup, so a refused person never gets
+// an account, and for an existing account after the inactive check and before
+// recovery, so a refused login neither masks a disabled account nor cancels a
+// pending deletion. Both evaluate what the IdP just asserted, not the email
+// stored at signup, which nothing updates.
+func (s *LoginService) prepareBrowserCallbackUser(ctx context.Context, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, client *storage.ClientModel, ipAddress, userAgent string) (*storage.User, bool, bool, *CallbackResult) {
 	providerName := s.providerName
 	user, err := s.store.GetUserByProviderIdentity(ctx, providerName, userInfo.Sub)
 	if errors.Is(err, storage.ErrNotFound) {
+		if !checkClientAccess(ctx, s.store, client, "browser", nil, accessSubjectFromUpstream(userInfo), true, ipAddress, userAgent) {
+			return nil, false, false, callbackResultFrom(accessDeniedRedirect(s.issuer, authReq))
+		}
 		user, result := s.signupBrowserUser(ctx, providerName, userInfo, authReq, ipAddress, userAgent)
 		return user, true, false, result
 	}
 	if err != nil {
 		return nil, false, false, &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+	}
+	if result := recordHostedDomain(ctx, s.store, providerName, userInfo, user); result != nil {
+		return nil, false, false, result
+	}
+
+	if CheckAccess(user.Status, "browser") != AccessDeny &&
+		!checkExistingAccountAccess(ctx, s.store, client, "browser", user, userInfo, ipAddress, userAgent) {
+		return nil, false, false, callbackResultFrom(accessDeniedRedirect(s.issuer, authReq))
 	}
 
 	user, recovered, result := s.ensureBrowserAccess(ctx, user, ipAddress, userAgent)
@@ -322,27 +343,13 @@ func (s *LoginService) recoverUser(ctx context.Context, userID string) error {
 }
 
 func (s *LoginService) signupBrowserUser(ctx context.Context, providerName string, userInfo *upstream.UserInfo, authReq *storage.AuthRequestModel, ipAddress, userAgent string) (*storage.User, *CallbackResult) {
-	// The domain gate runs before the account exists, so there is no user_id to
-	// attribute the refusal to — the audit row carries the domain and the
-	// client that sent them, which is what an operator needs to answer "why
-	// can't this person sign up".
-	if ok, reason := s.signupDomain.allows(userInfo.Email, userInfo.EmailVerified); !ok {
-		s.store.AuditLog(ctx, nil, storage.EventAuthSignupDenied, ipAddress, userAgent, map[string]any{
-			"reason":      reason,
-			"domain":      emailDomain(userInfo.Email),
-			"channel":     "browser",
-			"client_id":   authReq.ClientID,
-			"client_name": resolveClientName(ctx, s.store, authReq.ClientID),
-		})
-		return nil, &CallbackResult{Action: ActionError, Error: "signup_not_allowed", ErrorCode: http.StatusForbidden}
-	}
-
 	user, err := s.store.CreateUserWithIdentity(ctx, storage.CreateUserWithIdentityInput{
 		Email:          userInfo.Email,
 		EmailVerified:  userInfo.EmailVerified,
 		Name:           userInfo.Name,
 		Provider:       providerName,
 		ProviderUserID: userInfo.Sub,
+		HostedDomain:   userInfo.HostedDomain,
 	})
 	if errors.Is(err, storage.ErrEmailConflict) {
 		return nil, &CallbackResult{Action: ActionError, Error: "email_conflict", ErrorCode: http.StatusConflict}

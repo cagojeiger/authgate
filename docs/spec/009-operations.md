@@ -35,6 +35,10 @@ authgate를 처음 배포할 때 필요한 것:
      컬럼 추가 (`/authorize`의 OIDC prompt 값). 상수 기본값이라 테이블 재작성이 없고,
      배포 중 생성된 기존 행은 빈 배열(= prompt 없음)로 읽힌다. 롤링 배포 중 구버전 파드가 만든
      auth_request(최대 10분)는 prompt를 저장하지 않으므로, 그 사이 `prompt=none` 요청은 prompt 없음처럼 처리될 수 있다
+   → 019_user_identities_hosted_domain: user_identities에 nullable `hosted_domain TEXT`
+     컬럼 추가 (Google Workspace `hd`, 클라이언트 `access` 정책용). 테이블 재작성이 없다.
+     기존 행은 NULL이며 그 계정의 **다음 upstream 로그인 때** 채워진다. 그 전까지
+     `google_workspace_domains` 규칙은 그 계정에 매칭되지 않는다
 
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성
@@ -84,7 +88,6 @@ authgate를 처음 배포할 때 필요한 것:
 | `PUBLIC_URL` | O | — | 외부 접근 URL (예: `https://auth.example.com`) |
 | `OIDC_ISSUER_URL` | X | `http://localhost:8082` | OIDC IdP issuer URL (예: `https://accounts.google.com`) |
 | `OIDC_ISSUER_HOST_ALLOWLIST` | X | — | 콤마 구분 host 목록 (예: `accounts.google.com,login.microsoftonline.com`). 비어 있으면 검사 안 함. 설정되면 `OIDC_ISSUER_URL`의 host가 정확히 일치해야 시작. 운영자 misconfig 시 attacker IdP로 phishing redirect 되는 경로를 fail-fast로 차단한다. 운영에서 설정 권장 — `DEV_MODE=false`인데 비어 있으면 시작 시 경고 로그를 남긴다. |
-| `SIGNUP_EMAIL_DOMAINS` | X | — | 콤마 구분 도메인 목록. 비어 있으면 **가입 제한 없음**(기본). `example.com`은 그 도메인만, `*.example.com`은 서브도메인만 허용한다(도메인 자체는 불포함이므로 둘 다 허용하려면 둘 다 적는다). `@example.com` 표기도 허용. 잘못된 항목(ASCII DNS 이름이 아닌 값 — URL·끝 점·빈 라벨·유니코드, 점 없음, `@` 포함, `*` 위치 오류, `*.com`처럼 TLD 대상 와일드카드)과 항목이 없는 값(`,`)은 **시작 거부**. 국제화 도메인은 `xn--` 형태로 적는다. 활성화 시 `email_verified=false` 주소는 도메인이 맞아도 거부한다. **가입만** 막으며 기존 계정 로그인은 영향 없음. 거부는 `auth.signup_denied`로 감사 기록 |
 | `OIDC_INTERNAL_URL` | X | — | 서버 간 OIDC 호출용 내부 URL (Docker/K8s 환경) |
 | `OIDC_HTTP_TIMEOUT_SEC` | X | `10` | Upstream OIDC HTTP 호출 timeout(초) |
 | `OIDC_CLIENT_ID` | X | `authgate` | OIDC Client ID |
@@ -277,6 +280,7 @@ clients:
 | `redirect_uris` | O | - | 1~10개 |
 | `allowed_scopes` | O | - | 1개 이상 |
 | `allowed_grant_types` | O | - | 1~3개 |
+| `access` | X | 없음 (= 모든 계정 허용) | 이 클라이언트를 쓸 수 있는 계정 제한. 아래 "클라이언트 접근 정책" 참조 |
 
 `skip_pkce`는 PKCE를 구현하지 않은 OIDC 라이브러리를 위한 탈출구다. 예를 들어
 Gitea 는 `markbates/goth` 의 openidConnect 프로바이더를 쓰는데 `code_challenge` 를
@@ -287,6 +291,85 @@ Gitea 는 `markbates/goth` 의 openidConnect 프로바이더를 쓰는데 `code_
 - **`login_channel: mcp`**: PKCE S256 이 MCP 채널 계약의 일부다 ([Spec 004](004-mcp-login.md)). CIMD 로 등록되는 클라이언트는 전부 public 이라 이미 제외되지만, YAML 로 선언한 confidential mcp 클라이언트가 유일하게 빠져나갈 수 있는 경로였다.
 
 이 옵션은 채널 정책을 완화하는 수단이 아니라, PKCE 를 **구현하지 못하는** 라이브러리를 위한 탈출구다.
+
+### 클라이언트 접근 정책 (`access`)
+
+`access`가 없는 클라이언트는 **모든 authgate 계정**이 쓸 수 있다. 시작 시 그런 클라이언트마다
+`client has no access policy; every authgate account can use it` WARN 로그를 한 줄 남긴다.
+의도적으로 공개한 클라이언트는 `access: public`으로 적으면 경고가 사라진다(동작은 같다).
+
+```yaml
+  - client_id: gitea
+    # ...기존 필드...
+    access:
+      allow:                                   # 하나라도 맞으면 허용 (OR)
+        google_workspace_domains: [corp.com]   # Google hd 클레임, 정확히 일치
+        email_domains: [partner.com, "*.partner.com"]
+        emails: [someone@gmail.com]
+      deny:                                    # allow보다 먼저 평가, 맞으면 거부
+        emails: [former@corp.com]
+```
+
+**평가 대상** — email, email_verified, Google hosted domain(`hd`). 이름은 보지 않는다.
+
+- upstream 로그인 콜백(`/login/callback`, `/mcp/callback`, `/device/auth/callback`)은 **기존 계정이면 IdP가 방금 준 값과 저장된 값을 둘 다** 평가하고, 하나라도 거부되면 거부한다(가입은 방금 준 값만). 콜백 뒤의 모든 토큰 경로가 저장된 값을 쓰므로, 방금 준 값만으로 통과시키면 세션과 code를 만들어 놓고 교환에서 거부하게 된다.
+- IdP 왕복이 없는 경로(세션 재사용, device 승인, code 교환, device polling, refresh)는 계정에 **저장된** 값으로 평가한다:
+  email·email_verified는 **가입 당시** 값이고(이후 갱신하지 않는다), hd는 **마지막 로그인** 때 기록된 `hosted_domain`이다.
+
+**평가 순서**:
+
+1. `deny.emails`에 email이 있으면 거부 (`deny_listed`). 검증 여부와 무관
+2. hd가 `google_workspace_domains`에 있으면 허용 (정확 일치, 대소문자 무시)
+3. email이 **검증된** 경우에만: 도메인이 `email_domains`에 맞거나(`example.com`은 그 도메인만,
+   `*.example.com`은 서브도메인만 — 도메인 자체는 불포함) 주소가 `emails`에 있으면(대소문자 무시) 허용
+4. 그 외 거부 (`not_allowed`). 이메일 규칙에는 맞지만 미검증이면 `email_unverified`
+
+**적용 지점** — 이 클라이언트로 토큰이 나가는 모든 경로:
+
+| 경로 | 거부 시 |
+|------|---------|
+| `/login/callback` 신규 가입 | 계정을 **만들지 않고** `redirect_uri?error=access_denied&state&iss` |
+| `/login/callback` 기존 계정, `/login` 세션 재사용 | `redirect_uri?error=access_denied&state&iss` (세션 생성·재사용 안 함) |
+| `/mcp/callback`, `/mcp/login` 세션 재사용 | 〃 |
+| `prompt=none` | `login_required`가 아니라 `access_denied` (대화형 로그인으로도 풀리지 않으므로) |
+| `/device/auth/callback`, `/device/approve` | 403 "not allowed" 화면. 세션을 만들지 않거나 승인하지 않으며, device code는 pending으로 남는다 |
+| authorization code 교환 (`/oauth/token`) | `invalid_grant` (400). 콜백 뒤 교환 전에 정책이 바뀌어도 토큰이 나가지 않는다 |
+| device code polling (`/oauth/token`) | 400 `access_denied` (zitadel이 device grant의 저장소 오류를 이렇게 감싼다). 승인된 code는 서버에 `approved`로 남지만, RFC 8628 클라이언트는 `access_denied`를 받으면 polling을 멈추므로 보통 처음부터 다시 로그인해야 한다 |
+| refresh token 갱신 | `invalid_grant`. 토큰을 revoke하지 않으므로 정책을 되돌리면 다시 갱신된다 |
+
+**정책 변경이 반영되는 시점** (`clients.yaml` 수정 + 재시작 후): 아직 교환하지 않은 authorization code, 승인됐지만 polling 전인
+device code, 다음 refresh 모두 새 정책으로 평가된다. 이미 발급된 access token(JWT)은 만료(기본 15분)까지 유효하므로,
+늦어도 access token 수명 안에 반영된다.
+
+채널 불일치(`channel_mismatch`)와 비활성 계정(`account_inactive`/`auth.inactive_user`)이 정책보다 먼저 판정된다.
+정책은 `pending_deletion` 복구보다 먼저 판정되므로, 거부된 로그인이 탈퇴 요청을 취소하지 않는다.
+거부는 `auth.access_denied`로 기록된다 (주소 대신 이메일 도메인만, 가입 거부면 `user_id` 없음). `channel`은 콜백·세션 재사용·
+code 교환이면 클라이언트의 로그인 채널(`browser`/`mcp`), device 콜백·승인·polling이면 `device`, refresh면 `refresh`다.
+
+**검증** (위반 시 시작 거부): 알 수 없는 키(`access`·`allow`·`deny` 안 포함), `allow` 누락이나 항목 0개,
+값이 없는 `access:`, `public` 이외의 스칼라. 도메인은 ASCII DNS 이름이어야 하고(국제화 도메인은 `xn--` 형태),
+와일드카드는 선두 `*.`만, `*.com`처럼 점 없는 도메인 대상은 불가, `google_workspace_domains`는 와일드카드 불가.
+이메일은 `@` 정확히 1개, 비어 있지 않은 로컬 파트, 유효한 도메인. 소문자로 정규화하고 중복은 합친다.
+`deny`에는 `emails`만 쓸 수 있다.
+
+**CIMD(동적 등록) MCP 클라이언트**는 `clients.yaml` 항목이 없으므로 항상 공개다.
+
+**주의:**
+- **`email_domains`·`emails`는 조직 소속을 증명하지 않는다.** IdP가 그 메일함을 검증했다는 뜻일 뿐이다. 누구나 회사 주소로 개인
+  Google 계정을 만들 수 있고, 퇴사한 뒤에도 그 계정의 `email_verified`는 true로 남는다. 조직이 관리하는 계정만 받으려면
+  `google_workspace_domains`(`hd`)를 쓴다.
+- **저장된 email은 가입 당시 값이다.** authgate는 가입 후 `users.email`을 갱신하지 않는다. 로그인 콜백은 방금 준 주소와 저장된
+  주소를 둘 다 요구하고, 세션 재사용·device 승인·code 교환·device polling·refresh는 가입 때 주소로 평가한다(hd는 마지막 로그인 값).
+  그래서 IdP 쪽에서 주소가 바뀐 계정은 두 주소가 **모두** 규칙에 맞아야 들어온다.
+- **`deny.emails`는 계정이 아니라 주소를 막는다.** 주소가 바뀐 계정은 옛 주소든 새 주소든 deny에 올리면 로그인 콜백에서는 막히지만,
+  IdP 왕복이 없는 경로(이미 받은 refresh 등)는 가입 때 주소로만 평가된다. 특정 사람을 확실히 막으려면 **그 사람이 쓴 주소를 모두**
+  `deny.emails`에 올리거나 계정을 비활성화(`disabled`)한다.
+- **`hosted_domain`은 로그인 때 기록된다.** migration 019 이전에 로그인한 계정은 NULL이라, 다음 로그인 전까지
+  `google_workspace_domains`로는 허용되지 않는다 (세션 재사용·device 승인·refresh 모두). Workspace를 떠난 계정은
+  다음 로그인에서 NULL로 바뀌고 그때부터 거부된다.
+- **롤백은 설정부터.** v0.10.7 이하 바이너리는 `clients.yaml`을 엄격 디코딩하지 않아 `access`를 **조용히 무시하고
+  모든 계정을 허용**한다. 바이너리를 되돌리기 전에 `access` 제한이 풀려도 되는지 확인하거나 해당 클라이언트를 먼저 내린다.
+  엄격 디코딩이 들어간 버전 중 `access`를 모르는 버전은 알 수 없는 키로 시작을 거부한다.
 
 배포 환경별 마운트:
 - Docker Compose: `volumes: ["./clients.yaml:/etc/authgate/clients.yaml:ro"]`

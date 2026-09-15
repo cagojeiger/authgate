@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/kangheeyong/authgate/internal/clientaccess"
 )
 
 // ClientConfigFile represents the YAML client configuration file.
@@ -38,6 +40,9 @@ type ClientConfigEntry struct {
 	RedirectURIs             []string `yaml:"redirect_uris"`
 	AllowedScopes            []string `yaml:"allowed_scopes"`
 	AllowedGrantTypes        []string `yaml:"allowed_grant_types"`
+	// Access restricts which accounts may use the client. nil (no access key)
+	// admits every account; so does the explicit "access: public".
+	Access *clientaccess.Policy `yaml:"access,omitempty"`
 }
 
 const (
@@ -75,6 +80,9 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 		if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("parse %s: multiple YAML documents are not supported", path)
 		}
+	}
+	if err := rejectEmptyAccess(data); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 
 	seen := make(map[string]bool, len(cfg.Clients))
@@ -176,6 +184,34 @@ func LoadClientConfig(path string) (*ClientConfigFile, error) {
 	}
 
 	return &cfg, nil
+}
+
+// rejectEmptyAccess refuses an access key with no value. yaml.v3 decodes a null
+// into a nil pointer without calling the policy's unmarshaler, so "access:"
+// would otherwise read as no access key at all: a client the operator meant to
+// restrict — say, with every rule commented out — would silently be public.
+func rejectEmptyAccess(data []byte) error {
+	var raw struct {
+		Clients []struct {
+			ClientID string    `yaml:"client_id"`
+			Access   yaml.Node `yaml:"access"`
+		} `yaml:"clients"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for i, c := range raw.Clients {
+		// An alias ("access: *nul") is decoded as whatever it points at, so
+		// follow it before looking for the null it may stand for.
+		node := &c.Access
+		for node.Kind == yaml.AliasNode && node.Alias != nil {
+			node = node.Alias
+		}
+		if node.Kind == yaml.ScalarNode && node.ShortTag() == "!!null" {
+			return fmt.Errorf("client[%d] %q: access is empty; remove it or write access: public", i, c.ClientID)
+		}
+	}
+	return nil
 }
 
 // ValidateClientChannels enforces runtime channel constraints against loaded clients.

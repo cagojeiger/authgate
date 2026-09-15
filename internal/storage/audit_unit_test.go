@@ -111,28 +111,30 @@ func TestSanitizeAuditMetadata_EmptyResultReturnsNil(t *testing.T) {
 	}
 }
 
-// A new event type is only half-wired until its keys are in
-// auditMetadataAllowlist. The service-layer tests assert on a fake store, which
-// never runs sanitize, so a missing registration would pass every test and then
-// silently drop the metadata in production — with the reason and domain gone,
-// the row cannot answer the one question it exists to answer.
-func TestSanitizeAuditMetadata_SignupDeniedKeysAreRegistered(t *testing.T) {
-	got := newAuditLogger(nil, nil, nil).sanitize(context.Background(), EventAuthSignupDenied, map[string]any{
-		"reason":      "domain_not_allowed",
-		"domain":      "other.com",
-		"channel":     "browser",
-		"client_id":   "client-1",
-		"client_name": "Client One",
-		"email":       "person@other.com", // never allowed through
-	})
+// Every auth.access_denied key must be registered in the allowlist. The fake
+// stores in the service tests never run sanitize, so a missing registration
+// would pass them and then silently drop the metadata in production.
+func TestSanitizeAuditMetadata_AccessDeniedKeysAreRegistered(t *testing.T) {
+	got := newAuditLogger(nil, nil, nil).sanitize(context.Background(), EventAuthAccessDenied,
+		AccessDeniedAuditMetadata("client-1", "Client One", "browser", "not_allowed", "Person@Other.com", true))
 	want := map[string]any{
-		"reason":      "domain_not_allowed",
-		"domain":      "other.com",
-		"channel":     "browser",
 		"client_id":   "client-1",
 		"client_name": "Client One",
+		"channel":     "browser",
+		"reason":      "not_allowed",
+		"domain":      "other.com",
+		"signup":      true,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sanitized metadata = %#v, want %#v", got, want)
+	}
+
+	// The address itself never reaches the row, even if a caller passes it.
+	got = newAuditLogger(nil, nil, nil).sanitize(context.Background(), EventAuthAccessDenied, map[string]any{
+		"reason": "deny_listed",
+		"email":  "person@other.com",
+	})
+	if _, leaked := got["email"]; leaked {
+		t.Fatalf("email kept in auth.access_denied metadata: %#v", got)
 	}
 }

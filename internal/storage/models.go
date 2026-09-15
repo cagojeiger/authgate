@@ -7,6 +7,8 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
+
+	"github.com/kangheeyong/authgate/internal/clientaccess"
 )
 
 // --- User ---
@@ -17,8 +19,11 @@ type User struct {
 	EmailVerified bool
 	Name          string
 	Status        string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// HostedDomain is the Google hosted domain (hd) recorded at the account's
+	// last upstream login; empty when there is none or none recorded yet.
+	HostedDomain string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // --- AuthRequest Model ---
@@ -132,6 +137,9 @@ type ClientModel struct {
 	// mandatory so every construction path defaults to the safe behavior.
 	SkipPKCE                 bool
 	IDTokenUserinfoAssertion bool
+	// Access restricts which accounts may use the client. nil admits every
+	// account, which is what CIMD clients always get.
+	Access *clientaccess.Policy
 }
 
 func (c *ClientModel) GetID() string                    { return c.ID }

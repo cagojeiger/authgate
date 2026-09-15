@@ -32,12 +32,13 @@ func (q *Queries) CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthR
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email_verified, status,
-       email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
-       name_ciphertext, name_nonce, name_enc_key_id, name_enc_version,
-       created_at, updated_at
-FROM users
-WHERE id = $1
+SELECT u.id, u.email_verified, u.status,
+       u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
+       u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
+       u.created_at, u.updated_at,
+       COALESCE((SELECT ui.hosted_domain FROM user_identities ui WHERE ui.user_id = u.id ORDER BY ui.created_at DESC LIMIT 1), '')::text AS hosted_domain
+FROM users u
+WHERE u.id = $1
 `
 
 type GetUserByIDRow struct {
@@ -54,6 +55,7 @@ type GetUserByIDRow struct {
 	NameEncVersion  sql.NullInt32
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	HostedDomain    string
 }
 
 func (q *Queries) GetUserByID(ctx context.Context, id string) (GetUserByIDRow, error) {
@@ -73,6 +75,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id string) (GetUserByIDRow, e
 		&i.NameEncVersion,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HostedDomain,
 	)
 	return i, err
 }
@@ -81,7 +84,7 @@ const getUserByProviderSubHash = `-- name: GetUserByProviderSubHash :one
 SELECT u.id, u.email_verified, u.status,
        u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
        u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
-       u.created_at, u.updated_at
+       u.created_at, u.updated_at, ui.hosted_domain
 FROM users u
 JOIN user_identities ui ON u.id = ui.user_id
 WHERE ui.provider = $1 AND ui.provider_sub_hash = $2
@@ -106,6 +109,7 @@ type GetUserByProviderSubHashRow struct {
 	NameEncVersion  sql.NullInt32
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	HostedDomain    sql.NullString
 }
 
 func (q *Queries) GetUserByProviderSubHash(ctx context.Context, arg GetUserByProviderSubHashParams) (GetUserByProviderSubHashRow, error) {
@@ -125,16 +129,18 @@ func (q *Queries) GetUserByProviderSubHash(ctx context.Context, arg GetUserByPro
 		&i.NameEncVersion,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.HostedDomain,
 	)
 	return i, err
 }
 
 const getUserForTxByID = `-- name: GetUserForTxByID :one
-SELECT id, email_verified, status,
-       email_ciphertext, email_nonce, email_enc_key_id, email_enc_version,
-       name_ciphertext, name_nonce, name_enc_key_id, name_enc_version
-FROM users
-WHERE id = $1
+SELECT u.id, u.email_verified, u.status,
+       u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,
+       u.name_ciphertext, u.name_nonce, u.name_enc_key_id, u.name_enc_version,
+       COALESCE((SELECT ui.hosted_domain FROM user_identities ui WHERE ui.user_id = u.id ORDER BY ui.created_at DESC LIMIT 1), '')::text AS hosted_domain
+FROM users u
+WHERE u.id = $1
 `
 
 type GetUserForTxByIDRow struct {
@@ -149,6 +155,7 @@ type GetUserForTxByIDRow struct {
 	NameNonce       []byte
 	NameEncKeyID    sql.NullString
 	NameEncVersion  sql.NullInt32
+	HostedDomain    string
 }
 
 func (q *Queries) GetUserForTxByID(ctx context.Context, id string) (GetUserForTxByIDRow, error) {
@@ -166,6 +173,7 @@ func (q *Queries) GetUserForTxByID(ctx context.Context, id string) (GetUserForTx
 		&i.NameNonce,
 		&i.NameEncKeyID,
 		&i.NameEncVersion,
+		&i.HostedDomain,
 	)
 	return i, err
 }
@@ -353,8 +361,8 @@ INSERT INTO user_identities (
     id, user_id, provider,
     provider_sub_hash, provider_sub_hash_key_id, provider_sub_hash_version,
     provider_sub_ciphertext, provider_sub_nonce, provider_sub_enc_key_id, provider_sub_enc_version,
-    created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    created_at, hosted_domain
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 `
 
 type InsertUserIdentityParams struct {
@@ -369,6 +377,7 @@ type InsertUserIdentityParams struct {
 	ProviderSubEncKeyID    sql.NullString
 	ProviderSubEncVersion  sql.NullInt32
 	CreatedAt              time.Time
+	HostedDomain           sql.NullString
 }
 
 func (q *Queries) InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error {
@@ -384,6 +393,7 @@ func (q *Queries) InsertUserIdentity(ctx context.Context, arg InsertUserIdentity
 		arg.ProviderSubEncKeyID,
 		arg.ProviderSubEncVersion,
 		arg.CreatedAt,
+		arg.HostedDomain,
 	)
 	return err
 }
@@ -443,6 +453,26 @@ type RevokeActiveRefreshTokensByUserIDParams struct {
 
 func (q *Queries) RevokeActiveRefreshTokensByUserID(ctx context.Context, arg RevokeActiveRefreshTokensByUserIDParams) error {
 	_, err := q.db.ExecContext(ctx, revokeActiveRefreshTokensByUserID, arg.RevokedAt, arg.UserID)
+	return err
+}
+
+const setIdentityHostedDomain = `-- name: SetIdentityHostedDomain :exec
+UPDATE user_identities
+SET hosted_domain = $1
+WHERE provider = $2 AND provider_sub_hash = $3
+  AND hosted_domain IS DISTINCT FROM $1
+`
+
+type SetIdentityHostedDomainParams struct {
+	HostedDomain    sql.NullString
+	Provider        string
+	ProviderSubHash sql.NullString
+}
+
+// Records the hosted domain of an upstream login; NULL clears it when the
+// account no longer has one. An unchanged value writes nothing.
+func (q *Queries) SetIdentityHostedDomain(ctx context.Context, arg SetIdentityHostedDomainParams) error {
+	_, err := q.db.ExecContext(ctx, setIdentityHostedDomain, arg.HostedDomain, arg.Provider, arg.ProviderSubHash)
 	return err
 }
 

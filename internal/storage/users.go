@@ -16,6 +16,9 @@ type CreateUserWithIdentityInput struct {
 	Name           string
 	Provider       string
 	ProviderUserID string
+	// HostedDomain is the Google hosted domain of the signup login; empty for
+	// accounts without one.
+	HostedDomain string
 }
 
 func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWithIdentityInput) (*User, error) {
@@ -52,6 +55,7 @@ func (s *Storage) CreateUserWithIdentity(ctx context.Context, input CreateUserWi
 		EmailVerified: input.EmailVerified,
 		Name:          input.Name,
 		Status:        "active",
+		HostedDomain:  input.HostedDomain,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}, nil
@@ -89,6 +93,7 @@ func (s *Storage) insertIdentityForSignup(ctx context.Context, qtx *storeq.Queri
 		return err
 	}
 	cols.applyTo(&params)
+	params.HostedDomain = nullableString(input.HostedDomain)
 	return qtx.InsertUserIdentity(ctx, params)
 }
 
@@ -111,7 +116,28 @@ func (s *Storage) GetUserByProviderIdentity(ctx context.Context, provider, provi
 	if err != nil {
 		return nil, err
 	}
-	return buildFullUser(row.ID, email, row.EmailVerified, name, row.Status, row.CreatedAt, row.UpdatedAt), nil
+	user := buildFullUser(row.ID, email, row.EmailVerified, name, row.Status, row.CreatedAt, row.UpdatedAt)
+	user.HostedDomain = row.HostedDomain.String
+	return user, nil
+}
+
+// SetIdentityHostedDomain records the Google hosted domain seen on an upstream
+// login for the identity, clearing it when hostedDomain is empty. Called on
+// every successful upstream login so access policies evaluated later (session
+// reuse, device approval, refresh) see the IdP's latest answer.
+func (s *Storage) SetIdentityHostedDomain(ctx context.Context, provider, providerUserID, hostedDomain string) error {
+	if s.keys == nil {
+		return ErrEncryptionNotConfigured
+	}
+	return storeq.New(s.db).SetIdentityHostedDomain(ctx, storeq.SetIdentityHostedDomainParams{
+		HostedDomain:    nullableString(hostedDomain),
+		Provider:        provider,
+		ProviderSubHash: sql.NullString{String: s.keys.ProviderSubHash(provider, providerUserID), Valid: true},
+	})
+}
+
+func nullableString(v string) sql.NullString {
+	return sql.NullString{String: v, Valid: v != ""}
 }
 
 func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*User, error) {
@@ -126,7 +152,9 @@ func (s *Storage) getUserByID(ctx context.Context, tx *sql.Tx, userID string) (*
 	if err != nil {
 		return nil, err
 	}
-	return buildCoreUser(row.ID, email, row.EmailVerified, name, row.Status), nil
+	user := buildCoreUser(row.ID, email, row.EmailVerified, name, row.Status)
+	user.HostedDomain = row.HostedDomain
+	return user, nil
 }
 
 // GetUserByID returns a user by ID. Public wrapper for DB-level re-read after mutations.
@@ -142,7 +170,9 @@ func (s *Storage) GetUserByID(ctx context.Context, userID string) (*User, error)
 	if err != nil {
 		return nil, err
 	}
-	return buildFullUser(row.ID, email, row.EmailVerified, name, row.Status, row.CreatedAt, row.UpdatedAt), nil
+	user := buildFullUser(row.ID, email, row.EmailVerified, name, row.Status, row.CreatedAt, row.UpdatedAt)
+	user.HostedDomain = row.HostedDomain
+	return user, nil
 }
 
 // RecoverUser recovers a pending_deletion user to active.
@@ -373,6 +403,7 @@ func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User,
 		return nil, err
 	}
 	user := buildFullUser(row.ID, email, row.EmailVerified, name, row.Status, row.CreatedAt, row.UpdatedAt)
+	user.HostedDomain = row.HostedDomain
 	if err := requireUsableUser(user); err != nil {
 		return user, err
 	}

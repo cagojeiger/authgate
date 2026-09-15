@@ -68,21 +68,28 @@ func redirectToProviderSelectingAccount(authRequestID string) *LoginResult {
 }
 
 // loginRequired ends a prompt=none request that has no usable session with an
-// OIDC login_required authorization error sent to the client's redirect_uri
-// (query response mode), carrying the request state and the RFC 9207 issuer.
-// The redirect_uri was validated against the client when zitadel created the
-// auth request. The channel binding is checked first so a request routed to
-// the wrong login channel still gets the channel_mismatch page.
+// OIDC login_required authorization error sent to the client's redirect_uri.
+// The channel binding is checked first so a request routed to the wrong login
+// channel still gets the channel_mismatch page.
 func loginRequired(ctx context.Context, store LoginStore, channel, issuer string, authReq *storage.AuthRequestModel, ipAddress, userAgent string) *LoginResult {
 	if _, errMsg, code := verifyAuthRequestChannel(ctx, store, authReq, channel, ipAddress, userAgent, nil); errMsg != "" {
 		return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
 	}
+	return authorizationErrorRedirect(issuer, authReq, "login_required")
+}
+
+// authorizationErrorRedirect ends an auth request with an authorization error
+// response (RFC 6749 §4.1.2.1) sent to the client's redirect_uri in query
+// response mode, carrying the request state and the RFC 9207 issuer. The
+// redirect_uri was validated against the client when zitadel created the auth
+// request. Callers must already have verified the request's channel binding.
+func authorizationErrorRedirect(issuer string, authReq *storage.AuthRequestModel, errorCode string) *LoginResult {
 	target, err := url.Parse(authReq.RedirectURI)
 	if err != nil || !target.IsAbs() {
 		return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
 	}
 	query := target.Query()
-	query.Set("error", "login_required")
+	query.Set("error", errorCode)
 	if authReq.State != "" {
 		query.Set("state", authReq.State)
 	}

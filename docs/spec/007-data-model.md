@@ -59,6 +59,7 @@ erDiagram
         bytea provider_sub_nonce "nullable"
         text provider_sub_enc_key_id "FK crypto_key_epochs"
         int provider_sub_enc_version "nullable"
+        text hosted_domain "nullable, Google hd (평문)"
         timestamptz created_at "NOT NULL, DEFAULT NOW()"
     }
 
@@ -146,6 +147,13 @@ erDiagram
 |--------|------|------|----------|
 | **users** | 신원 (sub, email, name, status) | 영구 | PII 스크러빙 (30일 유예 후) |
 | **user_identities** | IdP 매핑 (IdP sub ↔ 로컬 user) | 영구 | CASCADE (users 삭제 시) |
+
+`user_identities.hosted_domain`은 upstream 로그인 때 받은 Google Workspace 도메인(`hd` 클레임)이다.
+로그인(신규·기존, 모든 채널)마다 기록하고(값이 같으면 쓰지 않는다), `hd`가 없으면 NULL로 비운다. 클라이언트 `access` 정책의
+`google_workspace_domains`가 세션 재사용·device 승인·code 교환·device polling·refresh에서 IdP 왕복 없이 이 값을 본다.
+계정 단위로 읽을 때는 가장 최근 identity의 값을 쓰며, 그 값이 NULL이면 다른 identity의 값으로 대신하지 않는다
+([009 운영](009-operations.md#클라이언트-접근-정책-access)). migration 019 이전에 로그인한 계정은 다음 로그인까지 NULL이다.
+조직 도메인이지 개인 식별 정보가 아니므로 **평문으로 저장**한다(ADR-002 암호화 대상 아님).
 
 ### 설정 데이터 (DB 외부)
 
@@ -296,6 +304,7 @@ MCP
 | `auth.refresh_family_revoked` | family 전체 revoke (탈취 의심) | `{family_id}` |
 | `auth.refresh_reuse_grace` | 교환된 refresh_token을 유예 시간 안에 재제출 | `{family_id, outcome: issued\|refused}` |
 | `auth.inactive_user` | pending_deletion/disabled/deleted 로그인 시도 | `{status, channel, phase}` |
+| `auth.access_denied` | 클라이언트 `access` 정책이 계정 거부 | `{client_id, client_name, channel, reason: deny_listed\|not_allowed\|email_unverified, domain, signup}` — `domain`은 이메일 도메인만, 가입 거부면 user_id 없음 |
 
 `metadata`는 `Storage.AuditLog`에서 event별 allowlist를 통과한 key만 저장한다.
 allowlist에 없는 email, token, secret, raw request payload 등은 저장하지 않는다.

@@ -90,6 +90,9 @@ type Querier interface {
 	// to tell a rotated token from a revoked one.
 	RevokeRefreshTokenByHash(ctx context.Context, arg RevokeRefreshTokenByHashParams) (int64, error)
 	RevokeSessionsByUserID(ctx context.Context, arg RevokeSessionsByUserIDParams) (int64, error)
+	// Records the hosted domain of an upstream login; NULL clears it when the
+	// account no longer has one. An unchanged value writes nothing.
+	SetIdentityHostedDomain(ctx context.Context, arg SetIdentityHostedDomainParams) error
 	SetUserStatusByID(ctx context.Context, arg SetUserStatusByIDParams) error
 	TombstoneRefreshFamily(ctx context.Context, arg TombstoneRefreshFamilyParams) (int64, error)
 	TryCleanupAdvisoryLock(ctx context.Context, lockKey int64) (bool, error)

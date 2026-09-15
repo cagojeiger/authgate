@@ -94,7 +94,7 @@ audit_log
 | event_type | 트리거 | 주요 증거 | metadata allowlist | 구현 | 테스트 | 상태 |
 |------------|--------|-----------|--------------------|------|--------|------|
 | `auth.signup` | 신규 유저 가입 | user_id, IP, UA, created_at | `channel`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/audit_test.go` | DONE |
-| `auth.signup_denied` | `SIGNUP_EMAIL_DOMAINS` 게이트 거부 | IP, UA, created_at (**user_id 없음** — 계정 미생성) | `reason`, `domain`, `channel`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/login_unit_test.go` | DONE |
+| `auth.access_denied` | 클라이언트 `access` 정책 거부 (가입·로그인·세션 재사용·device 콜백·승인·code 교환·device polling·refresh) | IP, UA, created_at, user_id (가입 거부면 **없음**) | `client_id`, `client_name`, `channel`, `reason`, `domain`, `signup` | `internal/service/client_access.go`, `internal/storage/client_access.go`, `internal/storage/storage_auth_tokens.go`, `internal/storage/storage_oidc_device.go` | `internal/service/client_access_unit_test.go`, `internal/storage/client_access_integration_test.go`, `internal/integration/integration_client_access_test.go`, `internal/storage/audit_unit_test.go` | DONE |
 | `auth.login` | Browser/Device/MCP 로그인 성공 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name`, `reused_session`, `signup` | `internal/service/login.go`, `internal/service/device.go`, `internal/service/mcp_login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.channel_mismatch` | auth_request 채널 불일치 차단 | user_id, IP, UA, created_at | `expected_channel`, `actual_channel`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/login_unit_test.go` | DONE |
 | `auth.inactive_user` | disabled/pending_deletion/deleted 접근 차단 | user_id, IP, UA, created_at | `status`, `channel`, `phase` | `internal/service/login.go`, `internal/service/device.go`, `internal/service/mcp_login.go` | `internal/service/audit_test.go` | DONE |
@@ -114,18 +114,18 @@ audit_log
 
 | Endpoint | 민감도 | Audit evidence | Rate limit | 상태 |
 |----------|--------|----------------|------------|------|
-| `GET /login` | 인증 시작 | `auth.login` 재사용 세션, `auth.channel_mismatch`, `auth.deletion_cancelled` 일부 경로 | auth limiter | DONE |
-| `GET /login/callback` | 인증 완료/가입 | `auth.signup`, `auth.login`, `auth.inactive_user` | auth limiter | DONE |
-| `GET /mcp/login` | MCP 인증 시작 | `auth.inactive_user`, `auth.login` 일부 경로 | auth limiter | DONE |
-| `GET /mcp/callback` | MCP 인증 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
-| `POST /oauth/token` | 토큰 발급/갱신 | reuse detection, family revoke (성공한 갱신은 기록하지 않음) | token limiter | DONE |
+| `GET /login` | 인증 시작 | `auth.login` 재사용 세션, `auth.channel_mismatch`, `auth.deletion_cancelled`, `auth.access_denied` 일부 경로 | auth limiter | DONE |
+| `GET /login/callback` | 인증 완료/가입 | `auth.signup`, `auth.login`, `auth.inactive_user`, `auth.access_denied` | auth limiter | DONE |
+| `GET /mcp/login` | MCP 인증 시작 | `auth.inactive_user`, `auth.login`, `auth.access_denied` 일부 경로 | auth limiter | DONE |
+| `GET /mcp/callback` | MCP 인증 완료 | `auth.login`, `auth.inactive_user`, `auth.access_denied` | auth limiter | DONE |
+| `POST /oauth/token` | 토큰 발급/갱신 | reuse detection, family revoke, `auth.access_denied`(code 교환·device polling·refresh 거부) (성공한 갱신은 기록하지 않음) | token limiter | DONE |
 | `POST /oauth/revoke` | 토큰 폐기 | `auth.token_revoked` when matching refresh token | token limiter | DONE |
 | `POST /oauth/introspect` | 토큰 상태 검증 | per-call audit 없음 (고빈도 token status check) | token limiter | GAP |
 | `POST /oauth/device/authorize` | Device code 발급 | `auth.device_code_issued` | token limiter | DONE |
 | `GET /device` | Device 코드 입력/승인 화면 | 없음 | auth limiter | DONE |
-| `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user` | auth limiter | DONE |
+| `GET /device/auth/callback` | Device 로그인 완료 | `auth.login`, `auth.inactive_user`, `auth.access_denied` | auth limiter | DONE |
 | `GET`/`POST /end_session` | 세션 종료 (RP-Initiated Logout) | `auth.logout` (종료한 사용자마다). 확인 POST는 CSRF 이중 제출 | auth limiter | DONE |
-| `POST /device/approve` | Device 승인/거부 | `auth.device_approved`, `auth.device_denied`, `auth.inactive_user` | token limiter | DONE |
+| `POST /device/approve` | Device 승인/거부 | `auth.device_approved`, `auth.device_denied`, `auth.inactive_user`, `auth.access_denied` | token limiter | DONE |
 
 ## 남은 GAP
 

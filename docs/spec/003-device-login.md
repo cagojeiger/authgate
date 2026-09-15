@@ -172,6 +172,8 @@ WebKit(Safari)이 이를 전송하지 않는다. 그러면 7번에서 다시 "�
 | 미가입 사용자 | 브라우저 | `account_not_found: please sign up via browser first` | 403 | 브라우저 가입 먼저 필요 |
 | 비활성 계정 (disabled/deleted) | 브라우저 | `account_inactive` | 403 | 승인 불가 |
 | pending_deletion 계정 | 브라우저 | `account_inactive` | 403 | 브라우저 복구만 가능 (상태 검사) |
+| 클라이언트 `access` 정책이 계정 거부 | 브라우저 (`/device/auth/callback`, `/device/approve`) | `This account is not allowed to use this application. You can close this window.` | 403 | 콜백은 IdP가 방금 준 email·email_verified·hd로, 승인은 저장된 값으로 평가. 세션을 만들지 않거나 승인하지 않고 `auth.access_denied`(`channel: device`) 기록. device code는 pending으로 남아 다른 계정으로 다시 승인할 수 있고, 아니면 만료된다. 거부 버튼은 정책과 무관 |
+| 승인 후 정책이 계정 거부 | CLI (polling) | `access_denied` | 400 | 저장된 값으로 재평가, 토큰 발급 안 함, `auth.access_denied` 기록. code는 서버에 `approved`로 남지만 RFC 8628 클라이언트는 `access_denied`에서 polling을 멈추므로 보통 처음부터 다시 로그인 |
 
 ## 상태 전이 원자성
 

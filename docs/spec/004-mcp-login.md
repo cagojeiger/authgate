@@ -487,6 +487,15 @@ callback resource 검증) 을 우회하는 것을 막는다.
 - `consent`와 prompt 없음: 기존 동작. authgate에는 동의 화면이 없으며, CIMD 3rd-party 클라이언트에도 마찬가지다.
 - `max_age`는 강제하지 않는다.
 
+### 클라이언트 접근 정책
+
+`clients.yaml`에 등록된 MCP 클라이언트에 `access` 정책이 있으면([009 운영](009-operations.md#클라이언트-접근-정책-access))
+`/mcp/login` 세션 재사용(비활성 계정 → 채널 검증 → 정책)과 `/mcp/callback`(채널 검증 → hd 기록 → 비활성 계정 → 정책)에서
+평가하고, 거부 시 `redirect_uri`로 `error=access_denied`, `state`, `iss`를 붙여 `302`한다(`prompt=none` 포함).
+콜백은 IdP가 방금 준 email·email_verified·hd로, 세션 재사용은 저장된 값으로 평가한다. code 교환에서도 저장된 값으로 다시 평가해
+거부되면 400 `invalid_grant`다.
+CIMD 클라이언트는 등록 항목이 없으므로 정책이 없다(공개).
+
 ## Resource Parameter
 
 MCP에서 `resource`는 부가 옵션이 아니라, "이 토큰을 어느 MCP 서버에서 쓸 것인가"를 나타내는 식별자다.
@@ -594,6 +603,7 @@ code exchange가 끝나면 auth_request와 함께 정리된다.
 | 미가입 사용자 | `account_not_found` | 403 | Browser에서 먼저 가입 필요 |
 | 비활성 계정 | `account_inactive` | 403 | `pending_deletion`, `disabled`, `deleted` |
 | `prompt=none` + 유효한 세션 없음 또는 비활성 계정 | `login_required` | 302 | 클라이언트 `redirect_uri`로 오류 응답 (`state`, `iss` 포함) |
+| 클라이언트 `access` 정책이 계정 거부 | `access_denied` | 302 | 클라이언트 `redirect_uri`로 오류 응답 (`state`, `iss` 포함). 세션 생성 안 함 |
 | auth code 발급 후 상태 변경 | `invalid_grant` | 400 | `/oauth/token` 시점에 최종 상태 재검사 |
 | code_verifier 불일치 | `invalid_grant` | 400 | PKCE 검증 실패 |
 | resource 검증 실패 | `invalid_target` 등 | 400 | authorize/token resource 불일치 또는 허용되지 않은 resource |

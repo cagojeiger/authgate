@@ -63,6 +63,7 @@ func loadClientConfigIfPresent(cfg *config.Config, store *storage.Storage) []str
 	}
 	store.LoadClients(clientCfg.Clients)
 	slog.Info("client config loaded", "path", cfg.ClientConfigPath, "count", len(clientCfg.Clients))
+	warnPublicClients(clientCfg.Clients)
 
 	// Collect allowed CORS origins from all client redirect URIs.
 	var allURIs []string
@@ -70,6 +71,17 @@ func loadClientConfigIfPresent(cfg *config.Config, store *storage.Storage) []str
 		allURIs = append(allURIs, c.RedirectURIs...)
 	}
 	return middleware.OriginsFromRedirectURIs(allURIs)
+}
+
+// warnPublicClients logs each client with no access key. Such a client admits
+// every authgate account; writing "access: public" records that as intended and
+// silences the warning.
+func warnPublicClients(clients []storage.ClientConfigEntry) {
+	for _, c := range clients {
+		if c.Access == nil {
+			slog.Warn("client has no access policy; every authgate account can use it", "client_id", c.ClientID)
+		}
+	}
 }
 
 func configureMCPPoliciesIfEnabled(cfg *config.Config, store *storage.Storage) {
