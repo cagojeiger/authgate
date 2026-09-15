@@ -23,7 +23,9 @@ type OAuthClient struct {
 	AuthgateCallbackPath string
 	CodeVerifier         string
 	CodeChallenge        string
-	Client               *http.Client
+	// Prompt is sent as the OIDC prompt parameter when non-empty.
+	Prompt string
+	Client *http.Client
 }
 
 // NewOAuthClient creates a test OAuth client with PKCE.
@@ -87,6 +89,9 @@ func (c *OAuthClient) AuthorizeURL() string {
 	}
 	if c.Resource != "" {
 		params.Set("resource", c.Resource)
+	}
+	if c.Prompt != "" {
+		params.Set("prompt", c.Prompt)
 	}
 	return c.BaseURL + "/authorize?" + params.Encode()
 }

@@ -184,8 +184,12 @@ sequenceDiagram
 
     Note over C,G: 4. MCP 전용 로그인
     U->>AG: GET /mcp/login?authRequestID=...
-    alt 유효한 브라우저 세션 + active
+    alt prompt=login 또는 select_account
+        AG-->>U: 302 Upstream IdP (prompt=select_account, 세션 재사용 안 함)
+    else 유효한 브라우저 세션 + active
         AG->>AG: auth_request 완료
+    else prompt=none + 세션 없음 또는 비활성
+        AG-->>U: 302 redirect_uri?error=login_required&state=...&iss=...
     else 세션 없음
         AG-->>U: 302 Upstream IdP
         U->>G: 로그인
@@ -473,6 +477,16 @@ MCP는 Device와 같은 "후속 로그인 채널"이다.
 경로로 흘려서 MCP 전용 정책 (기존 계정 요구, `pending_deletion` 거부, MCP
 callback resource 검증) 을 우회하는 것을 막는다.
 
+### prompt 파라미터
+
+`/mcp/login`은 `/login`과 같은 규칙으로 `auth_requests.prompt`를 따른다 ([Spec 002](002-browser-login.md#prompt-파라미터)).
+
+- `login`, `select_account`: 세션을 재사용하지 않고 상위 IdP에 `prompt=select_account`를 붙여 보낸다.
+- `none`: `active` 세션이면 그대로 완료한다. 세션이 없거나 계정이 MCP에서 허용되지 않는 상태(`pending_deletion`, `disabled`, `deleted`)면
+  `auth.inactive_user`(상태가 문제일 때)를 기록하고 클라이언트 `redirect_uri`로 `error=login_required`, `state`, `iss`를 붙여 `302`한다.
+- `consent`와 prompt 없음: 기존 동작. authgate에는 동의 화면이 없으며, CIMD 3rd-party 클라이언트에도 마찬가지다.
+- `max_age`는 강제하지 않는다.
+
 ## Resource Parameter
 
 MCP에서 `resource`는 부가 옵션이 아니라, "이 토큰을 어느 MCP 서버에서 쓸 것인가"를 나타내는 식별자다.
@@ -579,6 +593,7 @@ code exchange가 끝나면 auth_request와 함께 정리된다.
 | redirect_uri 불일치 | `invalid_request` | 400 | 메타데이터의 redirect_uris에 포함되어야 함 |
 | 미가입 사용자 | `account_not_found` | 403 | Browser에서 먼저 가입 필요 |
 | 비활성 계정 | `account_inactive` | 403 | `pending_deletion`, `disabled`, `deleted` |
+| `prompt=none` + 유효한 세션 없음 또는 비활성 계정 | `login_required` | 302 | 클라이언트 `redirect_uri`로 오류 응답 (`state`, `iss` 포함) |
 | auth code 발급 후 상태 변경 | `invalid_grant` | 400 | `/oauth/token` 시점에 최종 상태 재검사 |
 | code_verifier 불일치 | `invalid_grant` | 400 | PKCE 검증 실패 |
 | resource 검증 실패 | `invalid_target` 등 | 400 | authorize/token resource 불일치 또는 허용되지 않은 resource |

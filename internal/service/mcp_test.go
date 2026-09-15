@@ -29,7 +29,7 @@ func setupMCPTest(t *testing.T) (*MCPLoginService, *storage.Storage, *upstream.U
 		User: &upstream.UserInfo{Sub: "mcp-sub-123", Email: "mcp@test.com", EmailVerified: true, Name: "MCP User"},
 	}
 
-	svc := NewMCPLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	svc := NewMCPLoginService(store, fakeProvider.Name(), "http://authgate.test", 24*time.Hour)
 	return svc, store, fakeProvider.User
 }
 

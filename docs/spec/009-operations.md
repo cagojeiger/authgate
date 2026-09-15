@@ -31,6 +31,10 @@ authgate를 처음 배포할 때 필요한 것:
      컬럼과 부분 인덱스 추가. 재사용 유예 시간이 한 교환의 자식 토큰 수를 정확히 세는 데
      쓴다. 기존 행은 NULL로 남으며 컬럼 추가는 테이블 재작성이 없다. 인덱스 생성은
      012/015처럼 시작 시 테이블을 잠깐 잠근다(CONCURRENTLY 아님)
+   → 018_auth_requests_prompt: auth_requests에 `prompt TEXT[] NOT NULL DEFAULT '{}'`
+     컬럼 추가 (`/authorize`의 OIDC prompt 값). 상수 기본값이라 테이블 재작성이 없고,
+     배포 중 생성된 기존 행은 빈 배열(= prompt 없음)로 읽힌다. 롤링 배포 중 구버전 파드가 만든
+     auth_request(최대 10분)는 prompt를 저장하지 않으므로, 그 사이 `prompt=none` 요청은 prompt 없음처럼 처리될 수 있다
 
 2. OIDC IdP 자격증명 발급
    → IdP(예: Google Cloud Console)에서 OAuth 2.0 Client ID/Secret 생성

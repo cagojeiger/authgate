@@ -33,6 +33,7 @@ SELECT id,
        COALESCE(nonce, '') AS nonce,
        COALESCE(code_challenge, '') AS code_challenge,
        COALESCE(code_challenge_method, '') AS code_challenge_method,
+       prompt,
        subject,
        auth_time,
        done,
@@ -53,6 +54,7 @@ type GetAuthRequestByCodeRow struct {
 	Nonce               string
 	CodeChallenge       string
 	CodeChallengeMethod string
+	Prompt              []string
 	Subject             sql.NullString
 	AuthTime            sql.NullTime
 	Done                bool
@@ -74,6 +76,7 @@ func (q *Queries) GetAuthRequestByCode(ctx context.Context, code sql.NullString)
 		&i.Nonce,
 		&i.CodeChallenge,
 		&i.CodeChallengeMethod,
+		pq.Array(&i.Prompt),
 		&i.Subject,
 		&i.AuthTime,
 		&i.Done,
@@ -94,6 +97,7 @@ SELECT id,
        COALESCE(nonce, '') AS nonce,
        COALESCE(code_challenge, '') AS code_challenge,
        COALESCE(code_challenge_method, '') AS code_challenge_method,
+       prompt,
        subject,
        auth_time,
        done,
@@ -114,6 +118,7 @@ type GetAuthRequestByIDRow struct {
 	Nonce               string
 	CodeChallenge       string
 	CodeChallengeMethod string
+	Prompt              []string
 	Subject             sql.NullString
 	AuthTime            sql.NullTime
 	Done                bool
@@ -135,6 +140,7 @@ func (q *Queries) GetAuthRequestByID(ctx context.Context, id string) (GetAuthReq
 		&i.Nonce,
 		&i.CodeChallenge,
 		&i.CodeChallengeMethod,
+		pq.Array(&i.Prompt),
 		&i.Subject,
 		&i.AuthTime,
 		&i.Done,
@@ -148,9 +154,9 @@ func (q *Queries) GetAuthRequestByID(ctx context.Context, id string) (GetAuthReq
 const insertAuthRequest = `-- name: InsertAuthRequest :exec
 INSERT INTO auth_requests (
   id, client_id, resource, redirect_uri, scopes, state, nonce,
-  code_challenge, code_challenge_method, expires_at, created_at
+  code_challenge, code_challenge_method, prompt, expires_at, created_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 `
 
 type InsertAuthRequestParams struct {
@@ -163,6 +169,7 @@ type InsertAuthRequestParams struct {
 	Nonce               sql.NullString
 	CodeChallenge       sql.NullString
 	CodeChallengeMethod sql.NullString
+	Prompt              []string
 	ExpiresAt           time.Time
 	CreatedAt           time.Time
 }
@@ -178,6 +185,7 @@ func (q *Queries) InsertAuthRequest(ctx context.Context, arg InsertAuthRequestPa
 		arg.Nonce,
 		arg.CodeChallenge,
 		arg.CodeChallengeMethod,
+		pq.Array(arg.Prompt),
 		arg.ExpiresAt,
 		arg.CreatedAt,
 	)

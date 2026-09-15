@@ -139,8 +139,11 @@ func (p *OIDCProvider) Name() string { return p.name }
 // Redirect sends the user to the upstream IdP, binding state to a CSRF cookie,
 // a PKCE challenge cookie, and a per-login nonce cookie (its value is also sent
 // as the OIDC `nonce` parameter) via the high-level AuthURLHandler.
-func (p *OIDCProvider) Redirect(w http.ResponseWriter, r *http.Request, state string) {
+func (p *OIDCProvider) Redirect(w http.ResponseWriter, r *http.Request, state string, opts ...RedirectOption) {
 	var urlParams []rp.URLParamOpt
+	if o := applyRedirectOptions(opts); o.prompt != "" {
+		urlParams = append(urlParams, rp.WithPromptURLParam(o.prompt))
+	}
 	if p.ch != nil {
 		if nonce, err := generateNonce(); err == nil {
 			if err := p.ch.SetCookie(w, "nonce", nonce); err == nil {

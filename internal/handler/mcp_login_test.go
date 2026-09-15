@@ -11,7 +11,7 @@ import (
 )
 
 func newTestMCPLoginHandler(devMode bool) *MCPLoginHandler {
-	svc := service.NewMCPLoginService(nil, "", 0)
+	svc := service.NewMCPLoginService(nil, "", "", 0)
 	// FakeProvider.Callback delivers the (empty) state to CompleteMCPLogin,
 	// which returns the 400 "missing code or state" the callback test asserts.
 	provider := &upstream.FakeProvider{User: &upstream.UserInfo{Sub: "sub"}}

@@ -31,22 +31,27 @@ func setupLoginService(t *testing.T) (*LoginService, *storage.Storage, *upstream
 		},
 	}
 
-	svc := NewLoginService(store, fakeProvider.Name(), 24*time.Hour)
+	svc := NewLoginService(store, fakeProvider.Name(), "http://authgate.test", 24*time.Hour)
 	return svc, store, fakeProvider.User
 }
 
 func TestHandleLogin_NoSession_RedirectsToIdP(t *testing.T) {
-	svc, _, _ := setupLoginService(t)
+	svc, store, _ := setupLoginService(t)
+	ctx := context.Background()
+	arID, err := store.CreateTestAuthRequest(ctx, "no-session")
+	if err != nil {
+		t.Fatalf("create auth request: %v", err)
+	}
 
-	result := svc.HandleLogin(context.Background(), "req-123", "", "127.0.0.1", "test")
+	result := svc.HandleLogin(ctx, arID, "", "127.0.0.1", "test")
 
 	if result.Action != ActionRedirectToIdP {
 		t.Errorf("action = %v, want RedirectToIdP", result.Action)
 	}
-	// The redirect now carries the authRequestID as the state value; the handler
+	// The redirect carries the authRequestID as the state value; the handler
 	// builds the actual IdP URL via provider.Redirect (high-level AuthURLHandler).
-	if result.AuthRequestID != "req-123" {
-		t.Errorf("authRequestID = %q, want req-123", result.AuthRequestID)
+	if result.AuthRequestID != arID {
+		t.Errorf("authRequestID = %q, want %s", result.AuthRequestID, arID)
 	}
 }
 

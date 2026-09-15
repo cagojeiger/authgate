@@ -14,6 +14,7 @@ import (
 type LoginService struct {
 	store        LoginStore
 	providerName string
+	issuer       string
 	sessionTTL   time.Duration
 }
 
@@ -56,10 +57,14 @@ func verifyAuthRequestChannel(ctx context.Context, store LoginStore, authReq *st
 	return client.Name, "", 0
 }
 
-func NewLoginService(store LoginStore, providerName string, sessionTTL time.Duration) *LoginService {
+// NewLoginService builds the browser login service. issuer is the public URL
+// sent as the RFC 9207 iss parameter on the error responses /login returns to
+// the client itself (prompt=none).
+func NewLoginService(store LoginStore, providerName, issuer string, sessionTTL time.Duration) *LoginService {
 	return &LoginService{
 		store:        store,
 		providerName: providerName,
+		issuer:       issuer,
 		sessionTTL:   sessionTTL,
 	}
 }
@@ -69,16 +74,20 @@ type LoginResult struct {
 	Action        LoginAction
 	RedirectURL   string
 	AuthRequestID string
-	Error         string
-	ErrorCode     int
+	// UpstreamPrompt is the prompt to send to the upstream IdP with
+	// ActionRedirectToIdP; empty sends none.
+	UpstreamPrompt string
+	Error          string
+	ErrorCode      int
 }
 
 type LoginAction int
 
 const (
-	ActionRedirectToIdP LoginAction = iota // Redirect to upstream IdP
-	ActionAutoApprove                      // Complete auth request immediately
-	ActionError                            // Show error
+	ActionRedirectToIdP    LoginAction = iota // Redirect to upstream IdP
+	ActionAutoApprove                         // Complete auth request immediately
+	ActionError                               // Show error
+	ActionRedirectToClient                    // Redirect to RedirectURL, an authorization error response for the client
 )
 
 // HandleLogin processes GET /login?authRequestID=xxx
@@ -91,14 +100,27 @@ func (s *LoginService) handleLogin(ctx context.Context, authRequestID, sessionID
 		return &LoginResult{Action: ActionError, Error: "missing authRequestID", ErrorCode: http.StatusBadRequest}
 	}
 
-	if result := s.handleSessionLogin(ctx, authRequestID, sessionID, ipAddress, userAgent); result != nil {
+	authReq, result := loadLoginAuthRequest(ctx, s.store, authRequestID)
+	if result != nil {
 		return result
 	}
 
+	mode := loginPromptMode(authReq.Prompt)
+	if mode == promptInteractive {
+		return redirectToProviderSelectingAccount(authRequestID)
+	}
+
+	if result := s.handleSessionLogin(ctx, authReq, mode, sessionID, ipAddress, userAgent); result != nil {
+		return result
+	}
+
+	if mode == promptSilent {
+		return loginRequired(ctx, s.store, "browser", s.issuer, authReq, ipAddress, userAgent)
+	}
 	return s.redirectToProvider(authRequestID)
 }
 
-func (s *LoginService) handleSessionLogin(ctx context.Context, authRequestID, sessionID, ipAddress, userAgent string) *LoginResult {
+func (s *LoginService) handleSessionLogin(ctx context.Context, authReq *storage.AuthRequestModel, mode promptMode, sessionID, ipAddress, userAgent string) *LoginResult {
 	if sessionID == "" {
 		return nil
 	}
@@ -106,13 +128,23 @@ func (s *LoginService) handleSessionLogin(ctx context.Context, authRequestID, se
 	user, err := s.store.GetValidSession(ctx, sessionID)
 	if errors.Is(err, storage.ErrUserAccountClosed) {
 		s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
-		return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
+		return s.accountInactive(ctx, authReq, mode, ipAddress, userAgent)
 	}
 	if err != nil {
 		return nil
 	}
 
-	return s.handleExistingSession(ctx, user, authRequestID, sessionID, ipAddress, userAgent)
+	return s.handleExistingSession(ctx, user, authReq, mode, sessionID, ipAddress, userAgent)
+}
+
+// accountInactive answers a login whose session belongs to an account that
+// may not sign in: an error page, or login_required to the client when the
+// request forbids interaction.
+func (s *LoginService) accountInactive(ctx context.Context, authReq *storage.AuthRequestModel, mode promptMode, ipAddress, userAgent string) *LoginResult {
+	if mode == promptSilent {
+		return loginRequired(ctx, s.store, "browser", s.issuer, authReq, ipAddress, userAgent)
+	}
+	return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 }
 
 // completeReusedSessionLogin runs the shared tail of a session-reuse login for
@@ -120,19 +152,12 @@ func (s *LoginService) handleSessionLogin(ctx context.Context, authRequestID, se
 // approval page instead of auto-completing). The caller has already resolved
 // the session, run CheckAccess, and performed any channel-specific recovery;
 // `recovered` is only ever true for the browser channel, which is the only one
-// whose CheckAccess returns AccessRecover. This loads the auth_request, verifies
-// the channel binding, audits a deletion-cancelled recovery when applicable,
-// completes the request, and writes the auth.login audit — all identically
-// across channels except for the channel label.
-func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel string, user *storage.User, authRequestID, sessionID, ipAddress, userAgent string, recovered bool) *LoginResult {
-	authReq, err := store.GetAuthRequestModel(ctx, authRequestID)
-	if errors.Is(err, storage.ErrNotFound) {
-		return &LoginResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
-	}
-	if err != nil {
-		return &LoginResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
-	}
-
+// whose CheckAccess returns AccessRecover. The caller has also loaded authReq.
+// This verifies the channel binding, audits a deletion-cancelled recovery when
+// applicable, completes the request, and writes the auth.login audit — all
+// identically across channels except for the channel label.
+func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel string, user *storage.User, authReq *storage.AuthRequestModel, sessionID, ipAddress, userAgent string, recovered bool) *LoginResult {
+	authRequestID := authReq.ID
 	clientName, errMsg, code := verifyAuthRequestChannel(ctx, store, authReq, channel, ipAddress, userAgent, &user.ID)
 	if errMsg != "" {
 		return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
@@ -156,21 +181,28 @@ func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel s
 	return &LoginResult{Action: ActionAutoApprove, AuthRequestID: authRequestID}
 }
 
-func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authRequestID, sessionID, ipAddress, userAgent string) *LoginResult {
+func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authReq *storage.AuthRequestModel, mode promptMode, sessionID, ipAddress, userAgent string) *LoginResult {
 	recovered := false
 	switch CheckAccess(user.Status, "browser") {
 	case AccessDeny:
 		s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
-		return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
+		return s.accountInactive(ctx, authReq, mode, ipAddress, userAgent)
 
 	case AccessRecover:
+		// Recovering cancels the user's pending deletion. That must follow an
+		// interaction the user started, not a background prompt=none check a
+		// relying party may run on every page load.
+		if mode == promptSilent {
+			s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
+			return loginRequired(ctx, s.store, "browser", s.issuer, authReq, ipAddress, userAgent)
+		}
 		if err := s.recoverUser(ctx, user.ID); err != nil {
 			return &LoginResult{Action: ActionError, Error: "failed to recover account", ErrorCode: http.StatusInternalServerError}
 		}
 		recovered = true
 	}
 
-	return completeReusedSessionLogin(ctx, s.store, "browser", user, authRequestID, sessionID, ipAddress, userAgent, recovered)
+	return completeReusedSessionLogin(ctx, s.store, "browser", user, authReq, sessionID, ipAddress, userAgent, recovered)
 }
 
 // CallbackResult describes what the handler should do after HandleCallback.

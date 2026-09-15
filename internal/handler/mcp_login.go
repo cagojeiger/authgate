@@ -35,10 +35,17 @@ func (h *MCPLoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	switch result.Action {
 	case service.ActionRedirectToIdP:
-		h.provider.Redirect(w, r, result.AuthRequestID)
+		var opts []upstream.RedirectOption
+		if result.UpstreamPrompt != "" {
+			opts = append(opts, upstream.WithPrompt(result.UpstreamPrompt))
+		}
+		h.provider.Redirect(w, r, result.AuthRequestID, opts...)
 	case service.ActionAutoApprove:
 		//nolint:gosec // Internal redirect to the fixed OIDC callback with a service-issued auth request ID.
 		http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
+	case service.ActionRedirectToClient:
+		//nolint:gosec // Authorization error response to the auth request's redirect_uri, which zitadel validated against the client.
+		http.Redirect(w, r, result.RedirectURL, http.StatusFound)
 	case service.ActionError:
 		h.renderError(w, result.ErrorCode, result.Error)
 	default:
