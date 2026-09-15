@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -178,5 +180,45 @@ func TestTruncateLogValue_KeepsRuneBoundary(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "…(truncated)") {
 		t.Fatalf("missing truncation marker: %q", got)
+	}
+}
+
+// shortBody behaves like net/http's server body when the client sends fewer
+// bytes than its Content-Length: the missing bytes surface once as
+// io.ErrUnexpectedEOF, and every later read returns io.EOF.
+type shortBody struct {
+	data   *strings.Reader
+	failed bool
+}
+
+func (b *shortBody) Read(p []byte) (int, error) {
+	if b.data.Len() > 0 {
+		return b.data.Read(p)
+	}
+	if !b.failed {
+		b.failed = true
+		return 0, io.ErrUnexpectedEOF
+	}
+	return 0, io.EOF
+}
+
+func (b *shortBody) Close() error { return nil }
+
+// A body the client cut short must still fail downstream. Otherwise a dropped
+// connection would run the grant on a partial form: the refresh token rotates,
+// the client never receives the new one, and its retry is treated as reuse.
+func TestTokenLogContext_TruncatedBodyStillFailsDownstream(t *testing.T) {
+	var parseErr error
+	h := TokenLogContext(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parseErr = r.ParseForm()
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token", nil)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Body = &shortBody{data: strings.NewReader("grant_type=refresh_token&refresh_token=abc")}
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if !errors.Is(parseErr, io.ErrUnexpectedEOF) {
+		t.Fatalf("downstream ParseForm err = %v, want io.ErrUnexpectedEOF", parseErr)
 	}
 }

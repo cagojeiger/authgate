@@ -62,16 +62,31 @@ func peekForm(r *http.Request) url.Values {
 		return url.Values{}
 	}
 	peeked, err := io.ReadAll(io.LimitReader(r.Body, tokenLogBodyPeekBytes))
+	rest := r.Body
+	if err != nil {
+		// Replay the read error after the peeked bytes. net/http reports a body
+		// cut short (io.ErrUnexpectedEOF) only once and then returns io.EOF, so
+		// reading on from the original body would hand the handler a partial
+		// body that looks complete.
+		rest = struct {
+			io.Reader
+			io.Closer
+		}{errReader{err}, r.Body}
+	}
 	r.Body = struct {
 		io.Reader
 		io.Closer
-	}{io.MultiReader(bytes.NewReader(peeked), r.Body), r.Body}
+	}{io.MultiReader(bytes.NewReader(peeked), rest), r.Body}
 	if err != nil {
 		return url.Values{}
 	}
 	form, _ := url.ParseQuery(string(peeked))
 	return form
 }
+
+type errReader struct{ err error }
+
+func (e errReader) Read([]byte) (int, error) { return 0, e.err }
 
 func tokenRequestClientID(r *http.Request, form url.Values) string {
 	if clientID := strings.TrimSpace(form.Get("client_id")); clientID != "" {
