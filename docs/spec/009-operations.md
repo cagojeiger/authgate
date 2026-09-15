@@ -407,13 +407,15 @@ Go runtime/process Prometheus metrics를 노출한다. 운영에서는
 | `client_id` | `/oauth/token`, `/oauth/revoke`, `/oauth/introspect`, `/oauth/device/authorize` | 폼의 `client_id`, 없으면 HTTP Basic 사용자명 (form-decode). Basic 비밀번호는 읽지 않는다 |
 | `grant_type` | 위와 같음 | 폼의 `grant_type` |
 
+클라이언트가 보낸 값(`client_id`, `grant_type`, `path`)은 256바이트까지만 남기고 잘린 경우 `…(truncated)`를 붙인다. 요청 본문은 앞 64KiB만 읽어 속성을 찾은 뒤 그대로 되돌려 놓으므로, 뒤이은 핸들러가 받는 본문과 폼 파싱 오류는 미들웨어가 없을 때와 같다.
+
 토큰 발급 실패는 `level=WARN msg="request error"`로 남는다 (zitadel/oidc). 예:
 
 ```text
 level=WARN msg="request error" oidc_error.parent=invalid_refresh_token oidc_error.type=invalid_grant request_id=… path=/oauth/token client_id=notegate-web grant_type=refresh_token
 ```
 
-기동 실패(`log.Fatal`)는 `level=ERROR`로 남고 프로세스가 종료된다.
+기동 실패(`log.Fatal`)는 `level=ERROR`로 남고 프로세스가 종료된다. net/http 서버의 연결 단위 오류(TLS handshake 실패 등)는 `level=WARN`이다.
 
 ### audit_log 쓰기 실패 모니터링
 

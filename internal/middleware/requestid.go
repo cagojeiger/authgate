@@ -33,7 +33,7 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 
 		w.Header().Set("X-Request-ID", id)
 		ctx := context.WithValue(r.Context(), requestIDKey, id)
-		ctx = logctx.With(ctx, slog.String("request_id", id), slog.String("path", r.URL.Path))
+		ctx = logctx.With(ctx, slog.String("request_id", id), slog.String("path", truncateLogValue(r.URL.Path)))
 		r = r.WithContext(ctx)
 		next.ServeHTTP(w, r)
 	})

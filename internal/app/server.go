@@ -43,6 +43,10 @@ func buildHTTPServer(cfg *config.Config, mux http.Handler, inflightRequests *int
 		WriteTimeout:      cfg.HTTPWriteTimeout,
 		IdleTimeout:       cfg.HTTPIdleTimeout,
 		MaxHeaderBytes:    maxHeaderBytes,
+		// net/http reports per-connection trouble here (TLS handshakes, a
+		// superfluous WriteHeader). Those are warnings, not the ERROR level the
+		// log package bridge uses for authgate's own log.Fatal calls.
+		ErrorLog: slog.NewLogLogger(slog.Default().Handler(), slog.LevelWarn),
 	}, addr
 }
 

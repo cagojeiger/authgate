@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/kangheeyong/authgate/internal/logctx"
 )
@@ -51,7 +52,7 @@ func TestTokenLogContext_FormClientAndGrantType(t *testing.T) {
 	if strings.Contains(got, "rt-secret-value") {
 		t.Fatalf("refresh token leaked into the log: %q", got)
 	}
-	// The downstream handler must still see the form the middleware parsed.
+	// The downstream handler must still read the whole body.
 	if formSeen.Get("refresh_token") != "rt-secret-value" {
 		t.Fatalf("downstream handler lost the form body, got %v", formSeen)
 	}
@@ -102,5 +103,80 @@ func TestRequestIDMiddleware_AddsRequestIDAndPathToLogs(t *testing.T) {
 	}
 	if strings.Contains(got, "secret-state") {
 		t.Fatalf("query string leaked into the log: %q", got)
+	}
+}
+
+// Downstream handlers must see a malformed body exactly as before: ParseForm
+// reports the error only on its first call, so the middleware must not be the
+// one making it.
+func TestTokenLogContext_MalformedBodyErrorReachesHandler(t *testing.T) {
+	var parseErr error
+	h := TokenLogContext(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parseErr = r.ParseForm()
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader("grant_type=refresh_token&client_id=gitea&bad=%zz"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if parseErr == nil {
+		t.Fatal("downstream ParseForm did not report the malformed body")
+	}
+}
+
+// A body longer than the peek window must still arrive whole.
+func TestTokenLogContext_LongBodyArrivesWhole(t *testing.T) {
+	var seen url.Values
+	h := TokenLogContext(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("ParseForm: %v", err)
+		}
+		seen = r.PostForm
+	}))
+
+	padding := strings.Repeat("a", tokenLogBodyPeekBytes)
+	body := url.Values{"client_id": {"gitea"}, "padding": {padding}, "tail": {"kept"}}.Encode()
+	h.ServeHTTP(httptest.NewRecorder(), postForm("/oauth/token", mustParseQuery(t, body)))
+
+	if seen.Get("tail") != "kept" || len(seen.Get("padding")) != len(padding) {
+		t.Fatalf("body was cut: tail=%q padding=%d", seen.Get("tail"), len(seen.Get("padding")))
+	}
+}
+
+func mustParseQuery(t *testing.T, s string) url.Values {
+	t.Helper()
+	v, err := url.ParseQuery(s)
+	if err != nil {
+		t.Fatalf("parse query: %v", err)
+	}
+	return v
+}
+
+func TestTokenLogContext_TruncatesLongValues(t *testing.T) {
+	var buf bytes.Buffer
+	h := TokenLogContext(logThroughContext(&buf, nil))
+
+	h.ServeHTTP(httptest.NewRecorder(), postForm("/oauth/token", url.Values{
+		"client_id":  {strings.Repeat("x", 1<<20)},
+		"grant_type": {"refresh_token"},
+	}))
+
+	got := buf.String()
+	if len(got) > 2*maxLogValueBytes+256 {
+		t.Fatalf("log line is %d bytes; a client-supplied value was not truncated", len(got))
+	}
+	if !strings.Contains(got, "…(truncated)") {
+		t.Fatalf("truncated value is not marked: %q", got)
+	}
+}
+
+func TestTruncateLogValue_KeepsRuneBoundary(t *testing.T) {
+	s := strings.Repeat("a", maxLogValueBytes-1) + "한글"
+	got := truncateLogValue(s)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncation split a rune: %q", got)
+	}
+	if !strings.HasSuffix(got, "…(truncated)") {
+		t.Fatalf("missing truncation marker: %q", got)
 	}
 }
