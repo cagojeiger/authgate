@@ -16,6 +16,12 @@ Browser / Device / MCP / Refresh / Logout / Delete 각 채널이 공통 상태�
 | `browser-004` | `disabled` | Browser 로그인 | `account_inactive` | 차단 |
 | `browser-004b` | `deleted` | Browser 로그인 | Spec 001 신규 가입 서브플로우 진입 | 재가입 경로 |
 | `browser-005` | `pending_deletion`, 복구 후 auth_request 완료 상태 반영 실패 | Browser 재로그인 | 다음 재시도에서 정상 완료 | 복구 후 재시도 멱등성 |
+| `signup-domain-006` | `*.example.com` 설정 | `sub.example.com` / `example.com` / `notexample.com` | 순서대로 허용 / 거부 / 거부 | 와일드카드는 라벨 경계를 지키고 상위 도메인을 포함하지 않음 |
+| `signup-domain-007` | `*.example.com`, `korp.com` 설정 | `a@.example.com`, `a@..example.com`, 켈빈 기호 `K`orp.com, 끝 공백 | `email_malformed` 거부 | 이메일 도메인도 ASCII DNS 이름이어야 함 |
+| `signup-domain-008` | `*.example.com` 설정 | 대문자 주소 / 미검증 주소 | 허용 / `email_unverified` | 와일드카드도 대소문자 무시·검증 요구 |
+| `signup-domain-100` | 미가입, `SIGNUP_EMAIL_DOMAINS` 밖 도메인 | 실제 `/login/callback` | 403, `users` 0, `auth.signup` 0, `auth.signup_denied` 1(user_id null, domain) | 계정 생성 **전** 차단 (통합) |
+| `signup-domain-101` | 미가입, 허용 도메인 | 실제 Browser 로그인 | 토큰 발급 | 게이트가 정상 가입을 막지 않음 (통합) |
+| `signup-domain-102` | 기존 `active`, 도메인 목록 밖 | Browser 로그인 | 정상 로그인 | 가입만 제한 — 기존 계정 잠기지 않음 |
 
 ### prompt 파라미터 (Browser / MCP 공통)
 

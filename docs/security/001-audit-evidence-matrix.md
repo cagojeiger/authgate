@@ -94,6 +94,7 @@ audit_log
 | event_type | 트리거 | 주요 증거 | metadata allowlist | 구현 | 테스트 | 상태 |
 |------------|--------|-----------|--------------------|------|--------|------|
 | `auth.signup` | 신규 유저 가입 | user_id, IP, UA, created_at | `channel`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/audit_test.go` | DONE |
+| `auth.signup_denied` | `SIGNUP_EMAIL_DOMAINS` 게이트 거부 | IP, UA, created_at (**user_id 없음** — 계정 미생성) | `reason`, `domain`, `channel`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/login_unit_test.go` | DONE |
 | `auth.login` | Browser/Device/MCP 로그인 성공 | user_id, IP, UA, created_at | `channel`, `session_id`, `client_id`, `client_name`, `reused_session`, `signup` | `internal/service/login.go`, `internal/service/device.go`, `internal/service/mcp_login.go` | `internal/service/audit_test.go` | DONE |
 | `auth.channel_mismatch` | auth_request 채널 불일치 차단 | user_id, IP, UA, created_at | `expected_channel`, `actual_channel`, `client_id`, `client_name` | `internal/service/login.go` | `internal/service/login_unit_test.go` | DONE |
 | `auth.inactive_user` | disabled/pending_deletion/deleted 접근 차단 | user_id, IP, UA, created_at | `status`, `channel`, `phase` | `internal/service/login.go`, `internal/service/device.go`, `internal/service/mcp_login.go` | `internal/service/audit_test.go` | DONE |
