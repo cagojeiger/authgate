@@ -50,6 +50,7 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, 
 		CodeChallenge:       req.CodeChallenge,
 		CodeChallengeMethod: string(req.CodeChallengeMethod),
 		Prompt:              append(StringArray{}, req.Prompt...), // never nil: a nil array encodes as NULL
+		MaxAge:              req.MaxAge,
 		ExpiresAt:           s.clock.Now().Add(10 * time.Minute),
 		CreatedAt:           s.clock.Now(),
 	}
@@ -65,6 +66,7 @@ func (s *Storage) CreateAuthRequest(ctx context.Context, req *oidc.AuthRequest, 
 		CodeChallenge:       sql.NullString{String: ar.CodeChallenge, Valid: true},
 		CodeChallengeMethod: sql.NullString{String: ar.CodeChallengeMethod, Valid: true},
 		Prompt:              []string(ar.Prompt),
+		MaxAge:              maxAgeToNullInt64(ar.MaxAge),
 		ExpiresAt:           ar.ExpiresAt,
 		CreatedAt:           ar.CreatedAt,
 	})
@@ -490,6 +492,7 @@ func authRequestModelFromRowByID(row storeq.GetAuthRequestByIDRow) *AuthRequestM
 		CodeChallenge:       row.CodeChallenge,
 		CodeChallengeMethod: row.CodeChallengeMethod,
 		Prompt:              StringArray(row.Prompt),
+		MaxAge:              maxAgeFromNullInt64(row.MaxAge),
 		Subject:             nullStringToPtr(row.Subject),
 		AuthTime:            nullTimePtr(row.AuthTime),
 		IsDone:              row.Done,
@@ -511,6 +514,7 @@ func authRequestModelFromRowByCode(row storeq.GetAuthRequestByCodeRow) *AuthRequ
 		CodeChallenge:       row.CodeChallenge,
 		CodeChallengeMethod: row.CodeChallengeMethod,
 		Prompt:              StringArray(row.Prompt),
+		MaxAge:              maxAgeFromNullInt64(row.MaxAge),
 		Subject:             nullStringToPtr(row.Subject),
 		AuthTime:            nullTimePtr(row.AuthTime),
 		IsDone:              row.Done,
@@ -840,4 +844,21 @@ func (s *Storage) GetAuthRequestModel(ctx context.Context, id string) (*AuthRequ
 		return nil, &oidc.Error{ErrorType: "invalid_request", Description: "auth request expired"}
 	}
 	return ar, nil
+}
+
+// maxAgeToNullInt64 stores max_age as seconds; nil (not requested) stays NULL,
+// which is not the same as 0 (re-authenticate now).
+func maxAgeToNullInt64(maxAge *uint) sql.NullInt64 {
+	if maxAge == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*maxAge), Valid: true}
+}
+
+func maxAgeFromNullInt64(v sql.NullInt64) *uint {
+	if !v.Valid || v.Int64 < 0 {
+		return nil
+	}
+	seconds := uint(v.Int64)
+	return &seconds
 }

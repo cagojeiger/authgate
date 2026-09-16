@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kangheeyong/authgate/internal/clientaccess"
 	"github.com/kangheeyong/authgate/internal/storage"
@@ -328,7 +329,7 @@ func TestIntegration_ClientAccess_DevicePollDeniedAfterPolicyChange(t *testing.T
 		t.Fatalf("create user: %v", err)
 	}
 	authz := startDeviceAuthorization(t, ts)
-	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID); err != nil {
+	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID, time.Time{}); err != nil {
 		t.Fatalf("approve device code: %v", err)
 	}
 

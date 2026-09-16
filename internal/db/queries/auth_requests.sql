@@ -1,9 +1,9 @@
 -- name: InsertAuthRequest :exec
 INSERT INTO auth_requests (
   id, client_id, resource, redirect_uri, scopes, state, nonce,
-  code_challenge, code_challenge_method, prompt, expires_at, created_at
+  code_challenge, code_challenge_method, prompt, max_age, expires_at, created_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
 
 -- name: GetAuthRequestByID :one
 SELECT id,
@@ -16,6 +16,7 @@ SELECT id,
        COALESCE(code_challenge, '') AS code_challenge,
        COALESCE(code_challenge_method, '') AS code_challenge_method,
        prompt,
+       max_age,
        subject,
        auth_time,
        done,
@@ -36,6 +37,7 @@ SELECT id,
        COALESCE(code_challenge, '') AS code_challenge,
        COALESCE(code_challenge_method, '') AS code_challenge_method,
        prompt,
+       max_age,
        subject,
        auth_time,
        done,

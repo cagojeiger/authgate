@@ -215,7 +215,7 @@ func TestAuthCodeStateCheck_AllStates(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create auth request: %v", err)
 			}
-			if err := store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
+			if err := store.CompleteAuthRequest(ctx, authRequestID, user.ID, time.Time{}); err != nil {
 				t.Fatalf("complete auth request: %v", err)
 			}
 			code := fmt.Sprintf("authcode-state-code-%d", i)

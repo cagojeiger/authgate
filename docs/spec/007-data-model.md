@@ -105,6 +105,7 @@ erDiagram
         text code_challenge "nullable"
         text code_challenge_method "DEFAULT 'S256'"
         text[] prompt "NOT NULL, DEFAULT '{}', OIDC prompt 값"
+        bigint max_age "nullable, OIDC max_age 초. NULL=요청 안 함, 0=즉시 재인증"
         text subject "nullable, 인증 완료 시 설정"
         timestamptz auth_time "nullable, 인증 완료 시 설정"
         boolean done "NOT NULL, DEFAULT false"

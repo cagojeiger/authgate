@@ -184,11 +184,19 @@ func (s *Storage) RecoverUser(ctx context.Context, userID string) error {
 	})
 }
 
-func (s *Storage) CompleteAuthRequest(ctx context.Context, authRequestID, userID string) error {
-	now := s.clock.Now()
+// CompleteAuthRequest marks the request done for userID. authTime is when that
+// user actually authenticated with the upstream IdP — the session's creation
+// time when an existing session is reused, not the moment the request was
+// completed. OIDC Core 2 defines auth_time as the time of the End-User
+// authentication, and RPs use it to judge freshness. A zero authTime falls
+// back to now, which is correct only for a login that just happened.
+func (s *Storage) CompleteAuthRequest(ctx context.Context, authRequestID, userID string, authTime time.Time) error {
+	if authTime.IsZero() {
+		authTime = s.clock.Now()
+	}
 	rows, err := storeq.New(s.db).CompleteAuthRequestByID(ctx, storeq.CompleteAuthRequestByIDParams{
 		Subject:  sql.NullString{String: userID, Valid: true},
-		AuthTime: sql.NullTime{Time: now, Valid: true},
+		AuthTime: sql.NullTime{Time: authTime, Valid: true},
 		ID:       authRequestID,
 	})
 	if err != nil {
@@ -384,6 +392,23 @@ func (s *Storage) CreateSession(ctx context.Context, userID string, ttl time.Dur
 		return "", err
 	}
 	return token, nil
+}
+
+// SessionAuthTime returns when the still-valid session was created — the time
+// its owner last authenticated upstream. Callers use it as auth_time when they
+// reuse a session, and to enforce max_age.
+func (s *Storage) SessionAuthTime(ctx context.Context, sessionID string) (time.Time, error) {
+	createdAt, err := storeq.New(s.db).GetValidSessionCreatedAt(ctx, storeq.GetValidSessionCreatedAtParams{
+		TokenHash: s.sessionAtRest(sessionID),
+		ExpiresAt: s.clock.Now(),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, ErrNotFound
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return createdAt, nil
 }
 
 func (s *Storage) GetValidSession(ctx context.Context, sessionID string) (*User, error) {

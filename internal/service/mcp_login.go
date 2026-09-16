@@ -56,6 +56,18 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 			return &LoginResult{Action: ActionError, Error: "account_inactive", ErrorCode: http.StatusForbidden}
 		}
 		if err == nil {
+			authTime, timeErr := s.store.SessionAuthTime(ctx, sessionID)
+			if timeErr != nil {
+				// The session went away underneath us. prompt=none cannot send
+				// anyone upstream (Core 3.1.2.6).
+				if mode == promptSilent {
+					return loginRequired(ctx, s.store, "mcp", s.issuer, authReq, ipAddress, userAgent)
+				}
+				return &LoginResult{Action: ActionRedirectToIdP, AuthRequestID: authRequestID}
+			}
+			if sessionTooOldForMaxAge(authReq, authTime, time.Now()) {
+				return maxAgeExceeded(ctx, s.store, "mcp", s.issuer, authReq, mode, ipAddress, userAgent)
+			}
 			client, errMsg, code := verifyAuthRequestChannel(ctx, s.store, authReq, "mcp", ipAddress, userAgent, &user.ID)
 			if errMsg != "" {
 				return &LoginResult{Action: ActionError, Error: errMsg, ErrorCode: code}
@@ -65,7 +77,7 @@ func (s *MCPLoginService) HandleLogin(ctx context.Context, authRequestID, sessio
 			}
 			// mcp never recovers (CheckAccess denies pending_deletion for mcp),
 			// so recovered is always false.
-			return completeReusedSessionLogin(ctx, s.store, "mcp", client.Name, user, authReq, sessionID, ipAddress, userAgent, false)
+			return completeReusedSessionLogin(ctx, s.store, "mcp", client.Name, user, authReq, authTime, sessionID, ipAddress, userAgent, false)
 		}
 	}
 
@@ -135,7 +147,8 @@ func (s *MCPLoginService) CompleteMCPLogin(ctx context.Context, state string, in
 	if err != nil {
 		return &CallbackResult{Action: ActionError, Error: "session creation failed", ErrorCode: http.StatusInternalServerError}
 	}
-	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
+	// A fresh upstream login: the zero time makes storage record now.
+	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID, time.Time{}); err != nil {
 		return &CallbackResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
 	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{

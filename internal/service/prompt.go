@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 
@@ -96,4 +97,44 @@ func authorizationErrorRedirect(issuer string, authReq *storage.AuthRequestModel
 	query.Set("iss", issuer)
 	target.RawQuery = query.Encode()
 	return &LoginResult{Action: ActionRedirectToClient, AuthRequestID: authReq.ID, RedirectURL: target.String()}
+}
+
+// sessionTooOldForMaxAge reports whether reusing this session would hand the
+// relying party an authentication older than the max_age it asked for (OIDC
+// Core 3.1.2.1: "If the elapsed time is greater than this value, the OP MUST
+// attempt to actively re-authenticate the End-User"). A request without
+// max_age never fails this; max_age=0, which zitadel derives from
+// prompt=login, refuses every existing session.
+func sessionTooOldForMaxAge(authReq *storage.AuthRequestModel, authTime, now time.Time) bool {
+	if authReq.MaxAge == nil {
+		return false
+	}
+	if authTime.IsZero() {
+		return true
+	}
+	// Compared in whole seconds, not as a Duration: an RP may send a max_age
+	// far larger than a Duration can hold (~292 years in nanoseconds), and the
+	// multiplication would wrap to a negative value and refuse every session —
+	// the opposite of what such a request asks for.
+	elapsed := now.Sub(authTime)
+	if elapsed < 0 {
+		return false
+	}
+	return uint64(elapsed/time.Second) > uint64(*authReq.MaxAge)
+}
+
+// maxAgeExceeded answers a request whose max_age the current session cannot
+// satisfy. Interactively the user is sent upstream to authenticate again;
+// under prompt=none there is nothing to send them to, and OIDC Core 3.1.2.6
+// requires login_required when the OP cannot authenticate without interaction.
+//
+// Re-authentication is a request, not a guarantee: authgate asks Google for
+// its account chooser, and Google decides whether to challenge the user again.
+// The session authgate then mints is fresh either way, so auth_time is honest
+// about when Google last told us who this is.
+func maxAgeExceeded(ctx context.Context, store LoginStore, channel, issuer string, authReq *storage.AuthRequestModel, mode promptMode, ipAddress, userAgent string) *LoginResult {
+	if mode == promptSilent {
+		return loginRequired(ctx, store, channel, issuer, authReq, ipAddress, userAgent)
+	}
+	return redirectToProviderSelectingAccount(authReq.ID)
 }

@@ -214,12 +214,17 @@ func (s *Storage) GetDeviceCodeByUserCode(ctx context.Context, userCode string) 
 	}, nil
 }
 
-// ApproveDeviceCode sets a device code to approved state with subject and auth_time.
-func (s *Storage) ApproveDeviceCode(ctx context.Context, userCode, subject string) error {
-	now := s.clock.Now()
+// ApproveDeviceCode sets a device code to approved state with subject and
+// auth_time. authTime is when the approving user authenticated upstream — the
+// creation time of the session they approved from, since approving a device
+// does not re-authenticate anyone. A zero authTime falls back to now.
+func (s *Storage) ApproveDeviceCode(ctx context.Context, userCode, subject string, authTime time.Time) error {
+	if authTime.IsZero() {
+		authTime = s.clock.Now()
+	}
 	rows, err := storeq.New(s.db).ApproveDeviceCodeByUserCode(ctx, storeq.ApproveDeviceCodeByUserCodeParams{
 		Subject:  sql.NullString{String: subject, Valid: true},
-		AuthTime: sql.NullTime{Time: now, Valid: true},
+		AuthTime: sql.NullTime{Time: authTime, Valid: true},
 		UserCode: s.codeAtRest(userCode),
 	})
 	if err != nil {

@@ -144,6 +144,16 @@ Browser / Device / MCP / Refresh / Logout / Delete 각 채널이 공통 상태�
 | `logout-012` | 유효 세션 | hint + `azp`와 다른 `client_id` | 400, 세션 유지 | 클라이언트 일치 |
 | `logout-013` | 비활성화된 계정 세션 | 확인 POST | 세션 폐기, 쿠키 만료 | 비활성 계정도 로그아웃 |
 | `logout-014` | 유효 세션 | 같은 hint로 3회 | `auth.logout` 1 | 종료한 것이 없으면 감사 없음 |
+| `max-age-001` | 활성 세션(10분 전) | `max_age=3600` 로그인 | 세션 재사용, 완료 | 신선한 세션 |
+| `max-age-002` | 활성 세션(2시간 전) | `max_age=300` 로그인 | 상위 IdP 리다이렉트(`select_account`), 완료 안 함 | Core 3.1.2.1 재인증 |
+| `max-age-003` | 활성 세션(1초 전) | `max_age=0` (prompt=login 유도) | 상위 IdP 리다이렉트 | 0 ≠ 없음 |
+| `max-age-004` | 활성 세션(1시간 전) | `max_age=60` + `prompt=none` | `error=login_required` 리다이렉트 | Core 3.1.2.6 |
+| `max-age-005` | 활성 세션(30일 전) | `max_age` 없음 | 세션 재사용 | 미요청 시 무영향 |
+| `max-age-006` | 활성 세션(6시간 전) | 일반 로그인 | `auth_time` = 세션 생성 시각 | 재사용은 재인증이 아님 |
+| `max-age-007` | — | `max_age`=2^62 | 1년 된 세션도 재사용 | Duration 오버플로 방지 |
+| `max-age-008` | — | 미래 `auth_time` | 재사용 | 시계 역행 |
+| `max-age-009` | 세션 조회 실패 | `prompt=none` | `error=login_required` (IdP 리다이렉트 아님) | Core 3.1.2.6 |
+| `device-auth-time-001` | 4시간 전 로그인 세션 | 디바이스 승인 | device code `auth_time` = 세션 생성 시각 | 승인은 재인증이 아님 |
 | `logout-016` | 유효 세션 | 형제 서브도메인 확인 POST (`Sec-Fetch-Site: same-site`, 토큰 일치) | 403, 세션 유지, `auth.logout` 없음 | 서브도메인 쿠키 주입 차단 |
 | `logout-015` | 세션 1개 | `Storage.TerminateSession` 3회 | `auth.logout` 1 | 영향 행 0이면 감사 없음 |
 | `logout-unit-001` | 유효 세션 | `GET` (hint 없음) | 확인 페이지, CSRF 쿠키 `Strict`/`HttpOnly`/`Secure`/Path=`/`/Domain 없음 (`__Host-` 요건) | 쿠키 속성 |

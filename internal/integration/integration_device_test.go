@@ -88,7 +88,7 @@ func TestIntegration_DeviceConsumed_RePolling(t *testing.T) {
 
 	// Store a device code and approve it
 	ts.Store.StoreDeviceAuthorization(ctx, "test-client", "consumed-dc", "CONS-CODE", ts.Clock.Now().Add(5*60*1e9), []string{"openid"})
-	ts.Store.ApproveDeviceCode(ctx, "CONS-CODE", user.ID)
+	ts.Store.ApproveDeviceCode(ctx, "CONS-CODE", user.ID, time.Time{})
 
 	// First poll: should consume and return token
 	data1 := url.Values{
@@ -121,7 +121,7 @@ func TestIntegration_DeviceFullFlow_TokenIssued(t *testing.T) {
 	}
 
 	authz := startDeviceAuthorization(t, ts)
-	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID); err != nil {
+	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID, time.Time{}); err != nil {
 		t.Fatalf("approve device code: %v", err)
 	}
 
@@ -148,7 +148,7 @@ func TestIntegration_DeviceConcurrentPolling_ExactlyOneSuccess(t *testing.T) {
 	}
 
 	authz := startDeviceAuthorization(t, ts)
-	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID); err != nil {
+	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID, time.Time{}); err != nil {
 		t.Fatalf("approve device code: %v", err)
 	}
 
@@ -207,7 +207,7 @@ func TestIntegration_DevicePolling_RechecksUserStatus(t *testing.T) {
 			}
 
 			authz := startDeviceAuthorization(t, ts)
-			if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID); err != nil {
+			if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID, time.Time{}); err != nil {
 				t.Fatalf("approve device code: %v", err)
 			}
 
@@ -308,7 +308,7 @@ func TestIntegration_DevicePolling_SlowDownThenApprove_Succeeds(t *testing.T) {
 		t.Fatalf("poll #2 want slow_down, got status=%d body=%s", second.StatusCode, second.RawBody)
 	}
 
-	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID); err != nil {
+	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID, time.Time{}); err != nil {
 		t.Fatalf("approve device code: %v", err)
 	}
 
