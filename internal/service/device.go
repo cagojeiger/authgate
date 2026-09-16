@@ -28,7 +28,9 @@ type DeviceStore interface {
 	GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*storage.User, error)
 	CreateSession(ctx context.Context, userID string, ttl time.Duration) (string, error)
 	DenyDeviceCode(ctx context.Context, userCode string) error
-	ApproveDeviceCode(ctx context.Context, userCode, subject string) error
+	ApproveDeviceCode(ctx context.Context, userCode, subject string, authTime time.Time) error
+	// SessionAuthTime is when the session's owner last authenticated upstream.
+	SessionAuthTime(ctx context.Context, sessionID string) (time.Time, error)
 	ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error)
 	SetIdentityHostedDomain(ctx context.Context, provider, providerUserID, hostedDomain string) error
 }
@@ -187,7 +189,7 @@ func (s *DeviceService) HandleDeviceApprove(ctx context.Context, userCode, actio
 
 	switch action {
 	case "approve":
-		return s.approveDeviceCode(ctx, userCode, user, ipAddress, userAgent)
+		return s.approveDeviceCode(ctx, userCode, user, sessionID, ipAddress, userAgent)
 	case "deny":
 		s.denyDeviceCode(ctx, userCode, user.ID, ipAddress, userAgent)
 		return &DeviceApproveResult{Success: false, Message: "You denied the authorization request. You can close this window."}
@@ -309,7 +311,7 @@ func (s *DeviceService) denyDeviceCode(ctx context.Context, userCode, userID, ip
 // flow, and once it succeeds the CLI's next poll receives tokens. A refused
 // approval leaves the code pending, so the user can sign in with another
 // account before it expires.
-func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode string, user *storage.User, ipAddress, userAgent string) *DeviceApproveResult {
+func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode string, user *storage.User, sessionID, ipAddress, userAgent string) *DeviceApproveResult {
 	userID := user.ID
 	dc, metadata, err := s.loadDeviceAuditContext(ctx, userCode)
 	if err != nil {
@@ -336,7 +338,13 @@ func (s *DeviceService) approveDeviceCode(ctx context.Context, userCode string, 
 	if !checkClientAccess(ctx, s.store, client, "device", &userID, storage.AccessSubject(user), false, ipAddress, userAgent) {
 		return &DeviceApproveResult{Success: false, Message: deviceAccessDeniedMessage, ErrorCode: http.StatusForbidden}
 	}
-	if err := s.store.ApproveDeviceCode(ctx, userCode, userID); err != nil {
+	// The approval carries the session's own auth time: the user signed in
+	// before reaching this page, and clicking approve is not a new login.
+	authTime, err := s.store.SessionAuthTime(ctx, sessionID)
+	if err != nil {
+		return &DeviceApproveResult{Success: false, Message: "Your session has expired. Sign in again.", ErrorCode: http.StatusUnauthorized}
+	}
+	if err := s.store.ApproveDeviceCode(ctx, userCode, userID, authTime); err != nil {
 		return &DeviceApproveResult{Success: false, Message: "Device code expired or already processed.", ErrorCode: http.StatusBadRequest}
 	}
 

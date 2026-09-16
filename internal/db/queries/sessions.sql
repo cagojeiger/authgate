@@ -14,6 +14,13 @@ WHERE s.token_hash = sqlc.arg(token_hash)::text
   AND s.expires_at > sqlc.arg(expires_at)
   AND s.revoked_at IS NULL;
 
+-- name: GetValidSessionCreatedAt :one
+SELECT s.created_at
+FROM sessions s
+WHERE s.token_hash = sqlc.arg(token_hash)::text
+  AND s.expires_at > sqlc.arg(expires_at)
+  AND s.revoked_at IS NULL;
+
 -- name: RevokeSessionsByUserID :execrows
 UPDATE sessions
 SET revoked_at = $1

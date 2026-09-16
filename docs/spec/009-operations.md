@@ -35,6 +35,10 @@ authgate를 처음 배포할 때 필요한 것:
      컬럼 추가 (`/authorize`의 OIDC prompt 값). 상수 기본값이라 테이블 재작성이 없고,
      배포 중 생성된 기존 행은 빈 배열(= prompt 없음)로 읽힌다. 롤링 배포 중 구버전 파드가 만든
      auth_request(최대 10분)는 prompt를 저장하지 않으므로, 그 사이 `prompt=none` 요청은 prompt 없음처럼 처리될 수 있다
+   → 020_auth_requests_max_age: auth_requests에 nullable `max_age BIGINT` 컬럼 추가
+     (OIDC `max_age` 초). NULL 기본값이라 테이블 재작성이 없다. 롤링 배포 중 구버전 파드가
+     만든 auth_request(최대 10분)는 max_age를 저장하지 않으므로 그 사이 `max_age` 요청은
+     제한 없이 세션을 재사용할 수 있다
    → 019_user_identities_hosted_domain: user_identities에 nullable `hosted_domain TEXT`
      컬럼 추가 (Google Workspace `hd`, 클라이언트 `access` 정책용). 테이블 재작성이 없다.
      기존 행은 NULL이며 그 계정의 **다음 upstream 로그인 때** 채워진다. 그 전까지

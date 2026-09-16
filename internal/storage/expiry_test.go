@@ -54,7 +54,7 @@ func TestAuthRequestByCode_Expired_Rejected(t *testing.T) {
 	// Create auth request + complete + save code
 	arID, _ := store.CreateTestAuthRequest(ctx, "code-expiry")
 	user, _ := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{Email: "code-expiry@test.com", EmailVerified: true, Name: "Test", Provider: "google", ProviderUserID: "code-expiry-sub"})
-	store.CompleteAuthRequest(ctx, arID, user.ID)
+	store.CompleteAuthRequest(ctx, arID, user.ID, time.Time{})
 	store.SaveAuthCode(ctx, arID, "test-code-expiry")
 
 	// Works before expiry
@@ -84,7 +84,7 @@ func TestCompleteAuthRequest_Expired_Rejected(t *testing.T) {
 	// Advance clock past expiry
 	clk.T = clk.T.Add(11 * time.Minute)
 
-	err := store.CompleteAuthRequest(ctx, arID, "some-user-id")
+	err := store.CompleteAuthRequest(ctx, arID, "some-user-id", time.Time{})
 	if err == nil {
 		t.Fatal("expected error for completing expired auth request, got nil")
 	}

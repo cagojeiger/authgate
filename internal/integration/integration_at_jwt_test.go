@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -106,7 +107,7 @@ func TestDeviceGrant_AccessTokenTypIsAtJWT(t *testing.T) {
 	}
 
 	authz := startDeviceAuthorization(t, ts)
-	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID); err != nil {
+	if err := ts.Store.ApproveDeviceCode(ctx, authz.UserCode, user.ID, time.Time{}); err != nil {
 		t.Fatalf("approve device code: %v", err)
 	}
 	result := pollDeviceToken(t, ts, authz.DeviceCode)

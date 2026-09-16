@@ -58,6 +58,7 @@ type Querier interface {
 	GetUserByProviderSubHash(ctx context.Context, arg GetUserByProviderSubHashParams) (GetUserByProviderSubHashRow, error)
 	GetUserForTxByID(ctx context.Context, id string) (GetUserForTxByIDRow, error)
 	GetUserInfoFieldsByID(ctx context.Context, id string) (GetUserInfoFieldsByIDRow, error)
+	GetValidSessionCreatedAt(ctx context.Context, arg GetValidSessionCreatedAtParams) (time.Time, error)
 	GetValidSessionUser(ctx context.Context, arg GetValidSessionUserParams) (GetValidSessionUserRow, error)
 	// A token revoked without being redeemed was revoked on purpose (/oauth/revoke,
 	// a user-wide revoke, reuse detection). Rotation always sets used_at together

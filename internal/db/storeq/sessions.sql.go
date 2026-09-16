@@ -11,6 +11,26 @@ import (
 	"time"
 )
 
+const getValidSessionCreatedAt = `-- name: GetValidSessionCreatedAt :one
+SELECT s.created_at
+FROM sessions s
+WHERE s.token_hash = $1::text
+  AND s.expires_at > $2
+  AND s.revoked_at IS NULL
+`
+
+type GetValidSessionCreatedAtParams struct {
+	TokenHash string
+	ExpiresAt time.Time
+}
+
+func (q *Queries) GetValidSessionCreatedAt(ctx context.Context, arg GetValidSessionCreatedAtParams) (time.Time, error) {
+	row := q.db.QueryRowContext(ctx, getValidSessionCreatedAt, arg.TokenHash, arg.ExpiresAt)
+	var created_at time.Time
+	err := row.Scan(&created_at)
+	return created_at, err
+}
+
 const getValidSessionUser = `-- name: GetValidSessionUser :one
 SELECT u.id, u.email_verified, u.status,
        u.email_ciphertext, u.email_nonce, u.email_enc_key_id, u.email_enc_version,

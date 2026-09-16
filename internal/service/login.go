@@ -22,7 +22,9 @@ type LoginStore interface {
 	GetValidSession(ctx context.Context, sessionID string) (*storage.User, error)
 	AuditLog(ctx context.Context, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any)
 	RecoverUser(ctx context.Context, userID string) error
-	CompleteAuthRequest(ctx context.Context, authRequestID, userID string) error
+	CompleteAuthRequest(ctx context.Context, authRequestID, userID string, authTime time.Time) error
+	// SessionAuthTime is when the session's owner last authenticated upstream.
+	SessionAuthTime(ctx context.Context, sessionID string) (time.Time, error)
 	GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*storage.User, error)
 	CreateUserWithIdentity(ctx context.Context, input storage.CreateUserWithIdentityInput) (*storage.User, error)
 	GetUserByID(ctx context.Context, userID string) (*storage.User, error)
@@ -136,7 +138,15 @@ func (s *LoginService) handleSessionLogin(ctx context.Context, authReq *storage.
 		return nil
 	}
 
-	return s.handleExistingSession(ctx, user, authReq, mode, sessionID, ipAddress, userAgent)
+	authTime, err := s.store.SessionAuthTime(ctx, sessionID)
+	if err != nil {
+		return nil // the session went away underneath us: sign in again
+	}
+	if sessionTooOldForMaxAge(authReq, authTime, time.Now()) {
+		return maxAgeExceeded(ctx, s.store, "browser", s.issuer, authReq, mode, ipAddress, userAgent)
+	}
+
+	return s.handleExistingSession(ctx, user, authReq, authTime, mode, sessionID, ipAddress, userAgent)
 }
 
 // accountInactive answers a login whose session belongs to an account that
@@ -158,7 +168,7 @@ func (s *LoginService) accountInactive(ctx context.Context, authReq *storage.Aut
 // whose CheckAccess returns AccessRecover. This audits a deletion-cancelled
 // recovery when applicable, completes the request, and writes the auth.login
 // audit — identically across channels except for the channel label.
-func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel, clientName string, user *storage.User, authReq *storage.AuthRequestModel, sessionID, ipAddress, userAgent string, recovered bool) *LoginResult {
+func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel, clientName string, user *storage.User, authReq *storage.AuthRequestModel, authTime time.Time, sessionID, ipAddress, userAgent string, recovered bool) *LoginResult {
 	authRequestID := authReq.ID
 	if recovered {
 		store.AuditLog(ctx, &user.ID, storage.EventAuthDeletionCancelled, ipAddress, userAgent, lifecycleAuditMetadata(
@@ -166,7 +176,9 @@ func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel, 
 		))
 	}
 
-	if err := store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
+	// auth_time is when this session's owner authenticated upstream, not now:
+	// reusing a session does not re-authenticate anyone (OIDC Core 2).
+	if err := store.CompleteAuthRequest(ctx, authRequestID, user.ID, authTime); err != nil {
 		return &LoginResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
 	store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{
@@ -185,7 +197,7 @@ func completeReusedSessionLogin(ctx context.Context, store LoginStore, channel, 
 // request on the wrong channel gets channel_mismatch; only then does the
 // client's access policy run, and it runs before recovery so a refused login
 // never cancels the account's pending deletion as a side effect.
-func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authReq *storage.AuthRequestModel, mode promptMode, sessionID, ipAddress, userAgent string) *LoginResult {
+func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.User, authReq *storage.AuthRequestModel, authTime time.Time, mode promptMode, sessionID, ipAddress, userAgent string) *LoginResult {
 	access := CheckAccess(user.Status, "browser")
 	if access == AccessDeny {
 		s.auditInactiveUser(ctx, user.ID, user.Status, ipAddress, userAgent)
@@ -215,7 +227,7 @@ func (s *LoginService) handleExistingSession(ctx context.Context, user *storage.
 		recovered = true
 	}
 
-	return completeReusedSessionLogin(ctx, s.store, "browser", client.Name, user, authReq, sessionID, ipAddress, userAgent, recovered)
+	return completeReusedSessionLogin(ctx, s.store, "browser", client.Name, user, authReq, authTime, sessionID, ipAddress, userAgent, recovered)
 }
 
 // CallbackResult describes what the handler should do after HandleCallback.
@@ -268,7 +280,7 @@ func (s *LoginService) completeBrowserLogin(ctx context.Context, authRequestID s
 		s.auditDeletionCancelled(ctx, user.ID, sessionID, authReq, ipAddress, userAgent)
 	}
 
-	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID); err != nil {
+	if err := s.store.CompleteAuthRequest(ctx, authRequestID, user.ID, time.Time{}); err != nil {
 		return &CallbackResult{Action: ActionError, Error: "failed to complete auth request", ErrorCode: http.StatusInternalServerError}
 	}
 	s.store.AuditLog(ctx, &user.ID, "auth.login", ipAddress, userAgent, map[string]any{

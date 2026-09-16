@@ -39,6 +39,7 @@ type AuthRequest struct {
 	ExpiresAt           time.Time
 	CreatedAt           time.Time
 	Prompt              []string
+	MaxAge              sql.NullInt64
 }
 
 type CryptoKeyEpoch struct {

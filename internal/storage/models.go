@@ -39,12 +39,16 @@ type AuthRequestModel struct {
 	CodeChallenge       string
 	CodeChallengeMethod string
 	Prompt              StringArray // OIDC prompt values from /authorize; read by the login handlers
-	Subject             *string
-	AuthTime            *time.Time
-	IsDone              bool
-	Code                *string
-	ExpiresAt           time.Time
-	CreatedAt           time.Time
+	// MaxAge is OIDC Core 3.1.2.1 max_age in seconds: how old the End-User's
+	// authentication may be. nil means the RP did not ask; 0 means
+	// re-authenticate now (zitadel normalizes prompt=login to 0).
+	MaxAge    *uint
+	Subject   *string
+	AuthTime  *time.Time
+	IsDone    bool
+	Code      *string
+	ExpiresAt time.Time
+	CreatedAt time.Time
 }
 
 func (a *AuthRequestModel) GetID() string    { return a.ID }

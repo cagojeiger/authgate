@@ -170,8 +170,13 @@ sequenceDiagram
   같은 `login_required` 오류 응답을 보낸다. 화면을 띄울 수 없는 요청이므로 RP가 대화형 로그인으로 넘어가게 하고,
   그 대화형 로그인에서 `account_inactive` 화면이 뜬다. 오류 응답에는 계정 상태를 담지 않는다.
 - **redirect할 수 없는 오류**: auth_request 없음(400 `auth_request_not_found`)/만료(400 `auth_request_expired`), 채널 불일치는 `prompt=none`이어도 오류 화면을 띄운다.
-- **`max_age`와 `auth_time`**: `max_age`는 강제하지 않는다(`prompt=login`에 대해 zitadel이 설정하는 `max_age=0` 포함). ID token의 `auth_time`은
-  **auth_request를 완료한 시각**이며, 세션을 재사용한 경우에도 그렇다. 따라서 `auth_time`으로 인증 신선도를 판단하는 RP는 이를 실제 인증 시각으로 믿으면 안 된다.
+- **`max_age`와 `auth_time`** (OIDC Core 3.1.2.1, 2):
+  - `auth_time`은 **그 사용자가 상위 IdP에서 마지막으로 인증한 시각**이다. 세션을 재사용하면 **세션 생성 시각**이 들어간다(재사용은 재인증이 아니다). 새로 로그인한 경우에는 그 시각이다.
+  - `max_age`가 있으면 세션 나이가 그보다 크면 재사용하지 않는다. 대화형 요청은 상위 IdP로 보내고(`prompt=select_account`), `prompt=none`이면 `login_required`로 끝낸다.
+  - `max_age=0`(zitadel이 `prompt=login`에서 유도)은 모든 기존 세션을 거부한다. `max_age` 없음과 `max_age=0`은 다르다 — DB에도 NULL과 0으로 구분해 저장한다.
+  - **device 플로우**: 승인 화면도 기존 세션에서 이뤄지므로 device code의 `auth_time`은 그 세션 생성 시각이다. RFC 8628 device authorization request에는 `max_age`가 없어 강제 대상이 없다.
+  - **알려진 한계**: refresh grant로 갱신한 ID token에는 `auth_time`이 실리지 않는다(refresh token에 인증 시각을 저장하지 않는다). `max_age`를 쓰는 RP는 갱신이 아니라 authorize를 다시 타야 신선도를 확인할 수 있다.
+  - **재인증은 요청이지 보장이 아니다.** Google은 `prompt=login`을 받지 않으므로 계정 선택 화면(`select_account`)을 요구하고, 실제로 비밀번호를 다시 묻는지는 Google이 정한다. 다만 그 뒤 authgate가 만드는 세션은 새 세션이므로 `auth_time`은 "Google이 마지막으로 신원을 확인해 준 시각"으로 정확하다.
 - **`consent`**: authgate에는 동의 화면이 없어 `consent`를 없는 것으로 취급한다. MCP 채널은 CIMD로 3rd-party 클라이언트도 받지만 동의 화면은 역시 없다([Spec 004](004-mcp-login.md)).
 - `/login`은 prompt와 무관하게 먼저 auth_request를 조회하므로, 존재하지 않는 auth_request는 IdP로 보내기 전에 `auth_request_not_found`로 끝난다.
 

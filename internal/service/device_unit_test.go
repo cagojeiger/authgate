@@ -21,6 +21,9 @@ type fakeDeviceStore struct {
 	approveDeviceCodeFn       func(ctx context.Context, userCode, subject string) error
 	resolveClientFn           func(ctx context.Context, clientID string) (*storage.ClientModel, error)
 	setHostedDomainFn         func(ctx context.Context, provider, providerUserID, hostedDomain string) error
+	sessionAuthTime           time.Time
+	sessionAuthTimeErr        error
+	approvedAuthTime          time.Time
 }
 
 func (f *fakeDeviceStore) SetIdentityHostedDomain(ctx context.Context, provider, providerUserID, hostedDomain string) error {
@@ -60,8 +63,20 @@ func (f *fakeDeviceStore) DenyDeviceCode(ctx context.Context, userCode string) e
 	return f.denyDeviceCodeFn(ctx, userCode)
 }
 
-func (f *fakeDeviceStore) ApproveDeviceCode(ctx context.Context, userCode, subject string) error {
+func (f *fakeDeviceStore) ApproveDeviceCode(ctx context.Context, userCode, subject string, authTime time.Time) error {
+	f.approvedAuthTime = authTime
 	return f.approveDeviceCodeFn(ctx, userCode, subject)
+}
+
+// SessionAuthTime answers with sessionAuthTime, defaulting to "just now".
+func (f *fakeDeviceStore) SessionAuthTime(ctx context.Context, sessionID string) (time.Time, error) {
+	if f.sessionAuthTimeErr != nil {
+		return time.Time{}, f.sessionAuthTimeErr
+	}
+	if f.sessionAuthTime.IsZero() {
+		return time.Now(), nil
+	}
+	return f.sessionAuthTime, nil
 }
 
 func (f *fakeDeviceStore) ResolveClient(ctx context.Context, clientID string) (*storage.ClientModel, error) {
@@ -306,5 +321,35 @@ func TestDevice_HandleDeviceCallback_AuditLogIncludesSessionAndClient(t *testing
 	}
 	if gotMetadata["channel"] != "device" || gotMetadata["session_id"] != "sess-1" || gotMetadata["client_id"] != "device-client" {
 		t.Fatalf("metadata = %#v", gotMetadata)
+	}
+}
+
+// device-auth-time-001: approving a device records when the approving user
+// actually authenticated — the session's creation time. Clicking approve is
+// not a new authentication, and an ID token minted from this device code
+// carries this auth_time (OIDC Core 2).
+func TestDevice_Approve_AuthTimeIsTheSessionsOwn(t *testing.T) {
+	signedInAt := time.Now().Add(-4 * time.Hour)
+	store := &fakeDeviceStore{
+		getValidSessionFn: func(context.Context, string) (*storage.User, error) {
+			return &storage.User{ID: "u1", Status: "active"}, nil
+		},
+		getDeviceCodeByUserCodeFn: func(context.Context, string) (*storage.DeviceCodeModel, error) {
+			return &storage.DeviceCodeModel{UserCode: "UCODE", ClientID: "test-client", State: "pending"}, nil
+		},
+		approveDeviceCodeFn: func(context.Context, string, string) error { return nil },
+		resolveClientFn: func(context.Context, string) (*storage.ClientModel, error) {
+			return &storage.ClientModel{ID: "test-client", Name: "Test Client", LoginChannel: "browser"}, nil
+		},
+	}
+	store.sessionAuthTime = signedInAt
+
+	svc := NewDeviceService(store, "google", "http://localhost", 24*time.Hour, clock.RealClock{})
+	result := svc.HandleDeviceApprove(context.Background(), "UCODE", "approve", "sess-1", "127.0.0.1", "ua")
+	if !result.Success {
+		t.Fatalf("approve failed: %s", result.Message)
+	}
+	if drift := store.approvedAuthTime.Sub(signedInAt); drift > time.Second || drift < -time.Second {
+		t.Errorf("auth_time = %v, want the session's creation time %v", store.approvedAuthTime, signedInAt)
 	}
 }

@@ -487,7 +487,7 @@ callback resource 검증) 을 우회하는 것을 막는다.
 - `none`: `active` 세션이면 그대로 완료한다. 세션이 없거나 계정이 MCP에서 허용되지 않는 상태(`pending_deletion`, `disabled`, `deleted`)면
   `auth.inactive_user`(상태가 문제일 때)를 기록하고 클라이언트 `redirect_uri`로 `error=login_required`, `state`, `iss`를 붙여 `302`한다.
 - `consent`와 prompt 없음: 기존 동작. authgate에는 동의 화면이 없으며, CIMD 3rd-party 클라이언트에도 마찬가지다.
-- `max_age`는 강제하지 않는다.
+- `max_age`: 세션 나이가 `max_age`를 넘으면 재사용하지 않고 상위 IdP로 보낸다. `prompt=none`이면 `login_required`. 상세는 [Spec 002](002-browser-login.md)의 `max_age`·`auth_time` 항목.
 
 ### 클라이언트 접근 정책
 

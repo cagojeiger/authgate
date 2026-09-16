@@ -27,6 +27,9 @@ type fakeLoginStore struct {
 	getAuthRequestModelFn     func(ctx context.Context, id string) (*storage.AuthRequestModel, error)
 	resolveClientFn           func(ctx context.Context, clientID string) (*storage.ClientModel, error)
 	setHostedDomainFn         func(ctx context.Context, provider, providerUserID, hostedDomain string) error
+	sessionAuthTimeFn         func(ctx context.Context, sessionID string) (time.Time, error)
+	sessionAuthTime           time.Time
+	completedAuthTime         time.Time
 }
 
 func (f *fakeLoginStore) SetIdentityHostedDomain(ctx context.Context, provider, providerUserID, hostedDomain string) error {
@@ -51,8 +54,21 @@ func (f *fakeLoginStore) RecoverUser(ctx context.Context, userID string) error {
 	return f.recoverUserFn(ctx, userID)
 }
 
-func (f *fakeLoginStore) CompleteAuthRequest(ctx context.Context, authRequestID, userID string) error {
+func (f *fakeLoginStore) CompleteAuthRequest(ctx context.Context, authRequestID, userID string, authTime time.Time) error {
+	f.completedAuthTime = authTime
 	return f.completeAuthRequestFn(ctx, authRequestID, userID)
+}
+
+// SessionAuthTime answers with sessionAuthTime, defaulting to "just now" so
+// tests that do not care about max_age keep reusing sessions.
+func (f *fakeLoginStore) SessionAuthTime(ctx context.Context, sessionID string) (time.Time, error) {
+	if f.sessionAuthTimeFn != nil {
+		return f.sessionAuthTimeFn(ctx, sessionID)
+	}
+	if f.sessionAuthTime.IsZero() {
+		return time.Now(), nil
+	}
+	return f.sessionAuthTime, nil
 }
 
 func (f *fakeLoginStore) GetUserByProviderIdentity(ctx context.Context, provider, providerUserID string) (*storage.User, error) {
