@@ -289,6 +289,28 @@ func TestIntegration_ClientAccess_CodeExchangeDeniedAfterPolicyChange(t *testing
 	if n := countRows(t, ts.DB, `SELECT count(*) FROM refresh_tokens`); n != 0 {
 		t.Fatalf("refresh_tokens = %d, want 0", n)
 	}
+	// The response must not say why. zitadel runs this check before it
+	// verifies PKCE and authenticates the client, so the caller here has
+	// proven nothing yet: the body has to read like any other bad code.
+	// zitadel currently masks storage errors at this endpoint anyway
+	// (pkg/op/token_code.go), so this also pins that we do not start
+	// depending on the library to keep our reasons out of the response.
+	for _, leak := range []string{"not allowed", "policy", "denied", "account", "client"} {
+		if strings.Contains(strings.ToLower(tokens.RawBody), leak) {
+			t.Errorf("code exchange body leaks %q to an unauthenticated caller: %s", leak, tokens.RawBody)
+		}
+	}
+	if body := sameShapeBody(t, ts, client); body != tokens.RawBody {
+		t.Errorf("refused exchange body = %s, want it identical to an unknown code: %s", tokens.RawBody, body)
+	}
+}
+
+// sameShapeBody exchanges a code that never existed, so the caller cannot tell
+// a refused account from a bad code by comparing responses.
+func sameShapeBody(t *testing.T, ts *TestServer, client *OAuthClient) string {
+	t.Helper()
+	_ = ts
+	return client.ExchangeCode("not-a-real-authorization-code").RawBody
 }
 
 // client-access-107: an approved device code is not exchanged for tokens once

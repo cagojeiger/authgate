@@ -57,7 +57,7 @@ Browser / Device / MCP / Refresh / Logout / Delete 각 채널이 공통 상태�
 | `client-access-300` | - | `Storage` 가입·`SetIdentityHostedDomain` | 모든 사용자 조회에 hosted_domain, 갱신·NULL 초기화, 같은 값은 쓰지 않음(xmin 불변), 최신 identity가 NULL이면 오래된 identity 값으로 대체 안 함 | 저장 |
 | `client-access-301`~`305` | refresh token | `Storage` refresh (유예 끔/켬, 잠금 하 재검증, stateChecker 없음) | `invalid_grant` + `auth.access_denied` 1, 재사용 처리·tombstone 없음, 정책 복원 시 갱신 | Refresh |
 | `client-access-100`~`105` | 실제 테스트 서버 + 제한 클라이언트 | 가입 거부 / 허용 email / hd 저장·이탈 / 세션 재사용 / refresh / deny 우선 | `302 /callback?error=access_denied&state=test-state&iss`, users 0 / 토큰 발급 / hd 컬럼 / 공개 test-client는 계속 재사용 / `invalid_grant` / `deny_listed` | 통합 |
-| `client-access-106` | 콜백까지 끝나 code 보유 | 정책에 계정 deny 추가(`LoadClients`) 후 code 교환 | 400 `invalid_grant`, 토큰·refresh token 없음, `auth.access_denied` 1(`channel: browser`, `deny_listed`) | code 교환 재평가 |
+| `client-access-106` | 콜백까지 끝나 code 보유 | 정책에 계정 deny 추가(`LoadClients`) 후 code 교환 | 400 `invalid_grant`, 토큰·refresh token 없음, `auth.access_denied` 1(`channel: browser`, `deny_listed`), 응답 본문이 존재하지 않는 code와 완전히 동일 | code 교환 재평가 + 인증 전 사유 비노출 |
 | `client-access-107` | device code 승인됨 | 정책에 계정 deny 추가 후 polling → 정책 해제 후 polling | 400 거부, `auth.access_denied` 1(`channel: device`), code는 `approved` 유지 / 해제 후 200 토큰 | device polling 재평가 |
 
 `client-access-001`~`021`은 `internal/clientaccess/clientaccess_test.go`, `030`~`031`은 `internal/storage/clients_test.go`,
