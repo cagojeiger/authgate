@@ -81,7 +81,7 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 
 **전제 조건**: 유효한 세션 쿠키 필요. 없으면 IdP 로그인으로 redirect → `/device/auth/callback` 복귀 → `/device?user_code=XXXX` 재진입. `user_code`는 state 파라미터에 보존된다.
 **입력**: `user_code` (hidden), `action` (approve/deny), `csrf_token` (hidden)
-**보호 장치**: 승인/거부 POST는 CSRF double-submit cookie 방식으로 보호한다. 승인 페이지 렌더링 시 `csrf_token` 쿠키와 hidden input을 함께 발급하고, `/device/approve` 제출 시 둘이 일치해야 한다.
+**보호 장치**: 승인/거부 POST는 same-origin 검사(`Sec-Fetch-Site`/`Origin`)와 CSRF double-submit cookie로 보호한다. 승인 페이지 렌더링 시 `__Host-device_csrf` 쿠키(dev에서는 `device_csrf`)와 hidden `csrf_token`을 함께 발급하고, `/device/approve` 제출 시 둘이 일치해야 한다. 상세는 [Spec 002](002-browser-login.md)의 쿠키 항목.
 **성공 시**: 결과 페이지
 
 ### 결과 페이지
@@ -121,7 +121,7 @@ authgate가 직접 제공하는 HTML 페이지 목록.
 **URL**: `GET`/`POST /end_session`
 **입력**: RP가 보낸 `id_token_hint`, `logout_hint`, `client_id`, `post_logout_redirect_uri`, `state`, `ui_locales` (있는 것만 hidden), `csrf_token` (hidden), `confirm`
 **표시 정보**: 브랜드 이름만. 이메일 등 계정 정보는 표시하지 않는다.
-**보호 장치**: `end_session_csrf` 쿠키와 hidden `csrf_token`의 double-submit. 불일치 시 403 에러 페이지. 흐름은 [Spec 005 Logout vs. Revoke](005-token-lifecycle.md#logout-vs-revoke)를 따른다.
+**보호 장치**: same-origin 검사와 `__Host-end_session_csrf` 쿠키(dev에서는 `end_session_csrf`)와 hidden `csrf_token`의 double-submit. 불일치 시 403 에러 페이지. 흐름은 [Spec 005 Logout vs. Revoke](005-token-lifecycle.md#logout-vs-revoke)를 따른다.
 **성공 시**: 브라우저 사용자의 모든 authgate 세션 종료. 등록된 `post_logout_redirect_uri`로 302, 없으면 로그아웃 완료 페이지
 
 ### 로그아웃 완료 페이지

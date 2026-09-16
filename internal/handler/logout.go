@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -12,11 +11,6 @@ import (
 	"github.com/kangheeyong/authgate/internal/pages"
 	"github.com/kangheeyong/authgate/internal/storage"
 )
-
-// logoutCSRFCookieName is the double-submit token guarding the logout
-// confirmation. It is scoped to /end_session so it never collides with the
-// device approval token.
-const logoutCSRFCookieName = "end_session_csrf"
 
 // logoutParams are the RP-Initiated Logout 1.0 §2 request parameters carried
 // through the confirmation form, so the confirmed POST is validated against
@@ -74,7 +68,7 @@ func (h *LogoutHandler) HandleEndSession(w http.ResponseWriter, r *http.Request)
 	}
 
 	confirmed := r.Method == http.MethodPost && r.PostForm.Get("confirm") != ""
-	if confirmed && !validLogoutCSRF(r) {
+	if confirmed && !h.validLogoutCSRF(r) {
 		h.renderError(w, http.StatusForbidden, "CSRF validation failed")
 		return
 	}
@@ -127,7 +121,7 @@ func (h *LogoutHandler) HandleEndSession(w http.ResponseWriter, r *http.Request)
 	if hasSessionCookie {
 		clearSessionCookie(w, h.devMode)
 	}
-	if _, err := r.Cookie(logoutCSRFCookieName); err == nil {
+	if _, err := r.Cookie(csrfCookieName(logoutCSRFCookie, h.devMode)); err == nil {
 		h.clearCSRFCookie(w)
 	}
 
@@ -165,15 +159,7 @@ func (h *LogoutHandler) renderConfirm(w http.ResponseWriter, r *http.Request) {
 		h.renderError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	//nolint:gosec // Secure=false is allowed only in explicit DEV_MODE for localhost development.
-	http.SetCookie(w, &http.Cookie{
-		Name:     logoutCSRFCookieName,
-		Value:    csrfToken,
-		Path:     "/end_session",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   !h.devMode,
-	})
+	setCSRFCookie(w, logoutCSRFCookie, csrfToken, h.devMode)
 
 	var params []pages.LogoutParam
 	for _, name := range logoutParams {
@@ -190,16 +176,7 @@ func (h *LogoutHandler) renderConfirm(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *LogoutHandler) clearCSRFCookie(w http.ResponseWriter) {
-	//nolint:gosec // Secure=false is allowed only in explicit DEV_MODE for localhost development.
-	http.SetCookie(w, &http.Cookie{
-		Name:     logoutCSRFCookieName,
-		Value:    "",
-		Path:     "/end_session",
-		MaxAge:   -1,
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   !h.devMode,
-	})
+	clearCSRFCookie(w, logoutCSRFCookie, h.devMode)
 }
 
 func (h *LogoutHandler) renderError(w http.ResponseWriter, code int, message string) {
@@ -208,12 +185,8 @@ func (h *LogoutHandler) renderError(w http.ResponseWriter, code int, message str
 	_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: code, Message: message})
 }
 
-// validLogoutCSRF compares the form token against the cookie in constant time.
-func validLogoutCSRF(r *http.Request) bool {
-	formToken := r.PostForm.Get("csrf_token")
-	cookieToken := ""
-	if c, err := r.Cookie(logoutCSRFCookieName); err == nil {
-		cookieToken = c.Value
-	}
-	return formToken != "" && subtle.ConstantTimeCompare([]byte(formToken), []byte(cookieToken)) == 1
+// validLogoutCSRF checks the browser's same-origin signal and the
+// double-submit token. Both must hold for a confirmed logout POST.
+func (h *LogoutHandler) validLogoutCSRF(r *http.Request) bool {
+	return sameOriginPost(r, h.devMode) && validCSRFToken(r, logoutCSRFCookie, r.PostForm.Get("csrf_token"), h.devMode)
 }

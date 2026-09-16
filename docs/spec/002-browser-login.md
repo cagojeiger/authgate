@@ -260,8 +260,11 @@ RecoverUser 자체는 원자적이다 (단일 UPDATE).
 - 세션 쿠키: `HttpOnly`, `SameSite=Lax`, `Secure=!DevMode`
   - `Strict`이 아닌 이유: 세션 쿠키는 상위 IdP에서 돌아오는 콜백에서 발급된 뒤 리다이렉트를 한 번 더 타야 한다 (디바이스 플로우는 `/device?user_code=`). WebKit은 그 마지막 홉의 same-site 여부를 리다이렉트 체인 전체로 판단하는데, 체인의 시작이 상위 IdP(cross-site)이므로 `Strict` 쿠키를 보내지 않는다. 그 결과 Safari에서는 디바이스 플로우를 완료할 수 없다. Chromium은 홉마다 site-for-cookies를 갱신해 `Strict`도 전송하므로 이 문제가 드러나지 않는다.
   - `Lax`의 노출 범위는 top-level cross-site GET 내비게이션뿐이다. GET 엔드포인트는 스스로 상태를 바꾸지 않으며 (`/device`는 동의 화면 렌더만, `GET /end_session`은 브라우저 사용자의 유효한 `id_token_hint`가 없으면 확인 화면 렌더만), 상태를 바꾸는 `POST /device/approve`와 로그아웃 확인 POST는 CSRF 토큰 이중 제출로 막는다.
-- 로그아웃 CSRF 쿠키 (`end_session_csrf`): `HttpOnly`, `SameSite=Strict`, Path=`/end_session`. 로그아웃 확인 화면에서 발급된다.
-- CSRF 쿠키 (`csrf_token`): `HttpOnly`, `SameSite=Strict`, Path=`/device`. 동의 화면(authgate 자체 origin)에서 발급되고 같은 origin의 폼 전송에서만 쓰이므로 `Strict`을 유지한다.
+- CSRF 쿠키 (`__Host-end_session_csrf`, `__Host-device_csrf`): `HttpOnly`, `SameSite=Strict`, `Secure`, Path=`/`, Domain 없음. 각각 로그아웃 확인 화면과 디바이스 동의 화면에서 발급된다.
+  - `__Host-` 접두사가 붙는 이유: `SameSite`는 origin이 아니라 등록가능 도메인 기준이라 형제 서브도메인(`*.project-jelly.io`의 다른 앱)은 same-site로 취급된다. 접두사가 없으면 그 서브도메인이 `Domain=project-jelly.io`로 같은 이름의 쿠키를 써서 double-submit 비교를 자기 토큰끼리 통과시킬 수 있다 (OWASP "Naive Double-Submit"). 접두사가 붙은 쿠키는 Secure·host-only·Path=`/`일 때만 브라우저가 받아들이므로 서브도메인이 덮어쓸 수 없다.
+  - Path가 `/`인 것은 후퇴가 아니다. 좁은 Path는 쿠키를 쓰는 쪽을 막지 못하므로 방어가 아니었고, `__Host-`가 Path=`/`를 요구한다.
+  - `DEV_MODE=true`에서는 접두사를 떼고 `Secure`도 끈다. 접두사는 `Secure`를 요구하는데 Chrome·Safari는 http localhost에서 그런 쿠키를 무시하므로, 붙인 채로 두면 로컬에서 항상 CSRF 검증에 실패한다. **운영에서 접두사 없는 이름으로 폴백하지 않는다** — 폴백을 두면 공격자가 그 이름을 심어 우회한다.
+- 상태 변경 POST(`/device/approve`, 로그아웃 확인)는 **same-origin 검사**를 먼저 통과해야 한다: `Sec-Fetch-Site`가 있으면 `same-origin`이어야 하고(형제 서브도메인은 `same-site`로 오므로 거부), 없으면 `Origin`이 요청 Host와 정확히 일치해야 한다. 브라우저가 둘 다 보내지 않으면 CSRF 토큰 검사에 맡긴다.
 - access_token: 15분 (ACCESS_TOKEN_TTL)
 - refresh_token: SHA-256 해시 저장, family_id로 rotation 추적
 

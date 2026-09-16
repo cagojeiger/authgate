@@ -225,6 +225,41 @@ func TestEndSession_ConfirmedLogout_EndsSessionAndForcesIdPLogin(t *testing.T) {
 	}
 }
 
+// logout-016: a sibling subdomain that already holds the CSRF token still
+// cannot end the session — its POST carries Sec-Fetch-Site: same-site, which
+// only authgate's own page ("same-origin") passes. This is the whole point of
+// the same-origin check: cookies are same-site across sibling subdomains, so
+// the double-submit token alone would not stop a subdomain that can write
+// cookies.
+func TestEndSession_ConfirmFromSiblingSubdomain_Forbidden(t *testing.T) {
+	ts := SetupTestServer(t)
+	_, noFollow, sessionID, _ := signedInBrowser(t, ts)
+
+	page := getEndSession(t, noFollow, ts, nil)
+	form := url.Values{"csrf_token": {page.csrfToken(t)}, "confirm": {"yes"}}
+	req, err := http.NewRequest(http.MethodPost, ts.BaseURL+"/end_session", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Sec-Fetch-Site", "same-site")
+	resp, err := noFollow.Do(req)
+	if err != nil {
+		t.Fatalf("POST /end_session: %v", err)
+	}
+	res := readEndSession(resp)
+	if res.status != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", res.status, res.body)
+	}
+	if res.clearsSessionCookie() {
+		t.Fatal("rejected confirmation cleared the session cookie")
+	}
+	assertSessionValid(t, ts, sessionID)
+	if n := countLogoutAudits(t, ts); n != 0 {
+		t.Fatalf("auth.logout rows = %d, want 0", n)
+	}
+}
+
 // logout-004: a confirmation POST without the double-submit token is a CSRF
 // attempt: 403 and the session survives.
 func TestEndSession_ConfirmWithoutValidCSRF_Forbidden(t *testing.T) {

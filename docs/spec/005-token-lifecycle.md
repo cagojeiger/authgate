@@ -310,7 +310,7 @@ OIDC RP-Initiated Logout 1.0 §2의 `/end_session` 엔드포인트와 RFC 7009�
 
   `/end_session`은 **요청한 브라우저의 세션만** 끝낸다. 세션 쿠키 없이 온 `id_token_hint`로는 아무도 로그아웃시키지 않는다. id_token은 여러 RP에 전달되고 로그·브라우저 기록에 남으며 만료된 것도 hint로 받아들여지므로, 그것을 가졌다는 사실이 소유자의 로그아웃 요청이 아니기 때문이다. 세션 조회가 실패하면(DB 장애 등) 확인 후 쿠키만 지워 이 브라우저라도 로그아웃되게 한다.
 
-  확인 페이지는 원래 파라미터를 hidden 필드로 되돌려 보내고, POST는 다시 파싱·검증한다. 확인 POST는 double-submit CSRF(`end_session_csrf` 쿠키: `HttpOnly`, `SameSite=Strict`, Path=`/end_session`, `Secure=!DevMode`)가 일치해야 하며, 불일치는 403이고 아무것도 종료하지 않는다. 확인 없이는 임의 사이트가 링크 하나로 방문자를 로그아웃시킬 수 있기 때문이다.
+  확인 페이지는 원래 파라미터를 hidden 필드로 되돌려 보내고, POST는 다시 파싱·검증한다. 확인 POST는 same-origin 검사(`Sec-Fetch-Site`/`Origin`)와 double-submit CSRF(`__Host-end_session_csrf` 쿠키, dev에서는 `end_session_csrf`: `HttpOnly`, `SameSite=Strict`, Path=`/`, `Secure=!DevMode`, [Spec 002](002-browser-login.md))가 모두 통과해야 하며, 불일치는 403이고 아무것도 종료하지 않는다. 확인 없이는 임의 사이트가 링크 하나로 방문자를 로그아웃시킬 수 있기 때문이다.
 - **완료**: 요청이 **실제로 가져온** `authgate_session`(발급 때와 같은 속성, 응답 헤더 `Max-Age=0`)과 CSRF 쿠키만 지운다. 교차 사이트 POST는 Lax 세션 쿠키를 보내지 않지만, 그 top-level 응답의 삭제 `Set-Cookie`는 브라우저가 적용하므로, 가져오지 않은 쿠키까지 지우면 확인 없이 로그아웃시키는 경로가 된다. 클라이언트에 등록된 `post_logout_redirect_uri`가 검증되었으면 `state`를 붙여 302로 보내고, 아니면 로그아웃 완료 페이지(200)를 렌더링한다. 빈 URL로는 리다이렉트하지 않는다. 현재 클라이언트 설정에는 `post_logout_redirect_uri` 등록 항목이 없으므로(`PostLogoutRedirectURIs()`가 빈 목록) 로그아웃은 항상 완료 페이지로 끝난다.
 - 로그아웃 뒤 다음 `/authorize`는 세션을 재사용하지 않고 상위 IdP로 보낸다. 잘못된 Google 계정에 묶인 브라우저가 계정을 바꾸는 경로다.
 - `auth.logout` 이벤트를 "세션 + 토큰 모두 무효화"로 해석해서는 안 된다. 감사 컨슈머는 refresh token 무효화 여부를 확인하려면 `auth.token_revoked` / `auth.refresh_family_revoked`를 함께 추적해야 한다.

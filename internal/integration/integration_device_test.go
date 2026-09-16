@@ -398,19 +398,19 @@ func TestIntegration_DeviceApprovePage_CSRFCookieIsStrict(t *testing.T) {
 
 	var csrf *http.Cookie
 	for _, c := range resp.Cookies() {
-		if c.Name == "csrf_token" {
+		if c.Name == "device_csrf" { // dev mode: the __Host- prefix needs Secure
 			csrf = c
 			break
 		}
 	}
 	if csrf == nil {
-		t.Fatal("approve page did not set a csrf_token cookie")
+		t.Fatal("approve page did not set a device_csrf cookie")
 	}
 	if csrf.SameSite != http.SameSiteStrictMode {
-		t.Errorf("csrf_token SameSite = %v, want Strict", csrf.SameSite)
+		t.Errorf("device_csrf SameSite = %v, want Strict", csrf.SameSite)
 	}
 	if !csrf.HttpOnly {
-		t.Error("csrf_token HttpOnly = false, want true")
+		t.Error("device_csrf HttpOnly = false, want true")
 	}
 }
 

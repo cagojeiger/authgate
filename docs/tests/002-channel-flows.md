@@ -84,7 +84,7 @@ Browser / Device / MCP / Refresh / Logout / Delete 각 채널이 공통 상태�
 | `device-007` | callback 시점 `active` | approve | 토큰 발급 성공 | approve 시점 재검사 통과 |
 | `device-008` | callback 시점 `active`, approve 직전 `pending_deletion` 또는 `disabled/deleted`로 변경 | approve | `account_inactive` | approve 시점 차단 |
 | `device-samesite` | 세션 없음 | `/device/auth/callback` | 302 `/device?user_code=…` + 세션 쿠키 `SameSite=Lax` | IdP 복귀 리다이렉트에서 쿠키 생존 ([Spec 003](../spec/003-device-login.md#세션-없이-승인-시-흐름)) |
-| `device-samesite-2` | 유효 세션 | `/device?user_code=…` | 승인 화면 + `csrf_token` `SameSite=Strict` | 세션만 완화하고 CSRF는 조이는 조합 유지 |
+| `device-samesite-2` | 유효 세션 | `/device?user_code=…` | 승인 화면 + device CSRF 쿠키 `SameSite=Strict` | 세션만 완화하고 CSRF는 조이는 조합 유지 |
 
 ## MCP
 
@@ -144,8 +144,9 @@ Browser / Device / MCP / Refresh / Logout / Delete 각 채널이 공통 상태�
 | `logout-012` | 유효 세션 | hint + `azp`와 다른 `client_id` | 400, 세션 유지 | 클라이언트 일치 |
 | `logout-013` | 비활성화된 계정 세션 | 확인 POST | 세션 폐기, 쿠키 만료 | 비활성 계정도 로그아웃 |
 | `logout-014` | 유효 세션 | 같은 hint로 3회 | `auth.logout` 1 | 종료한 것이 없으면 감사 없음 |
+| `logout-016` | 유효 세션 | 형제 서브도메인 확인 POST (`Sec-Fetch-Site: same-site`, 토큰 일치) | 403, 세션 유지, `auth.logout` 없음 | 서브도메인 쿠키 주입 차단 |
 | `logout-015` | 세션 1개 | `Storage.TerminateSession` 3회 | `auth.logout` 1 | 영향 행 0이면 감사 없음 |
-| `logout-unit-001` | 유효 세션 | `GET` (hint 없음) | 확인 페이지, CSRF 쿠키 `Strict`/`HttpOnly`/`Secure`/Path=`/end_session` | 쿠키 속성 |
+| `logout-unit-001` | 유효 세션 | `GET` (hint 없음) | 확인 페이지, CSRF 쿠키 `Strict`/`HttpOnly`/`Secure`/Path=`/`/Domain 없음 (`__Host-` 요건) | 쿠키 속성 |
 | `logout-unit-002` | 유효 세션 | 확인 POST (폼 토큰 누락/쿠키 누락/불일치) | 403, 종료 호출 없음, 세션 쿠키 미변경 | CSRF 가드 |
 | `logout-unit-003` | 유효 세션 | 확인 POST (CSRF 일치) | 종료 1회, 세션·CSRF 쿠키 만료 | 쿠키 삭제 |
 | `logout-unit-004` | — | 등록된 `post_logout_redirect_uri` + `client_id` + `state` | 302 `…?state=` | §3 리다이렉트 |
@@ -154,6 +155,11 @@ Browser / Device / MCP / Refresh / Logout / Delete 각 채널이 공통 상태�
 | `logout-unit-007` | 세션 조회 오류 | GET → 확인 POST | 확인 페이지 → 세션 쿠키 만료 | 장애 시에도 이 브라우저 로그아웃 |
 | `logout-unit-008` | — | 쿠키 없는 POST | Set-Cookie 없음 | 가져오지 않은 쿠키는 지우지 않음 |
 | `session-cookie-003` | — | `clearSessionCookie` | 발급과 같은 속성 + `Max-Age<0` | 브라우저가 같은 쿠키로 인식 |
+| `csrf-unit-001` | — | 쿠키 이름 계산 | 운영은 `__Host-` 접두사, dev는 접두사 없음 | 접두사 요건(Secure)과 localhost 비호환 |
+| `csrf-unit-002` | — | 발급/삭제 쿠키 | Path=`/`, Domain 없음, HttpOnly, Strict, Secure=!dev, 삭제 쿠키 속성 일치 | `__Host-` 요건·삭제 누락 방지 |
+| `csrf-unit-003` | 운영 모드 | 접두사 없는 쿠키 + 일치하는 폼 토큰 | 거부 (접두사 쿠키만 인정) | 형제 서브도메인 쿠키 주입 |
+| `csrf-unit-004` | — | `Sec-Fetch-Site`/`Origin` 조합 | `same-origin`·일치 Origin만 허용, `same-site`/`cross-site`/`null`/스킴 불일치 거부 | same-origin 판정 |
+| `csrf-unit-005` | dev 모드 | 형제 서브도메인 POST (CSRF 쿠키·토큰 일치, `Sec-Fetch-Site: same-site`) | 403 | 토큰을 아는 공격자도 차단 |
 
 ## Delete / Recover
 
