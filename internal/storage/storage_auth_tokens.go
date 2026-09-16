@@ -98,7 +98,7 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 	// Surface the plaintext code the caller supplied, not the stored hash.
 	ar.Code = &code
 	if s.clock.Now().After(ar.ExpiresAt) {
-		return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "authorization code expired"}
+		return nil, oidc.ErrInvalidGrant()
 	}
 	requestResource := ResourceFromContext(ctx)
 	if err := s.resourcePolicy.ValidateTokenRequest(ctx, ar.ClientID, ar.Resource, requestResource); err != nil {
@@ -107,19 +107,31 @@ func (s *Storage) AuthRequestByCode(ctx context.Context, code string) (op.AuthRe
 	// The client's access policy is evaluated again here, not only at the
 	// callback: a policy tightened between the callback and the exchange must
 	// not still mint tokens from a code issued before it.
+	//
+	// zitadel runs this before it verifies the PKCE challenge and before it
+	// authenticates the client (pkg/op/token_code.go AuthorizeCodeClient), so
+	// whoever holds the code reaches it without proving anything. Every
+	// refusal therefore answers with the same bare invalid_grant that an
+	// unknown code gets: the account's status and whether it may use this
+	// client are not facts to hand an unauthenticated caller. The reason is
+	// kept server-side, in the log line and in the auth.access_denied audit
+	// row.
 	access := s.ensureRegistry().staticAccess(ar.ClientID)
 	if (s.stateChecker != nil || access.Restricted()) && ar.Subject != nil && *ar.Subject != "" {
 		user, err := s.GetUserByID(ctx, *ar.Subject)
 		if err != nil {
-			return nil, &oidc.Error{ErrorType: "invalid_grant", Description: "subject lookup failed"}
+			slog.WarnContext(ctx, "code exchange: subject lookup failed", "client_id", ar.ClientID, "error", err)
+			return nil, oidc.ErrInvalidGrant()
 		}
 		if s.stateChecker != nil {
 			if err := s.stateChecker(user); err != nil {
-				return nil, &oidc.Error{ErrorType: "invalid_grant", Description: err.Error()}
+				slog.WarnContext(ctx, "code exchange refused: account state", "client_id", ar.ClientID, "reason", err.Error())
+				return nil, oidc.ErrInvalidGrant()
 			}
 		}
 		if err := s.enforceStaticClientAccess(ctx, access, ar.ClientID, s.ensureRegistry().staticLoginChannel(ar.ClientID), user); err != nil {
-			return nil, err
+			slog.WarnContext(ctx, "code exchange refused: client access policy", "client_id", ar.ClientID)
+			return nil, oidc.ErrInvalidGrant()
 		}
 	}
 	return ar, err

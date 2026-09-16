@@ -334,7 +334,7 @@ Gitea 는 `markbates/goth` 의 openidConnect 프로바이더를 쓰는데 `code_
 | `/mcp/callback`, `/mcp/login` 세션 재사용 | 〃 |
 | `prompt=none` | `login_required`가 아니라 `access_denied` (대화형 로그인으로도 풀리지 않으므로) |
 | `/device/auth/callback`, `/device/approve` | 403 "not allowed" 화면. 세션을 만들지 않거나 승인하지 않으며, device code는 pending으로 남는다 |
-| authorization code 교환 (`/oauth/token`) | `invalid_grant` (400). 콜백 뒤 교환 전에 정책이 바뀌어도 토큰이 나가지 않는다 |
+| authorization code 교환 (`/oauth/token`) | `invalid_grant` (400). 콜백 뒤 교환 전에 정책이 바뀌어도 토큰이 나가지 않는다. 이 검사는 zitadel이 PKCE와 클라이언트 인증을 확인하기 **전에** 호출하므로(`pkg/op/token_code.go` `AuthorizeCodeClient`), 거부 사유를 응답에 담지 않는다 — 계정 상태·정책 거부·subject 조회 실패·코드 만료가 모두 존재하지 않는 코드와 똑같은 `invalid_grant`로 나간다. 사유는 서버 로그(WARN)와 `auth.access_denied` 감사에만 남는다 |
 | device code polling (`/oauth/token`) | 400 `access_denied` (zitadel이 device grant의 저장소 오류를 이렇게 감싼다). 승인된 code는 서버에 `approved`로 남지만, RFC 8628 클라이언트는 `access_denied`를 받으면 polling을 멈추므로 보통 처음부터 다시 로그인해야 한다 |
 | refresh token 갱신 | `invalid_grant`. 토큰을 revoke하지 않으므로 정책을 되돌리면 다시 갱신된다 |
 
