@@ -53,6 +53,26 @@ func TestDeviceApprove_CSRF_MissingFormToken_Forbidden(t *testing.T) {
 	}
 }
 
+// 폼 토큰과 쿠키 토큰이 같고 같은 origin에서 오면 통과한다. 이것이 없으면
+// 위아래 403 테스트가 무엇을 막았는지 알 수 없다(폼 필드 이름이 틀려도 통과).
+func TestDeviceApprove_CSRF_Match_Passes(t *testing.T) {
+	h := newTestDeviceHandler()
+	form := url.Values{
+		"user_code":  {"TEST-CODE"},
+		"action":     {"approve"},
+		"csrf_token": {"same-token"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/device/approve", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.AddCookie(&http.Cookie{Name: deviceCSRFCookie, Value: "same-token"})
+	w := httptest.NewRecorder()
+	h.HandleDeviceApprove(w, req)
+	if w.Code == http.StatusForbidden {
+		t.Fatalf("status = 403; a matching token from our own page must pass the CSRF guard")
+	}
+}
+
 // 폼 토큰과 쿠키 토큰이 다르면 403.
 func TestDeviceApprove_CSRF_TokenMismatch_Forbidden(t *testing.T) {
 	h := newTestDeviceHandler()
@@ -63,7 +83,7 @@ func TestDeviceApprove_CSRF_TokenMismatch_Forbidden(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/device/approve", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "different-token-xyz"})
+	req.AddCookie(&http.Cookie{Name: deviceCSRFCookie, Value: "different-token-xyz"})
 	w := httptest.NewRecorder()
 	h.HandleDeviceApprove(w, req)
 	if w.Code != http.StatusForbidden {

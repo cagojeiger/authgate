@@ -2,7 +2,6 @@ package handler
 
 import (
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 
@@ -52,15 +51,7 @@ func (h *DeviceHandler) HandleDevicePage(w http.ResponseWriter, r *http.Request)
 			_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: http.StatusInternalServerError, Message: "internal error"})
 			return
 		}
-		//nolint:gosec // Secure=false is allowed only in explicit DEV_MODE for localhost device flow.
-		http.SetCookie(w, &http.Cookie{
-			Name:     "csrf_token",
-			Value:    csrfToken,
-			Path:     "/device",
-			HttpOnly: true,
-			SameSite: http.SameSiteStrictMode,
-			Secure:   !h.devMode,
-		})
+		setCSRFCookie(w, deviceCSRFCookie, csrfToken, h.devMode)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = pages.RenderDeviceApprove(w, pages.DeviceApproveData{
 			Brand:     h.brand,
@@ -113,13 +104,10 @@ func (h *DeviceHandler) HandleDeviceApprove(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// CSRF check
-	formToken := r.FormValue("csrf_token")
-	cookieToken := ""
-	if c, err := r.Cookie("csrf_token"); err == nil {
-		cookieToken = c.Value
-	}
-	if formToken == "" || subtle.ConstantTimeCompare([]byte(formToken), []byte(cookieToken)) != 1 {
+	// CSRF: the browser's own same-origin signal first, then the double-submit
+	// token. Either one failing means this POST did not come from the approval
+	// page authgate rendered.
+	if !sameOriginPost(r, h.devMode) || !validCSRFToken(r, deviceCSRFCookie, r.FormValue("csrf_token"), h.devMode) {
 		w.WriteHeader(http.StatusForbidden)
 		_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: 403, Message: "CSRF validation failed"})
 		return

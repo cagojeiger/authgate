@@ -131,9 +131,12 @@ func TestEndSession_SessionWithoutHint_AsksForConfirmation(t *testing.T) {
 	if !strings.Contains(body, `name="csrf_token"`) || !strings.Contains(body, `name="state" value="abc"`) {
 		t.Fatalf("confirmation page is missing the csrf token or the carried state:\n%s", body)
 	}
-	c := findCookie(t, rec.Result().Cookies(), logoutCSRFCookieName)
-	if c.Path != "/end_session" || c.SameSite != http.SameSiteStrictMode || !c.HttpOnly || !c.Secure {
-		t.Errorf("csrf cookie = %+v, want Path=/end_session, Strict, HttpOnly, Secure", c)
+	c := findCookie(t, rec.Result().Cookies(), csrfCookieName(logoutCSRFCookie, false))
+	// __Host- is only honored with Path=/ and Secure, and the browser refuses
+	// a Domain attribute on it, which is what keeps a sibling subdomain from
+	// writing this cookie.
+	if c.Path != "/" || c.Domain != "" || c.SameSite != http.SameSiteStrictMode || !c.HttpOnly || !c.Secure {
+		t.Errorf("csrf cookie = %+v, want Path=/, no Domain, Strict, HttpOnly, Secure", c)
 	}
 	if !strings.Contains(body, `value="`+c.Value+`"`) {
 		t.Error("csrf form value does not match the csrf cookie")
@@ -149,9 +152,9 @@ func TestEndSession_ConfirmWithoutValidCSRF_Forbidden(t *testing.T) {
 		formToken string
 		cookie    *http.Cookie
 	}{
-		"missing form token": {formToken: "", cookie: &http.Cookie{Name: logoutCSRFCookieName, Value: "tok"}},
+		"missing form token": {formToken: "", cookie: &http.Cookie{Name: csrfCookieName(logoutCSRFCookie, false), Value: "tok"}},
 		"missing cookie":     {formToken: "tok"},
-		"mismatch":           {formToken: "tok", cookie: &http.Cookie{Name: logoutCSRFCookieName, Value: "other"}},
+		"mismatch":           {formToken: "tok", cookie: &http.Cookie{Name: csrfCookieName(logoutCSRFCookie, false), Value: "other"}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -187,7 +190,7 @@ func TestEndSession_ConfirmedWithValidCSRF_EndsSessionAndClearsCookies(t *testin
 
 	h.HandleEndSession(rec, postEndSession(
 		url.Values{"confirm": {"yes"}, "csrf_token": {"tok"}},
-		browserSession, &http.Cookie{Name: logoutCSRFCookieName, Value: "tok"},
+		browserSession, &http.Cookie{Name: csrfCookieName(logoutCSRFCookie, false), Value: "tok"},
 	))
 
 	if rec.Code != http.StatusOK {
@@ -200,7 +203,7 @@ func TestEndSession_ConfirmedWithValidCSRF_EndsSessionAndClearsCookies(t *testin
 	if c := findCookie(t, cookies, sessionCookieName); c.MaxAge >= 0 || c.Value != "" {
 		t.Errorf("session cookie = %+v, want it expired", c)
 	}
-	if c := findCookie(t, cookies, logoutCSRFCookieName); c.MaxAge >= 0 {
+	if c := findCookie(t, cookies, csrfCookieName(logoutCSRFCookie, false)); c.MaxAge >= 0 {
 		t.Errorf("csrf cookie = %+v, want it expired", c)
 	}
 }
@@ -277,7 +280,7 @@ func TestEndSession_SessionLookupError_ConfirmThenClearsCookie(t *testing.T) {
 		t.Fatalf("status = %d, want 200 confirmation page; body=%s", rec.Code, rec.Body.String())
 	}
 
-	csrf := &http.Cookie{Name: logoutCSRFCookieName, Value: "tok"}
+	csrf := &http.Cookie{Name: csrfCookieName(logoutCSRFCookie, false), Value: "tok"}
 	rec = httptest.NewRecorder()
 	h.HandleEndSession(rec, postEndSession(url.Values{"csrf_token": {"tok"}, "confirm": {"yes"}}, browserSession, csrf))
 	if rec.Code != http.StatusOK {

@@ -20,7 +20,8 @@ const sessionCookieName = "authgate_session"
 // Lax costs little here. It only adds the cookie to top-level cross-site GET
 // navigations, and no GET endpoint acts on its own: /device merely renders the
 // consent screen, and the state-changing POST /device/approve is guarded by
-// the double-submit csrf_token, which stays Strict.
+// the same-origin check and the double-submit __Host-device_csrf cookie, which
+// stays Strict (see csrf.go).
 func setSessionCookie(w http.ResponseWriter, sessionID string, devMode bool) {
 	//nolint:gosec // Secure=false is allowed only in explicit DEV_MODE for localhost development.
 	http.SetCookie(w, &http.Cookie{
