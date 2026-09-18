@@ -33,26 +33,7 @@ func (h *LoginHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	result := h.loginService.HandleLogin(r.Context(), authRequestID, sessionID, info.IP, info.UserAgent)
 
-	switch result.Action {
-	case service.ActionRedirectToIdP:
-		var opts []upstream.RedirectOption
-		if result.UpstreamPrompt != "" {
-			opts = append(opts, upstream.WithPrompt(result.UpstreamPrompt))
-		}
-		h.provider.Redirect(w, r, result.AuthRequestID, opts...)
-
-	case service.ActionAutoApprove:
-		// Redirect back to zitadel's authorize callback
-		//nolint:gosec // Internal redirect to the fixed OIDC callback with a service-issued auth request ID.
-		http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
-
-	case service.ActionRedirectToClient:
-		//nolint:gosec // Authorization error response to the auth request's redirect_uri, which zitadel validated against the client.
-		http.Redirect(w, r, result.RedirectURL, http.StatusFound)
-
-	case service.ActionError:
-		h.renderError(w, result.ErrorCode, result.Error)
-	}
+	writeLoginResult(w, r, result, h.provider, h.brand)
 }
 
 // HandleCallback handles GET /login/callback?code=xxx&state=authRequestID
@@ -62,26 +43,6 @@ func (h *LoginHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	h.provider.Callback(w, r, func(w http.ResponseWriter, r *http.Request, state string, userInfo *upstream.UserInfo) {
 		result := h.loginService.CompleteBrowserLogin(r.Context(), state, userInfo, info.IP, info.UserAgent)
 
-		switch result.Action {
-		case service.ActionAutoApprove:
-			if result.SessionID != "" {
-				setSessionCookie(w, result.SessionID, h.devMode)
-			}
-			//nolint:gosec // Internal redirect to the fixed OIDC callback with a service-issued auth request ID.
-			http.Redirect(w, r, "/authorize/callback?id="+result.AuthRequestID, http.StatusFound)
-
-		case service.ActionRedirectToClient:
-			//nolint:gosec // Authorization error response to the auth request's redirect_uri, which zitadel validated against the client.
-			http.Redirect(w, r, result.RedirectURL, http.StatusFound)
-
-		case service.ActionError:
-			h.renderError(w, result.ErrorCode, result.Error)
-		}
+		writeCallbackResult(w, r, result, h.devMode, h.brand)
 	})
-}
-
-func (h *LoginHandler) renderError(w http.ResponseWriter, code int, message string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(code)
-	_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: code, Message: message})
 }

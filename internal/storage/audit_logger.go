@@ -52,7 +52,7 @@ func (a *auditLogger) Log(ctx context.Context, userID *string, eventType, ipAddr
 
 // LogTx inserts an audit row using the supplied transaction queries so the row
 // commits atomically with the surrounding business write (see the refresh-reuse
-// path in storage_auth_tokens.go). Unlike Log it returns the error instead of
+// path in refresh_revocation.go). Unlike Log it returns the error instead of
 // swallowing it, so transactional callers can roll back.
 func (a *auditLogger) LogTx(ctx context.Context, qtx *storeq.Queries, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
 	params, err := a.prepareRow(ctx, userID, eventType, ipAddress, userAgent, metadata)

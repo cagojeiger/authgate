@@ -41,6 +41,11 @@
 
 ## 실행 메모
 
+기본 검증 경로는 `main` 대상 PR의 [GitHub Actions CI](../../.github/workflows/ci.yml)다.
+빌드·단위/통합 테스트·race·포맷·vet·lint·SQLC·취약점 검사는 CI에서 실행하고,
+실패한 job의 로그를 확인한 뒤 수정 커밋으로 다시 검증한다.
+명시적인 로컬 재현 요청이 없으면 CI용 검사를 로컬에서 반복하거나 도구를 설치하지 않는다.
+
 ```text
 문서 = 테스트 설계
 코드 = internal/*_test.go
@@ -51,6 +56,18 @@
 ```
 
 ## 테스트 원칙
+
+구조 리팩토링의 HTTP/서비스 계약 회귀 테스트:
+
+- `internal/handler/login_response_test.go`: upstream state/prompt 전달,
+  성공한 callback에서만 세션 쿠키 발급, production 쿠키 속성,
+  오류 redirect/HTML 응답 및 미지원 action의 채널별 처리 경계.
+- `internal/service/login_request_test.go`: Browser/MCP 양쪽의 인증 요청 조회 오류,
+  특히 login entry(400)와 callback(500)의 기존 만료 응답 차이 유지.
+- 기존 `max_age_unit_test.go`, `login_unit_test.go`, `client_access_unit_test.go`와
+  storage의 refresh/grace/revocation 통합 테스트는 그대로 유지한다.
+
+구조와 트랜잭션 책임은 [Code Structure](../architecture/README.md)를 참조한다.
 
 1. 각 테스트는 **초기 상태**, **입력**, **기대 결과**, **검증 포인트**를 반드시 가진다.
 2. `user.Status` 기반 상태 판정은 모든 채널 테스트의 source of truth다.

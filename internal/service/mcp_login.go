@@ -98,12 +98,9 @@ func (s *MCPLoginService) CompleteMCPLogin(ctx context.Context, state string, in
 	}
 
 	// Fetch the stored auth request to validate resource binding before completing it.
-	authReq, err := s.store.GetAuthRequestModel(ctx, authRequestID)
-	if errors.Is(err, storage.ErrNotFound) {
-		return &CallbackResult{Action: ActionError, Error: "auth_request_not_found", ErrorCode: http.StatusBadRequest}
-	}
-	if err != nil {
-		return &CallbackResult{Action: ActionError, Error: "internal_error", ErrorCode: http.StatusInternalServerError}
+	authReq, result := loadCallbackAuthRequest(ctx, s.store, authRequestID)
+	if result != nil {
+		return result
 	}
 
 	// Resource binding validation (Spec 004): MCP auth requests must have a resource set.

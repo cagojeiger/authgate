@@ -63,13 +63,13 @@ func (h *LogoutHandler) HandleEndSession(w http.ResponseWriter, r *http.Request)
 
 	req, err := op.ParseEndSessionRequest(r, h.provider.Decoder())
 	if err != nil {
-		h.renderError(w, http.StatusBadRequest, "invalid logout request")
+		renderError(w, h.brand, http.StatusBadRequest, "invalid logout request")
 		return
 	}
 
 	confirmed := r.Method == http.MethodPost && r.PostForm.Get("confirm") != ""
 	if confirmed && !h.validLogoutCSRF(r) {
-		h.renderError(w, http.StatusForbidden, "CSRF validation failed")
+		renderError(w, h.brand, http.StatusForbidden, "CSRF validation failed")
 		return
 	}
 
@@ -86,7 +86,7 @@ func (h *LogoutHandler) HandleEndSession(w http.ResponseWriter, r *http.Request)
 	}
 	if err != nil {
 		slog.InfoContext(ctx, "end_session: invalid request", "error", err)
-		h.renderError(w, http.StatusBadRequest, "invalid logout request")
+		renderError(w, h.brand, http.StatusBadRequest, "invalid logout request")
 		return
 	}
 
@@ -109,7 +109,7 @@ func (h *LogoutHandler) HandleEndSession(w http.ResponseWriter, r *http.Request)
 	if browserUserID != "" {
 		if err := h.store.TerminateSession(ctx, browserUserID, session.ClientID); err != nil {
 			slog.ErrorContext(ctx, "end_session: terminate session", "error", err)
-			h.renderError(w, http.StatusInternalServerError, "internal error")
+			renderError(w, h.brand, http.StatusInternalServerError, "internal error")
 			return
 		}
 	}
@@ -156,7 +156,7 @@ func (h *LogoutHandler) browserUserID(ctx context.Context, r *http.Request) (str
 func (h *LogoutHandler) renderConfirm(w http.ResponseWriter, r *http.Request) {
 	csrfToken, err := generateCSRFToken()
 	if err != nil {
-		h.renderError(w, http.StatusInternalServerError, "internal error")
+		renderError(w, h.brand, http.StatusInternalServerError, "internal error")
 		return
 	}
 	setCSRFCookie(w, logoutCSRFCookie, csrfToken, h.devMode)
@@ -177,12 +177,6 @@ func (h *LogoutHandler) renderConfirm(w http.ResponseWriter, r *http.Request) {
 
 func (h *LogoutHandler) clearCSRFCookie(w http.ResponseWriter) {
 	clearCSRFCookie(w, logoutCSRFCookie, h.devMode)
-}
-
-func (h *LogoutHandler) renderError(w http.ResponseWriter, code int, message string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(code)
-	_ = pages.RenderError(w, pages.ErrorData{Brand: h.brand, Code: code, Message: message})
 }
 
 // validLogoutCSRF checks the browser's same-origin signal and the
