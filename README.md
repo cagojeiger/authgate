@@ -80,10 +80,13 @@ examples/
 migrations/           schema SQL (apply in order)
 docs/
   adr/                architecture decisions
+  architecture/       package boundaries and code navigation
   spec/               product and protocol contracts
   security/           audit and compliance evidence mapping
   tests/              test design documents
 ```
+
+See [Code Structure](docs/architecture/README.md) for package responsibilities and authentication invariants.
 
 ## Quick Start (Docker Compose)
 

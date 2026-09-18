@@ -188,7 +188,7 @@ func (s *Storage) AuditLog(ctx context.Context, userID *string, eventType, ipAdd
 
 // writeAuditLogTx inserts an audit row inside the supplied transaction so the
 // row commits atomically with the surrounding business write (see the
-// refresh-reuse path in storage_auth_tokens.go).
+// refresh-reuse path in refresh_revocation.go).
 func (s *Storage) writeAuditLogTx(ctx context.Context, qtx *storeq.Queries, userID *string, eventType, ipAddress, userAgent string, metadata map[string]any) error {
 	return s.ensureAudit().LogTx(ctx, qtx, userID, eventType, ipAddress, userAgent, metadata)
 }
