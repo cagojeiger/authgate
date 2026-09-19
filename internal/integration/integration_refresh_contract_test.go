@@ -34,6 +34,7 @@ func TestIntegration_InvalidRefreshRequestPreservesGrant(t *testing.T) {
 	for _, field := range []string{"scope", "client_id"} {
 		t.Run(field, func(t *testing.T) {
 			ts := SetupTestServerWithOptions(t, SetupOptions{RefreshReuseGrace: 5 * time.Second})
+			ts.Clock.T = time.Now().UTC()
 			client := NewOAuthClient(t, ts.BaseURL)
 			tokens := completeLoginFlow(t, ts)
 			if tokens.StatusCode != 200 {
@@ -59,6 +60,7 @@ func TestIntegration_InvalidRefreshRequestPreservesGrant(t *testing.T) {
 
 func TestIntegration_RefreshNarrowingPreservesOriginalGrantScope(t *testing.T) {
 	ts := SetupTestServer(t)
+	ts.Clock.T = time.Now().UTC()
 	client := NewOAuthClient(t, ts.BaseURL)
 	tokens := completeLoginFlow(t, ts)
 	if tokens.StatusCode != 200 {
@@ -90,6 +92,7 @@ func TestIntegration_RefreshNarrowingPreservesOriginalGrantScope(t *testing.T) {
 
 func TestIntegration_RefreshInsertFailureRollsBackConsumption(t *testing.T) {
 	ts := SetupTestServer(t)
+	ts.Clock.T = time.Now().UTC()
 	client := NewOAuthClient(t, ts.BaseURL)
 	tokens := completeLoginFlow(t, ts)
 	if tokens.StatusCode != 200 {
@@ -112,6 +115,7 @@ func TestIntegration_RefreshInsertFailureRollsBackConsumption(t *testing.T) {
 
 func TestIntegration_RevokeBackendFailureIsNotSuccess(t *testing.T) {
 	ts := SetupTestServer(t)
+	ts.Clock.T = time.Now().UTC()
 	tokens := completeLoginFlow(t, ts)
 	if tokens.StatusCode != 200 {
 		t.Fatal(tokens.RawBody)
@@ -148,6 +152,7 @@ func TestIntegration_RevokeBackendFailureIsNotSuccess(t *testing.T) {
 
 func TestIntegration_ConfidentialRefreshGraceRequiresClientAuthentication(t *testing.T) {
 	ts := SetupTestServerWithOptions(t, SetupOptions{RefreshReuseGrace: 5 * time.Second})
+	ts.Clock.T = time.Now().UTC()
 	tokens := completeLoginFlow(t, ts)
 	if tokens.StatusCode != 200 {
 		t.Fatal(tokens.RawBody)

@@ -5,7 +5,9 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"strings"
 	"testing"
 	"time"
@@ -173,8 +175,9 @@ func TestE2E4_DeleteThenRecoverFullCycle(t *testing.T) {
 
 	// 2. Refresh should fail immediately
 	_, err := fx.Store.TokenRequestByRefreshToken(ctx, refreshToken)
-	if err == nil || !strings.Contains(err.Error(), "invalid_refresh_token") {
-		t.Fatalf("step 2: refresh should fail with invalid_refresh_token, got err=%v", err)
+	var oauthErr *oidc.Error
+	if !errors.As(err, &oauthErr) || oauthErr.ErrorType != oidc.InvalidGrant {
+		t.Fatalf("step 2: refresh should fail with invalid_grant, got err=%v", err)
 	}
 
 	// 3. Device/MCP should be rejected

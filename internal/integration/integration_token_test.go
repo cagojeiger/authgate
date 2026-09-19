@@ -82,7 +82,7 @@ func TestIntegration_PublicRefreshReplayIgnoresGrace(t *testing.T) {
 		t.Fatal(child.RawBody)
 	}
 	replay := client.RefreshToken(tokens.RefreshToken)
-	if replay.StatusCode != 400 || replay.Error != "invalid_grant" {
+	if replay.StatusCode != 400 || !strings.Contains(replay.RawBody, `"error":"invalid_grant"`) {
 		t.Fatalf("replay: %d %s", replay.StatusCode, replay.RawBody)
 	}
 	if r := client.RefreshToken(child.RefreshToken); r.StatusCode != 400 {
