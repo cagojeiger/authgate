@@ -5,9 +5,9 @@ OAuth/OIDC 보안 인증이나 운영 배포 완료를 뜻하지 않는다.
 
 ## 변경 단위와 원칙
 
-1. [PR 391](https://github.com/cagojeiger/authgate/pull/391): 인증 코드의 조건부 일회성 소비.
-2. [PR 392](https://github.com/cagojeiger/authgate/pull/392): access-token 용도/profile 검증과 UserInfo scope.
-3. [PR 393](https://github.com/cagojeiger/authgate/pull/393): refresh 소비·발급·폐기 transaction과 관련 scope/오류 계약.
+1. [PR 391](https://github.com/project-jelly/authgate/pull/391): 인증 코드의 조건부 일회성 소비.
+2. [PR 392](https://github.com/project-jelly/authgate/pull/392): access-token 용도/profile 검증과 UserInfo scope.
+3. [PR 393](https://github.com/project-jelly/authgate/pull/393): refresh 소비·발급·폐기 transaction과 관련 scope/오류 계약.
 
 이 순서로 검토한다. 마지막 변경의 CI는 앞선 변경을 포함한 조합을 검증한다.
 zitadel provider, 기존 Storage facade와 sqlc를 유지한다. 디렉터리 크기 대신

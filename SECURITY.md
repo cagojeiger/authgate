@@ -12,7 +12,7 @@
 
 Use GitHub's private vulnerability reporting:
 
-1. Go to **[Security Advisories](https://github.com/cagojeiger/authgate/security/advisories/new)**
+1. Go to **[Security Advisories](https://github.com/project-jelly/authgate/security/advisories/new)**
 2. Click **"New draft security advisory"**
 3. Describe the vulnerability, reproduction steps, and impact
 

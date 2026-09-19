@@ -9,6 +9,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /authgate ./cmd/authgate/
 
 FROM alpine:3.23
+LABEL org.opencontainers.image.source="https://github.com/project-jelly/authgate"
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /authgate /authgate
 COPY migrations/ /migrations/
