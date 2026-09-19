@@ -86,6 +86,7 @@ func registerOAuthMetadataRoute(mux *http.ServeMux, cfg *config.Config) {
 
 func registerProviderRoutes(mux *http.ServeMux, cfg *config.Config, store *storage.Storage, provider http.Handler, lim routeLimiters) {
 	tokenLimiter, authLimiter := lim.token, lim.auth
+	provider = storage.WrapVerifiedAccessToken(provider, cfg.PublicURL)
 
 	authorize := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resource, err := storage.ResourceFromRequestStrict(r)

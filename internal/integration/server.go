@@ -307,7 +307,7 @@ func SetupTestServerWithOptions(t *testing.T, opts SetupOptions) *TestServer {
 		}
 		provider.ServeHTTP(w, r)
 	}))
-	mux.Handle("/", provider)
+	mux.Handle("/", storage.WrapVerifiedAccessToken(provider, srv.URL))
 	mux.HandleFunc("/login", loginHandler.HandleLogin)
 	mux.HandleFunc("/login/callback", loginHandler.HandleCallback)
 	if opts.EnableMCP {

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -31,9 +30,8 @@ import (
 // re-signed with a recomputed `at_hash` so strict OIDC clients don't reject
 // the response.
 //
-// On any error during the rewrite, the original response body is
-// preserved unchanged so the rewrite cannot make the endpoint less
-// available than it would be otherwise.
+// Rewrite failure returns server_error without disclosing any tokens. A grant
+// already committed by the provider stays consumed; signing is outside its DB tx.
 func WrapAccessTokenJWTType(inner http.Handler, store *Storage) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := newCaptureRW(w)
@@ -42,19 +40,15 @@ func WrapAccessTokenJWTType(inner http.Handler, store *Storage) http.Handler {
 		body := rec.body.Bytes()
 		if rec.code == http.StatusOK && len(body) > 0 {
 			upgraded, err := upgradeAccessTokenTyp(r.Context(), store, body)
-			switch {
-			case err == nil:
+			switch err {
+			case nil:
 				body = upgraded
-			case errors.Is(err, errSkipUpgrade):
-				// Response is not eligible (no access_token, not a JWS).
-				// Forward the original body unchanged.
 			default:
-				// A real error means we'd be serving a typ=JWT access token
-				// despite the fix. Preserve availability (forward original
-				// body) but log loudly so the regression is visible.
-				slog.ErrorContext(r.Context(), "at+jwt typ rewrite failed; serving typ=JWT access token",
-					"error", err,
-				)
+				slog.ErrorContext(r.Context(), "access token profile rewrite failed", "error", err)
+				rec.code = http.StatusInternalServerError
+				body = []byte(`{"error":"server_error"}`)
+				rec.Header().Set("Content-Type", "application/json")
+
 			}
 		}
 
@@ -76,9 +70,7 @@ func WrapAccessTokenJWTType(inner http.Handler, store *Storage) http.Handler {
 // the `access_token` field, and if it is a compact JWS, re-signs the payload
 // with typ=at+jwt using the storage's signing key. It also adds a JWT `scope`
 // claim from the token response when one is available and missing from the
-// access token. Returns the (possibly modified) body. A non-nil error means
-// the caller should keep the original body — callers MUST treat error as a
-// signal to fall back, not propagate.
+// access token. Returns the modified body or an error; errors must never release the original tokens.
 func upgradeAccessTokenTyp(ctx context.Context, store *Storage, body []byte) ([]byte, error) {
 	var resp map[string]json.RawMessage
 	if err := json.Unmarshal(body, &resp); err != nil {
