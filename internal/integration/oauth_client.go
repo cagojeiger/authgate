@@ -25,6 +25,7 @@ type OAuthClient struct {
 	CodeChallenge        string
 	// Prompt is sent as the OIDC prompt parameter when non-empty.
 	Prompt string
+	Scope  string
 	Client *http.Client
 }
 
@@ -92,6 +93,9 @@ func (c *OAuthClient) AuthorizeURL() string {
 	}
 	if c.Prompt != "" {
 		params.Set("prompt", c.Prompt)
+	}
+	if c.Scope != "" {
+		params.Set("scope", c.Scope)
 	}
 	return c.BaseURL + "/authorize?" + params.Encode()
 }

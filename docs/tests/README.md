@@ -46,6 +46,10 @@
 실패한 job의 로그를 확인한 뒤 수정 커밋으로 다시 검증한다.
 명시적인 로컬 재현 요청이 없으면 CI용 검사를 로컬에서 반복하거나 도구를 설치하지 않는다.
 
+`internal/integration/integration_grant_contract_test.go`는 실제 HTTP와
+PostgreSQL 잠금으로 인증 코드 동시 소비(최대 1회), 잘못된 요청 뒤 정상
+재시도, refresh INSERT 실패 시 code 소비 rollback을 검증한다.
+
 ```text
 문서 = 테스트 설계
 코드 = internal/*_test.go

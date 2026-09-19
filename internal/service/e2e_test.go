@@ -15,6 +15,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/storage"
 	"github.com/kangheeyong/authgate/internal/testutil"
 	"github.com/kangheeyong/authgate/internal/upstream"
+	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
 type e2eFixture struct {
@@ -60,9 +61,8 @@ func setupE2ETest(t *testing.T) *e2eFixture {
 
 func createRefreshTokenForUser(t *testing.T, ctx context.Context, store *storage.Storage, userID string) string {
 	t.Helper()
-	subject := userID
-	_, refreshToken, _, err := store.CreateAccessAndRefreshTokens(ctx, &storage.AuthRequestModel{
-		Subject:  &subject,
+	_, refreshToken, _, err := store.CreateAccessAndRefreshTokens(ctx, &op.DeviceAuthorizationState{
+		Subject:  userID,
 		ClientID: "test-client",
 		Scopes:   storage.StringArray{"openid", "profile", "email", "offline_access"},
 	}, "")

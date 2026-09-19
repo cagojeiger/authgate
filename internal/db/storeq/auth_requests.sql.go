@@ -13,6 +13,36 @@ import (
 	"github.com/lib/pq"
 )
 
+const consumeAuthCode = `-- name: ConsumeAuthCode :execrows
+DELETE FROM auth_requests
+WHERE id = $1
+  AND client_id = $2
+  AND code = $3
+  AND done = TRUE
+  AND expires_at > $4
+`
+
+type ConsumeAuthCodeParams struct {
+	ID       string
+	ClientID string
+	Code     sql.NullString
+	Now      time.Time
+}
+
+// Issuance is the one-shot boundary, after the provider validated the request.
+func (q *Queries) ConsumeAuthCode(ctx context.Context, arg ConsumeAuthCodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, consumeAuthCode,
+		arg.ID,
+		arg.ClientID,
+		arg.Code,
+		arg.Now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteAuthRequestByID = `-- name: DeleteAuthRequestByID :exec
 DELETE FROM auth_requests
 WHERE id = $1
