@@ -53,15 +53,35 @@ func (s *Storage) SetUserinfoFromScopes(ctx context.Context, userinfo *oidc.User
 }
 
 func (s *Storage) SetUserinfoFromToken(ctx context.Context, userinfo *oidc.UserInfo, tokenID, subject, origin string) error {
-	return s.setUserinfo(ctx, userinfo, subject, []string{"openid", "profile", "email"})
+	claims, err := verifiedTokenClaims(ctx, tokenID, subject)
+	if err != nil {
+		return err
+	}
+	return s.setUserinfo(ctx, userinfo, subject, claims.Scopes)
 }
 
 func (s *Storage) SetIntrospectionFromToken(ctx context.Context, introspection *oidc.IntrospectionResponse, tokenID, subject, clientID string) error {
+	claims, err := verifiedTokenClaims(ctx, tokenID, subject)
+	if err != nil {
+		return err
+	}
+	if claims.ClientID != clientID {
+		return errors.New("token belongs to another client")
+	}
 	var ui oidc.UserInfo
-	if err := s.setUserinfo(ctx, &ui, subject, []string{"openid", "profile", "email"}); err != nil {
+	if err := s.setUserinfo(ctx, &ui, subject, claims.Scopes); err != nil {
 		return err
 	}
 	introspection.SetUserInfo(&ui)
+	introspection.Scope = claims.Scopes
+	introspection.ClientID = claims.ClientID
+	introspection.TokenType = "Bearer"
+	introspection.Expiration = claims.Expiration
+	introspection.IssuedAt = claims.IssuedAt
+	introspection.NotBefore = claims.NotBefore
+	introspection.Audience = claims.Audience
+	introspection.Issuer = claims.Issuer
+	introspection.JWTID = claims.JWTID
 	return nil
 }
 

@@ -237,3 +237,16 @@ func TestRegisterAuthgateRoutes_RateLimitsSensitiveAuthgateEndpoints(t *testing.
 		})
 	}
 }
+
+func TestRegisterProviderRoutes_UserinfoFailsWithoutTokenVerifier(t *testing.T) {
+	mux := http.NewServeMux()
+	reached := false
+	provider := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true })
+	cfg := rateLimitTestConfig()
+	registerProviderRoutes(mux, cfg, nil, provider, newRouteLimiters(cfg))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/userinfo", nil))
+	if rec.Code != http.StatusUnauthorized || reached {
+		t.Fatalf("userinfo bypassed access-token adapter: %d, reached=%v", rec.Code, reached)
+	}
+}

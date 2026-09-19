@@ -78,3 +78,8 @@ PostgreSQL 잠금으로 인증 코드 동시 소비(최대 1회), 잘못된 요�
 3. Browser / Device / MCP / Refresh는 서로 다른 구현이 아니라 **동일 상태기계의 다른 진입점**으로 검증한다.
 4. `pending_deletion`은 Browser에서만 복구 가능함을 반드시 검증한다.
 5. `deleted`는 종단 상태이며, 재가입은 반드시 신규 가입으로 다시 시작해야 한다.
+
+`integration_access_token_validation_test.go`는 실제 발급/refresh 토큰으로
+UserInfo의 용도·서명·필수 claims·audience·scope와 introspection의 client 결합을
+검증한다. `access_token_validation_test.go`는 검증되지 않은 Storage callback과
+재서명 실패 시 토큰 노출을 막는다. app route 테스트는 UserInfo adapter 연결도 확인한다.

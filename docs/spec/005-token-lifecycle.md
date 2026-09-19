@@ -409,3 +409,30 @@ WHERE expires_at < NOW() - INTERVAL '1 hour';
 | [Spec 004](004-mcp-login.md) | 토큰 최초 발급 (MCP) |
 | [Spec 007](007-data-model.md) | refresh_tokens 테이블 (token_hash, family_id) |
 | [Spec 009](009-operations.md) | 키 로테이션 절차 |
+
+### UserInfo와 introspection의 access-token 경계
+
+`GET/POST /userinfo`와 `/oauth/introspect`는 `WrapVerifiedAccessToken`에서
+RS256 서명·issuer·만료를 기존 provider verifier로 확인하고, RFC 8725 §3.12와
+[RFC 9068 §2, §4](https://www.rfc-editor.org/rfc/rfc9068.html#section-4)의
+access-token profile을 추가 검사한다. 보호된 `typ`는 `at+jwt` 또는
+`application/at+jwt`, 필수 claims는 `iss/sub/aud/exp/iat/jti/client_id`다.
+미래 `iat/nbf`, 빈 audience, 서명 오류, ID token은 거절한다.
+Storage callback은 검증된 claims와 token ID/subject가 일치할 때만 신원 정보를 읽는다.
+
+AuthGate의 일반 OIDC 토큰은 `aud=client_id`를 사용한다. UserInfo는 이 audience와
+`openid` scope를 요구한다. 외부 API에 resource-bound된 토큰은 그 API 용도이므로
+UserInfo에서 받지 않는다. 잘못된 token은 401 `invalid_token`, 부족한 scope는
+403 `insufficient_scope`로 답한다. 검증된 scope의 `profile`은 이름,
+`email`은 이메일과 검증 여부를 허용한다. `openid`만 있으면 `sub`만 반환한다.
+이는 [OIDC Core §5.3–5.4](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo)의
+scope/claims 관계에 따른 AuthGate의 최소 공개 정책이다.
+
+Introspection은 provider의 client 인증을 항상 거친다. 인증한 client가 토큰의
+`client_id`와 같아야 `active=true`와 검증된 scope/audience/만료 정보를 반환한다.
+다른 client 또는 다른 token 종류는 `active=false`이며 개인정보를 반환하지 않는다.
+
+발급 시 JWT profile 재서명에 실패하면 토큰을 포함하지 않은 `server_error`(500)를
+반환한다. DB에서 이미 확정한 grant 소비는 서명/응답 실패로 되돌리지 않는다.
+기존 `at+jwt` 토큰은 유효 기간 내 계속 사용할 수 있다. 과거 재서명 실패로 발급된
+`typ=JWT` access token은 거절하며 재인증이 필요하다. ID token의 `at_hash` 재결합은 유지한다.
