@@ -105,10 +105,8 @@ type RefreshTokenModel struct {
 	ExpiresAt time.Time
 	RevokedAt *time.Time
 	UsedAt    *time.Time
-	// graceRedemption marks a request TokenRequestByRefreshToken let through
-	// under the refresh reuse grace, so CreateAccessAndRefreshTokens re-checks
-	// and audits that request, whichever order concurrent requests insert in.
-	graceRedemption bool
+	// scopes are the original grant; currentScopes only narrows this access token.
+	currentScopes []string
 }
 
 func (r *RefreshTokenModel) GetAMR() []string { return nil }
@@ -118,11 +116,18 @@ func (r *RefreshTokenModel) GetAudience() []string {
 	}
 	return []string{r.ClientID}
 }
-func (r *RefreshTokenModel) GetAuthTime() time.Time           { return time.Time{} }
-func (r *RefreshTokenModel) GetClientID() string              { return r.ClientID }
-func (r *RefreshTokenModel) GetScopes() []string              { return r.Scopes }
-func (r *RefreshTokenModel) GetSubject() string               { return r.UserID }
-func (r *RefreshTokenModel) SetCurrentScopes(scopes []string) { r.Scopes = scopes }
+func (r *RefreshTokenModel) GetAuthTime() time.Time { return time.Time{} }
+func (r *RefreshTokenModel) GetClientID() string    { return r.ClientID }
+func (r *RefreshTokenModel) GetScopes() []string {
+	if r.currentScopes != nil {
+		return r.currentScopes
+	}
+	return r.Scopes
+}
+func (r *RefreshTokenModel) GetSubject() string { return r.UserID }
+func (r *RefreshTokenModel) SetCurrentScopes(scopes []string) {
+	r.currentScopes = append([]string{}, scopes...)
+}
 
 // --- Client Model ---
 

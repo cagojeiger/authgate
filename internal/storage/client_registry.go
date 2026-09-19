@@ -105,3 +105,14 @@ func (r *clientRegistry) Resolve(ctx context.Context, clientID string) (*ClientM
 func (s *Storage) staticClientName(clientID string) string {
 	return s.ensureRegistry().staticName(clientID)
 }
+
+// staticRefreshGraceAllowed never resolves clients over the network while a
+// grant transaction holds locks. Dynamic/public clients use strict rotation.
+func (r *clientRegistry) staticRefreshGraceAllowed(clientID string) bool {
+	value, ok := r.clients.Load(clientID)
+	if !ok {
+		return false
+	}
+	client := value.(*ClientModel)
+	return client.Type == "confidential" && client.SecretHash != nil && *client.SecretHash != ""
+}

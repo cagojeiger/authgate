@@ -45,7 +45,7 @@ func TestRefreshReuseDetection_FamilyRevoke(t *testing.T) {
 		hash2, familyID, user.ID, now.Add(30*24*time.Hour), now) // token2: current valid
 
 	// Attempt to reuse token1 (already used)
-	_, err := store.TokenRequestByRefreshToken(ctx, token1)
+	_, err := redeemRefreshForTest(ctx, store, token1)
 	if err == nil {
 		t.Fatal("expected error for reused token")
 	}
@@ -136,7 +136,7 @@ func TestRefreshStateCheck_AllStates(t *testing.T) {
 				t.Fatalf("insert token: %v", err)
 			}
 
-			_, err = store.TokenRequestByRefreshToken(ctx, token)
+			_, err = redeemRefreshForTest(ctx, store, token)
 			if tt.wantError && err == nil {
 				t.Errorf("expected error for %s, got nil", tt.wantState)
 			}

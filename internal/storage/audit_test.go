@@ -50,7 +50,7 @@ func TestAudit010And011_RefreshReuseAndFamilyRevoke(t *testing.T) {
 		t.Fatalf("insert current token: %v", err)
 	}
 
-	if _, err := store.TokenRequestByRefreshToken(ctx, reusedToken); err == nil {
+	if _, err := redeemRefreshForTest(ctx, store, reusedToken); err == nil {
 		t.Fatal("expected invalid refresh token error")
 	}
 
@@ -109,7 +109,7 @@ func TestAudit010And011_ReuseOfRevokedFamilyRecordsEachPresenter(t *testing.T) {
 	}
 	for _, p := range presenters {
 		ctx := clientinfo.WithContext(context.Background(), clientinfo.Info{IP: p.ip, UserAgent: "ua-" + p.ip})
-		if _, err := store.TokenRequestByRefreshToken(ctx, p.token); err == nil {
+		if _, err := redeemRefreshForTest(ctx, store, p.token); err == nil {
 			t.Fatalf("expected invalid refresh token error for presenter %s", p.ip)
 		}
 	}

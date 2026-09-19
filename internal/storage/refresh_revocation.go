@@ -28,6 +28,7 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 	revoked, grantUserID, err := s.revokeRefreshGrant(ctx, tokenOrTokenID, clientID)
 	if err != nil {
 		slog.ErrorContext(ctx, "revoke refresh grant", "error", err)
+		return oidc.ErrServerError().WithParent(err)
 	}
 	if revoked {
 		// zitadel/oidc passes an empty subject when it could not resolve the
@@ -41,7 +42,8 @@ func (s *Storage) RevokeToken(ctx context.Context, tokenOrTokenID string, userID
 		})
 	}
 
-	// RFC 7009: always return 200 regardless of whether anything was revoked
+	// RFC 7009: successful revocation and unknown tokens return 200.
+	// Backend failure above must not be acknowledged as successful revocation.
 	return nil
 }
 
@@ -64,6 +66,9 @@ func (s *Storage) revokeRefreshGrant(ctx context.Context, tokenOrTokenID, client
 		return false, "", nil
 	}
 	if err != nil {
+		return false, "", err
+	}
+	if err := qtx.LockRefreshFamily(ctx, familyID); err != nil {
 		return false, "", err
 	}
 	n, err := qtx.RevokeRefreshFamily(ctx, storeq.RevokeRefreshFamilyParams{

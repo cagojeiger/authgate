@@ -72,3 +72,8 @@ SELECT EXISTS (
 SELECT EXISTS (
     SELECT 1 FROM refresh_token_families WHERE family_id = $1
 ) AS revoked;
+
+-- name: LockRefreshFamily :exec
+-- All rotation/reuse/revoke transactions take the family lock before any row
+-- lock. Hash collisions only serialize unrelated families; no grant is mixed.
+SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(family_id)::text, 0));
