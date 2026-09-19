@@ -91,3 +91,6 @@ scope 분리, INSERT rollback, revoke DB 오류의 HTTP 계약을 검증한다.
 `refresh_consumption_integration_test.go`는 조회의 비소비성과 별도 Storage instance의
 발급/폐기 양쪽 순서를 DB 잠금 barrier로 검증한다. 기존 재사용 감사 테스트는
 lookup과 issuance 두 callback을 모두 실행하며, grace 테스트는 confidential client를 사용한다.
+
+인증 코어 리팩토링의 표준 조항·회귀 테스트·호환 정책·종료 기준은
+[005-token-contracts.md](005-token-contracts.md)에 연결한다.
