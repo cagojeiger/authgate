@@ -12,6 +12,9 @@ import (
 )
 
 func (s *Storage) CreateAccessToken(ctx context.Context, request op.TokenRequest) (string, time.Time, error) {
+	if err := s.consumeAuthCode(ctx, storeq.New(s.db), request); err != nil {
+		return "", time.Time{}, err
+	}
 	tokenID := s.idgen.NewUUID()
 	expiration := s.clock.Now().Add(s.accessTokenTTL)
 	return tokenID, expiration, nil
@@ -35,6 +38,9 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 	}
 	defer func() { _ = tx.Rollback() }()
 	qtx := storeq.New(tx)
+	if err := s.consumeAuthCode(ctx, qtx, request); err != nil {
+		return "", "", time.Time{}, err
+	}
 
 	derived, err := s.deriveRefreshTokenAttributes(ctx, qtx, request, currentRefreshToken)
 	if err != nil {

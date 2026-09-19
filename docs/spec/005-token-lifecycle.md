@@ -44,6 +44,24 @@ access_token 문자열이 재서명으로 바뀌면 id_token의 `at_hash`
 
 ## 토큰 갱신 (Refresh)
 
+### Authorization code 소비 경계
+
+RFC 6749 §4.1.2–4.1.3에 따라 code는 client·redirect·PKCE 검증이 끝난
+발급 단계에서 조건부 DELETE로 한 번만 소비한다. refresh token을 함께
+발급하면 code 소비와 grant INSERT는 같은 DB transaction이다. refresh가
+없는 교환도 동일한 소비 검사를 거친다. 라이브러리의 후속 삭제는 멱등이다.
+
+DB transaction 실패는 소비를 rollback한다. commit 뒤 JWT 서명이나 HTTP
+전송이 실패하면 code를 복원하지 않는다. 사용자는 새 인증을 시작해야 한다.
+일반 검증 오류는 code를 소비하지 않는다.
+
+동일 code 재사용 시 관련 토큰 폐기는 RFC 6749 §4.1.2의 SHOULD다. 현재
+구현은 code를 소비 때 삭제하고 access token을 stateless로 발급하므로
+재사용 거절을 보장하되 해당 code의 기존 grant를 추적·폐기하지 않는다.
+이는 별도 code→grant 보존 모델과 access-token 폐기 상태를 도입하지 않는
+선택이며, 이미 발급된 토큰은 TTL 또는 기존 refresh 폐기 정책을 따른다.
+재사용 거절 MUST와 이 SHOULD 미채택을 구분한다.
+
 ```mermaid
 sequenceDiagram
     participant App as 앱

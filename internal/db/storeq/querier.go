@@ -22,6 +22,8 @@ type Querier interface {
 	AnonymizeUserAuditLogBefore(ctx context.Context, cutoff time.Time) (int64, error)
 	ApproveDeviceCodeByUserCode(ctx context.Context, arg ApproveDeviceCodeByUserCodeParams) (int64, error)
 	CompleteAuthRequestByID(ctx context.Context, arg CompleteAuthRequestByIDParams) (int64, error)
+	// Issuance is the one-shot boundary, after the provider validated the request.
+	ConsumeAuthCode(ctx context.Context, arg ConsumeAuthCodeParams) (int64, error)
 	CountRefreshTokenChildren(ctx context.Context, parentID string) (int64, error)
 	DeleteAuthRequestByID(ctx context.Context, id string) error
 	DeleteExpiredAuthRequestsBefore(ctx context.Context, arg DeleteExpiredAuthRequestsBeforeParams) (int64, error)

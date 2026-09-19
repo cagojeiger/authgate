@@ -13,6 +13,7 @@ import (
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/idgen"
 	"github.com/kangheeyong/authgate/internal/testutil"
+	"github.com/zitadel/oidc/v3/pkg/op"
 )
 
 // testStorageNoKeys builds a Storage WITHOUT PII keys. Only the inert-path test
@@ -150,7 +151,7 @@ func TestTokenTTL_UsesConfigValues(t *testing.T) {
 
 	s := New(db, clk, gen, nil, customAccessTTL, customRefreshTTL)
 
-	_, expiration, err := s.CreateAccessToken(context.Background(), &AuthRequestModel{Subject: ptrStr("user-1")})
+	_, expiration, err := s.CreateAccessToken(context.Background(), &op.DeviceAuthorizationState{Subject: "user-1"})
 	if err != nil {
 		t.Fatalf("create access token: %v", err)
 	}

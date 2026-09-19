@@ -55,3 +55,12 @@ WHERE id = $2;
 -- name: DeleteAuthRequestByID :exec
 DELETE FROM auth_requests
 WHERE id = $1;
+
+-- name: ConsumeAuthCode :execrows
+-- Issuance is the one-shot boundary, after the provider validated the request.
+DELETE FROM auth_requests
+WHERE id = sqlc.arg(id)
+  AND client_id = sqlc.arg(client_id)
+  AND code = sqlc.arg(code)
+  AND done = TRUE
+  AND expires_at > sqlc.arg(now);
