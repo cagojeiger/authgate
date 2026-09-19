@@ -138,7 +138,6 @@ func registerAuthgateRoutes(
 	lim routeLimiters,
 ) {
 	tokenLimiter, authLimiter := lim.token, lim.auth
-	provider = storage.WrapVerifiedAccessToken(provider, cfg.PublicURL)
 
 	mux.Handle("/login", authLimiter(http.HandlerFunc(loginHandler.HandleLogin)))
 	mux.Handle("/login/callback", authLimiter(http.HandlerFunc(loginHandler.HandleCallback)))
