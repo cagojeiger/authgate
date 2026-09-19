@@ -14,6 +14,7 @@ import (
 
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/kangheeyong/authgate/internal/storage"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func userinfoRequest(t *testing.T, ts *TestServer, token string) (int, map[string]any) {
@@ -177,17 +178,22 @@ func TestIntegration_IntrospectionRequiresAccessTokenAndOwningClient(t *testing.
 		t.Fatal(tokens.RawBody)
 	}
 	// Introspection requires client authentication even for public-client grants.
+	hash, err := bcrypt.GenerateFromPassword([]byte("introspection-test-secret"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secretHash := string(hash)
 	ts.Store.LoadClients([]storage.ClientConfigEntry{
-		{ClientID: c.ClientID, ClientType: "confidential", ClientSecretHash: &skipPKCEClientSecretHash},
-		{ClientID: "observer", ClientType: "confidential", ClientSecretHash: &skipPKCEClientSecretHash},
+		{ClientID: c.ClientID, ClientType: "confidential", ClientSecretHash: &secretHash},
+		{ClientID: "observer", ClientType: "confidential", ClientSecretHash: &secretHash},
 	})
 	for _, tc := range []struct {
 		name, token, client, secret string
 		active                      bool
 	}{
-		{"own_access", tokens.AccessToken, c.ClientID, "skip-pkce-secret", true},
-		{"id_token", tokens.IDToken, c.ClientID, "skip-pkce-secret", false},
-		{"other_client", tokens.AccessToken, "observer", "skip-pkce-secret", false},
+		{"own_access", tokens.AccessToken, c.ClientID, "introspection-test-secret", true},
+		{"id_token", tokens.IDToken, c.ClientID, "introspection-test-secret", false},
+		{"other_client", tokens.AccessToken, "observer", "introspection-test-secret", false},
 		{"invalid_unauthenticated", tokens.IDToken, c.ClientID, "wrong", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

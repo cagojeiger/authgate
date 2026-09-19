@@ -73,6 +73,7 @@ func (s *Storage) SetIntrospectionFromToken(ctx context.Context, introspection *
 		return err
 	}
 	introspection.SetUserInfo(&ui)
+	introspection.Subject = claims.Subject
 	introspection.Scope = claims.Scopes
 	introspection.ClientID = claims.ClientID
 	introspection.TokenType = "Bearer"

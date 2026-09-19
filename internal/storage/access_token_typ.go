@@ -40,8 +40,8 @@ func WrapAccessTokenJWTType(inner http.Handler, store *Storage) http.Handler {
 		body := rec.body.Bytes()
 		if rec.code == http.StatusOK && len(body) > 0 {
 			upgraded, err := upgradeAccessTokenTyp(r.Context(), store, body)
-			switch {
-			case err == nil:
+			switch err {
+			case nil:
 				body = upgraded
 			default:
 				slog.ErrorContext(r.Context(), "access token profile rewrite failed", "error", err)
