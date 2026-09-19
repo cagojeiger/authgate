@@ -103,26 +103,24 @@ family_id: 최초 로그인에서 생성된 UUID
 
 ### Refresh Token Rotation 처리 방식
 
-동일 refresh_token 동시 사용을 막기 위해, 현재 구현은 다음 2단계로 처리한다:
+조회는 소비하지 않으며, provider 검증이 끝난 뒤 발급 transaction에서만 소비한다:
 
 ```
-1) TokenRequestByRefreshToken TX
-   - SELECT ... FOR UPDATE
-   - revoked_at / used_at / expires_at / 상태 검증
-   - used_at, revoked_at 갱신 후 COMMIT
-
-2) CreateAccessAndRefreshTokens TX
-   - 새 refresh_token INSERT (같은 family_id)
-   - COMMIT
+1) TokenRequestByRefreshToken
+   - token 조회, 만료/resource/계정 정책 검사 (소비·폐기 없음)
+2) zitadel provider
+   - 요청 client 결합과 scope 상한 검증
+3) CreateAccessAndRefreshTokens TX
+   - family advisory lock → parent row lock
+   - 현재 유효성·계정 정책·재사용 판정
+   - 정상 소비 used_at/revoked_at + child INSERT 함께 COMMIT
+   - 재사용이면 family revoke + tombstone + audit만 COMMIT, invalid_grant
 ```
 
-**규칙**:
-- 같은 refresh_token은 정확히 1번만 성공. 두 번째 동시 요청은 `invalid_grant`.
-- 이미 used/revoked 토큰 재제출 시 family 전체 revoke (아래 재사용 탐지 참조).
-
-주의:
-- 2단계 사이에서 프로세스 중단이 발생하면 구 토큰은 이미 폐기되고 새 토큰이 발급되지 않을 수 있다.
-- 이 경우 사용자는 재로그인이 필요할 수 있다.
+Public client는 같은 token으로 최대 한 번 발급된다. 재사용은 family 전체를
+폐기한다. Confidential client의 유예는 아래 정책을 따른다.
+발급 transaction 실패 시 소비도 rollback된다. DB commit 이후 서명/응답 실패는
+소비를 되돌리지 않으며, public client는 재인증해야 한다.
 
 ### 토큰 재사용 탐지 (Family Invalidation)
 
@@ -184,16 +182,17 @@ family revoke와 거의 동시에 진행되던 rotation이 끼워넣는 새 토�
 앞의 네 조건 중 하나라도 어긋나면 기존 재사용 탐지(family 폐기)로 간다. 상한(3개)에 도달한 요청은 `invalid_grant`로 거부하지만
 **family는 폐기하지 않는다**. 다른 세션이 쓰는 토큰을 지키기 위해서다.
 
-**판정은 두 번 한다.** 토큰이 제출될 때 한 번(잠정), 그리고 새 토큰을 insert하기 직전에 **교환된 토큰 행을 `FOR UPDATE`로 잠근 채** 한 번 더.
-두 번째 판정은 유예로 통과한 요청이거나 이미 자식이 있는 교환에서 수행하며, 계정 상태·resource 바인딩 검증과 위 조건 전체를 다시 본다.
-같은 토큰을 교환하는 요청들은 이 잠금에서 차례로 insert하고 각자 앞 요청이 커밋한 자식을 세므로, 동시에 들어와도 상한은 정확히 지켜진다.
-이 단계의 거부도 `400 invalid_grant`다. (500으로 응답하면 클라이언트가 같은 토큰으로 재시도하고, 유예가 지난 뒤의 재시도는 family 폐기로 이어진다.)
+**판정은 발급 시 family와 parent row를 잠근 뒤 한 번 한다.**
+조회 당시 상태는 소비를 확정하지 않는다. 발급 시 현재 계정·resource·scope와
+위 조건 전체를 검사한다. 같은 family의 소비와 폐기는 직렬화되며,
+각 요청은 앞 요청이 commit한 child를 세므로 동시 요청에도 상한이 지켜진다.
+정책상 거부는 `400 invalid_grant`, DB 오류는 `500 server_error`다.
 
 교환된 토큰 행이 insert 직전에 사라졌다면(그 사이 계정 purge 등) 새 토큰을 발급하지 않고 `invalid_grant`로 거부한다.
 
 **감사**: 유예로 통과한 요청이 자식을 받으면 `auth.refresh_reuse_grace`(`outcome: issued`), 거부되면 `outcome: refused`를
-제출자 IP·User-Agent와 함께 기록한다. "유예로 통과한 요청"은 제출 시점 판정으로 표시하므로, 정상 교환과 재생이 insert 순서를 바꿔도
-기록되는 쪽은 재생이다. 유예 창 안의 재생은 이 기능이 통과시키는 바로 그 경우라, 매 건이 증거다.
+제출자 IP·User-Agent와 함께 기록한다. 유예 적용 여부는 발급 lock을 획득한 순서로 결정한다.
+조회 순서와 무관하게 먼저 소비를 확정한 요청은 정상 교환, 그 뒤 유예로 발급한 요청이 감사 대상이다. 유예 창 안의 재생은 이 기능이 통과시키는 바로 그 경우라, 매 건이 증거다.
 
 **트레이드오프**
 - 토큰을 탈취한 공격자가 정상 교환 **직후 유예 시간 안에** 제출하면 재사용 탐지 없이 토큰을 받는다(감사에는 남는다).

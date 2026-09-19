@@ -12,7 +12,7 @@ import (
 )
 
 // consumeRefreshToken owns the final decision after provider validation. Every
-// grant mutation takes family -> parent row locks in that order. On replay it
+// rotation and explicit/replay revocation takes family -> row locks. On replay it
 // commits the security revocation (no new grant) before returning invalid_grant.
 func (s *Storage) consumeRefreshToken(ctx context.Context, tx *sql.Tx, q *storeq.Queries, request op.TokenRequest, token string) (refreshTokenAttributes, string, bool, error) {
 	var empty refreshTokenAttributes

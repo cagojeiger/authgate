@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kangheeyong/authgate/internal/storage"
 	"github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func refreshFormRequest(t *testing.T, ts *TestServer, form url.Values) *TokenResponse {
@@ -39,6 +41,10 @@ func TestIntegration_InvalidRefreshRequestPreservesGrant(t *testing.T) {
 			}
 			form := url.Values{"grant_type": {"refresh_token"}, "client_id": {client.ClientID}, "refresh_token": {tokens.RefreshToken}}
 			form.Set(field, "ungranted-value")
+			if field == "client_id" {
+				ts.Store.LoadClients([]storage.ClientConfigEntry{{ClientID: "other-client", ClientType: "public", AllowedGrantTypes: []string{"refresh_token"}}})
+				form.Set(field, "other-client")
+			}
 			if r := refreshFormRequest(t, ts, form); r.StatusCode != 400 {
 				t.Fatalf("invalid request: %+v", r)
 			}
@@ -90,7 +96,7 @@ func TestIntegration_RefreshInsertFailureRollsBackConsumption(t *testing.T) {
 		t.Fatal(tokens.RawBody)
 	}
 	ctx := context.Background()
-	if _, err := ts.DB.ExecContext(ctx, `ALTER TABLE refresh_tokens ADD CONSTRAINT test_reject_child CHECK(false) NOT VALID`); err != nil {
+	if _, err := ts.DB.ExecContext(ctx, `ALTER TABLE refresh_tokens ADD CONSTRAINT test_reject_child CHECK(parent_id IS NULL) NOT VALID`); err != nil {
 		t.Fatal(err)
 	}
 	if r := client.RefreshToken(tokens.RefreshToken); r.StatusCode != 500 {
@@ -137,5 +143,41 @@ func TestIntegration_RevokeBackendFailureIsNotSuccess(t *testing.T) {
 	}
 	if tombstones != 0 {
 		t.Fatal("failed revoke left partial tombstone")
+	}
+}
+
+func TestIntegration_ConfidentialRefreshGraceRequiresClientAuthentication(t *testing.T) {
+	ts := SetupTestServerWithOptions(t, SetupOptions{RefreshReuseGrace: 5 * time.Second})
+	tokens := completeLoginFlow(t, ts)
+	if tokens.StatusCode != 200 {
+		t.Fatal(tokens.RawBody)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte("refresh-test-secret"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secretHash := string(hash)
+	ts.Store.LoadClients([]storage.ClientConfigEntry{{ClientID: "test-client", ClientType: "confidential", ClientSecretHash: &secretHash, AllowedGrantTypes: []string{"refresh_token"}, AllowedScopes: []string{"openid", "profile", "email", "offline_access"}}})
+	form := url.Values{"grant_type": {"refresh_token"}, "client_id": {"test-client"}, "refresh_token": {tokens.RefreshToken}}
+	// Knowing the token without the confidential client's secret is not enough.
+	if r := refreshFormRequest(t, ts, form); r.StatusCode == 200 {
+		t.Fatal("unauthenticated confidential refresh accepted")
+	}
+	form.Set("client_secret", "refresh-test-secret")
+	for i := 0; i < 2; i++ {
+		if r := refreshFormRequest(t, ts, form); r.StatusCode != 200 {
+			t.Fatalf("authenticated grace attempt %d: %+v", i, r)
+		}
+	}
+	ts.Clock.T = ts.Clock.T.Add(6 * time.Second)
+	if r := refreshFormRequest(t, ts, form); r.StatusCode != 400 || r.Error != "invalid_grant" {
+		t.Fatalf("outside grace: %+v", r)
+	}
+	var live int
+	if err := ts.DB.QueryRowContext(context.Background(), `SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL`).Scan(&live); err != nil {
+		t.Fatal(err)
+	}
+	if live != 0 {
+		t.Fatal("replay outside confidential grace did not revoke children")
 	}
 }

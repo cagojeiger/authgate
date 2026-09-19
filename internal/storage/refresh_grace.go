@@ -50,8 +50,7 @@ func (s *Storage) refreshReuseGraceDecision(ctx context.Context, qtx *storeq.Que
 	}
 	// RFC 9700 §4.14.2: public clients must detect replay. Only clients
 	// authenticated with a secret may opt into the bounded compatibility grace.
-	client, err := s.ResolveClient(ctx, rt.ClientID)
-	if err != nil || client.AuthMethod() == oidc.AuthMethodNone {
+	if !s.ensureRegistry().staticRefreshGraceAllowed(rt.ClientID) {
 		return graceNone, nil
 	}
 	if now.Sub(*rt.UsedAt) > s.refreshReuseGrace {
