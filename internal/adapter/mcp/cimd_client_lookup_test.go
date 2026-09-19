@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -42,7 +43,7 @@ func TestGetClientByClientID_NotFound(t *testing.T) {
 	store := newStoreForClientLookup()
 
 	_, err := store.GetClientByClientID(context.Background(), "nonexistent")
-	if err != storage.ErrNotFound {
+	if !errors.Is(err, storage.ErrNotFound) {
 		t.Errorf("error = %v, want ErrNotFound", err)
 	}
 }

@@ -465,3 +465,6 @@ client에 동일한 엄격 재사용 탐지를 제공한다고 설명하지 않�
 정상 폐기/알 수 없는 토큰은 200으로 답한다. DB 오류로 폐기하지 못한 경우는
 `server_error`(500)이며 성공으로 응답하지 않는다. 다른 client의 grant는 폐기하지 않는다.
 이미 발급된 stateless access token의 잔여 수명은 새 refresh 발급 차단과 별개다.
+등록되지 않은 client의 token 요청은 storage의 not-found를 OAuth
+`invalid_client`로 변환한다. 저장소/네트워크 오류는 별도로 유지하며
+존재하지 않는 client를 `server_error`로 응답하지 않는다.

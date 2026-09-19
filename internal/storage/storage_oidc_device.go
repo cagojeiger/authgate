@@ -31,6 +31,9 @@ func (s *Storage) KeySet(ctx context.Context) ([]op.Key, error) {
 
 func (s *Storage) GetClientByClientID(ctx context.Context, clientID string) (op.Client, error) {
 	client, err := s.ResolveClient(ctx, clientID)
+	if errors.Is(err, ErrNotFound) {
+		return nil, oidc.ErrInvalidClient().WithParent(err)
+	}
 	if err != nil {
 		return nil, err
 	}

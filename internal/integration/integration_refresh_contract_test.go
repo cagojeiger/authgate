@@ -31,7 +31,7 @@ func refreshFormRequest(t *testing.T, ts *TestServer, form url.Values) *TokenRes
 }
 
 func TestIntegration_InvalidRefreshRequestPreservesGrant(t *testing.T) {
-	for _, field := range []string{"scope", "client_id"} {
+	for _, field := range []string{"scope", "client_id", "unknown_client"} {
 		t.Run(field, func(t *testing.T) {
 			ts := SetupTestServerWithOptions(t, SetupOptions{RefreshReuseGrace: 5 * time.Second})
 			ts.Clock.T = time.Now().UTC()
@@ -42,12 +42,26 @@ func TestIntegration_InvalidRefreshRequestPreservesGrant(t *testing.T) {
 			}
 			form := url.Values{"grant_type": {"refresh_token"}, "client_id": {client.ClientID}, "refresh_token": {tokens.RefreshToken}}
 			form.Set(field, "ungranted-value")
+			if field == "unknown_client" {
+				form.Del(field)
+				form.Set("client_id", "unregistered-client")
+			}
 			if field == "client_id" {
 				ts.Store.LoadClients([]storage.ClientConfigEntry{{ClientID: "other-client", ClientType: "public", AllowedGrantTypes: []string{"refresh_token"}}})
 				form.Set(field, "other-client")
 			}
-			if r := refreshFormRequest(t, ts, form); r.StatusCode != 400 {
-				t.Fatalf("invalid request: %+v", r)
+			r := refreshFormRequest(t, ts, form)
+			wantStatus := http.StatusBadRequest
+			wantError := "invalid_scope"
+			if field == "client_id" {
+				wantError = "invalid_grant"
+			}
+			if field == "unknown_client" {
+				wantError = "invalid_client"
+				wantStatus = http.StatusUnauthorized
+			}
+			if r.StatusCode != wantStatus || r.Error != wantError {
+				t.Fatalf("invalid request: %+v, want %s", r, wantError)
 			}
 			// Retry outside the configured grace: success must not depend on grace.
 			ts.Clock.T = ts.Clock.T.Add(6 * time.Second)
