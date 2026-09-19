@@ -83,3 +83,5 @@ PostgreSQL 잠금으로 인증 코드 동시 소비(최대 1회), 잘못된 요�
 UserInfo의 용도·서명·필수 claims·audience·scope와 introspection의 client 결합을
 검증한다. `access_token_validation_test.go`는 검증되지 않은 Storage callback과
 재서명 실패 시 토큰 노출을 막는다. app route 테스트는 UserInfo adapter 연결도 확인한다.
+`app/routes_integration_test.go`는 실제 app 라우트 등록 함수에 real provider와
+PostgreSQL Storage를 연결해 `at+jwt` 허용·`JWT` 거부·openid-only 반환을 확인한다.
