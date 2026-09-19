@@ -40,8 +40,9 @@ transaction 경계만 보완한다. 관련성이 없는 파일 이동·범용 fr
 - UserInfo는 AuthGate의 일반 OIDC audience(`client_id`)를 받으며 외부 API용
   resource-bound token은 받지 않는다. openid-only에서 sub만 공개하는 것은
   AuthGate의 최소 공개 정책이다.
-- DB transaction 실패와 commit 뒤 서명/HTTP 실패는 다르다. 후자의 경우
-  소비를 되돌리지 않는다. 토큰 응답 재전송 저장소는 추가하지 않는다.
+- DB가 transaction을 abort한 경우와 commit 뒤 서명/HTTP 실패는 다르다. 후자는
+  소비를 되돌리지 않는다. COMMIT 응답 유실은 성공 여부가 불명확하여 재시도 성공을
+  보장하지 않는다. 토큰 응답 재전송 저장소는 추가하지 않는다.
 - 기존 stateless access token의 남은 수명, 새 grant 발급 차단, 릴리즈,
   배포와 운영 실호출은 서로 다른 상태다.
 

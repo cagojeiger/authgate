@@ -119,7 +119,9 @@ family_id: 최초 로그인에서 생성된 UUID
 
 Public client는 같은 token으로 최대 한 번 발급된다. 재사용은 family 전체를
 폐기한다. Confidential client의 유예는 아래 정책을 따른다.
-발급 transaction 실패 시 소비도 rollback된다. DB commit 이후 서명/응답 실패는
+DB에서 transaction이 abort되면 소비도 rollback된다. COMMIT 응답을 잃으면
+성공 여부를 확정할 수 없으므로 같은 토큰의 재시도 성공을 보장하지 않는다.
+DB commit 이후 서명/응답 실패는
 소비를 되돌리지 않으며, public client는 재인증해야 한다.
 
 ### 토큰 재사용 탐지 (Family Invalidation)
@@ -443,7 +445,8 @@ Introspection은 provider의 client 인증을 항상 거친다. 인증한 client
 이후 `CreateAccessAndRefreshTokens`에서 family advisory transaction lock → parent
 row lock 순서로 잠그고, 현재 상태·계정 정책·scope 상한을 다시 검사한다.
 정상 소비의 `used_at/revoked_at`와 child INSERT는 같은 transaction에서 확정한다.
-INSERT/commit 실패 시 모두 rollback되므로 같은 토큰으로 정상 재시도가 가능하다.
+INSERT 실패 등 DB가 transaction을 abort한 경우 소비도 rollback되어 재시도할 수 있다.
+COMMIT 응답 유실은 결과가 불명확하므로 소비가 되돌아갔다고 가정하지 않는다.
 DB commit 뒤 서명/응답 실패는 소비를 되돌리지 않으며 public client는 재인증해야 한다.
 
 교체 refresh token의 scopes는 항상 원본 grant의 scopes를 보존한다
