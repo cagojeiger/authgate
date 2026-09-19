@@ -69,57 +69,24 @@ func TestIntegration_RefreshConcurrent_ExactlyOneSuccess(t *testing.T) {
 	}
 }
 
-// refresh-004b: with the reuse grace on (production default), two sessions
-// redeeming the same token both get a token, and both new tokens rotate. This
-// is the 2026-09-11 Claude Code shape end to end through zitadel/oidc. The
-// requests are launched together but the test does not depend on them
-// overlapping; the interleaved storage-level case is
-// TestRefreshReuseGrace_CapHoldsWhenRequestsInterleave.
-func TestIntegration_RefreshSameTokenTwice_WithGraceBothSucceed(t *testing.T) {
+// Public clients detect replay even when confidential-client grace is enabled.
+func TestIntegration_PublicRefreshReplayIgnoresGrace(t *testing.T) {
 	ts := SetupTestServerWithOptions(t, SetupOptions{EnableMCP: true, RefreshReuseGrace: 5 * time.Second})
 	client := NewOAuthClient(t, ts.BaseURL)
-
 	tokens := completeLoginFlow(t, ts)
-	if tokens.StatusCode != http.StatusOK {
-		t.Fatalf("initial login failed: status=%d body=%s", tokens.StatusCode, tokens.RawBody)
+	if tokens.StatusCode != 200 {
+		t.Fatal(tokens.RawBody)
 	}
-
-	var wg sync.WaitGroup
-	results := make(chan *TokenResponse, 2)
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			results <- client.RefreshToken(tokens.RefreshToken)
-		}()
+	child := client.RefreshToken(tokens.RefreshToken)
+	if child.StatusCode != 200 {
+		t.Fatal(child.RawBody)
 	}
-	wg.Wait()
-	close(results)
-
-	var next []string
-	for result := range results {
-		if result.StatusCode != http.StatusOK {
-			t.Fatalf("concurrent refresh failed inside the grace: status=%d body=%s", result.StatusCode, result.RawBody)
-		}
-		next = append(next, result.RefreshToken)
+	replay := client.RefreshToken(tokens.RefreshToken)
+	if replay.StatusCode != 400 || replay.Error != "invalid_grant" {
+		t.Fatalf("replay: %d %s", replay.StatusCode, replay.RawBody)
 	}
-	if next[0] == "" || next[0] == next[1] {
-		t.Fatalf("expected two distinct refresh tokens, got %q and %q", next[0], next[1])
-	}
-	for i, token := range next {
-		if r := client.RefreshToken(token); r.StatusCode != http.StatusOK {
-			t.Fatalf("session %d cannot rotate its token: status=%d body=%s", i, r.StatusCode, r.RawBody)
-		}
-	}
-
-	var reuse int
-	if err := ts.DB.QueryRowContext(context.Background(),
-		`SELECT count(*) FROM audit_log WHERE event_type = 'auth.refresh_reuse_detected'`,
-	).Scan(&reuse); err != nil {
-		t.Fatalf("count reuse audits: %v", err)
-	}
-	if reuse != 0 {
-		t.Fatalf("reuse audit rows = %d, want 0", reuse)
+	if r := client.RefreshToken(child.RefreshToken); r.StatusCode != 400 {
+		t.Fatalf("child survived replay: %d %s", r.StatusCode, r.RawBody)
 	}
 }
 

@@ -42,52 +42,20 @@ func (s *Storage) CreateAccessAndRefreshTokens(ctx context.Context, request op.T
 		return "", "", time.Time{}, err
 	}
 
-	derived, err := s.deriveRefreshTokenAttributes(ctx, qtx, request, currentRefreshToken)
-	if err != nil {
-		return "", "", time.Time{}, err
-	}
-
-	// On rotation, refuse to issue a child into a family that reuse detection
-	// has tombstoned. The initial code/device exchange mints a fresh family_id
-	// that can never be tombstoned, so the check is skipped there.
-	if currentRefreshToken != "" {
-		revoked, err := qtx.IsRefreshFamilyRevoked(ctx, derived.familyID)
-		if err != nil {
-			return "", "", time.Time{}, err
-		}
-		if revoked {
-			return "", "", time.Time{}, errRefreshGrantRefused()
-		}
-	}
-
-	var currentRefreshHash string
+	derived := s.initialRefreshTokenAttributes(request)
 	var parentID uuid.NullUUID
 	graceChild := false
 	if currentRefreshToken != "" {
-		currentRefreshHash = s.keys.RefreshHash(currentRefreshToken)
-		// A redeemed token that already has a child is being redeemed again
-		// under the reuse grace. Decide it here, holding the redeemed row's lock
-		// until the new child commits, so concurrent grace requests are counted
-		// one after another and the cap holds.
-		graceRequested := false
-		if m, ok := request.(*RefreshTokenModel); ok {
-			graceRequested = m.graceRedemption
-		}
 		var parent string
-		parent, graceChild, err = s.lockAndCheckGraceChild(ctx, tx, qtx, currentRefreshHash, graceRequested, now)
+		derived, parent, graceChild, err = s.consumeRefreshToken(ctx, tx, qtx, request, currentRefreshToken)
 		if err != nil {
 			return "", "", time.Time{}, err
 		}
-		if parent != "" {
-			id, perr := uuid.Parse(parent)
-			if perr != nil {
-				return "", "", time.Time{}, perr
-			}
-			parentID = uuid.NullUUID{UUID: id, Valid: true}
+		id, err := uuid.Parse(parent)
+		if err != nil {
+			return "", "", time.Time{}, err
 		}
-	}
-	if err := revokeRefreshTokenIfPresent(ctx, qtx, currentRefreshHash, now); err != nil {
-		return "", "", time.Time{}, err
+		parentID = uuid.NullUUID{UUID: id, Valid: true}
 	}
 
 	err = qtx.InsertRefreshToken(ctx, storeq.InsertRefreshTokenParams{
@@ -131,54 +99,14 @@ type refreshTokenAttributes struct {
 	scopes   []string
 }
 
-func (s *Storage) deriveRefreshTokenAttributes(ctx context.Context, qtx *storeq.Queries, request op.TokenRequest, currentRefreshToken string) (refreshTokenAttributes, error) {
-	derived := refreshTokenAttributes{
-		familyID: s.idgen.NewUUID(),
-		userID:   request.GetSubject(),
+func (s *Storage) initialRefreshTokenAttributes(request op.TokenRequest) refreshTokenAttributes {
+	derived := refreshTokenAttributes{familyID: s.idgen.NewUUID(), userID: request.GetSubject(), scopes: request.GetScopes()}
+	switch r := request.(type) {
+	case *AuthRequestModel:
+		derived.clientID = r.GetClientID()
+		derived.resource = r.Resource
+	case *op.DeviceAuthorizationState:
+		derived.clientID = r.ClientID
 	}
-
-	if ar, ok := request.(*AuthRequestModel); ok {
-		derived.clientID = ar.GetClientID()
-		derived.resource = ar.Resource
-		derived.scopes = ar.GetScopes()
-		return derived, nil
-	}
-
-	if rtr, ok := request.(op.RefreshTokenRequest); ok {
-		derived.clientID = rtr.GetClientID()
-		derived.scopes = rtr.GetScopes()
-		if existing, ok := request.(*RefreshTokenModel); ok {
-			derived.resource = existing.Resource
-		}
-		if currentRefreshToken != "" {
-			oldHash := s.keys.RefreshHash(currentRefreshToken)
-			fid, err := qtx.GetRefreshFamilyIDByTokenHash(ctx, oldHash)
-			if err == nil {
-				derived.familyID = fid
-			}
-		}
-		return derived, nil
-	}
-
-	if das, ok := request.(*op.DeviceAuthorizationState); ok {
-		derived.clientID = das.ClientID
-		derived.scopes = das.Scopes
-	}
-	return derived, nil
-}
-
-// revokeRefreshTokenIfPresent revokes the row matching tokenHash, which the
-// caller computes with Keys.RefreshHash (empty string when there is no current
-// token). Hashing stays in the *Storage caller so the lookup key never has to
-// be threaded into free functions.
-func revokeRefreshTokenIfPresent(ctx context.Context, qtx *storeq.Queries, tokenHash string, now time.Time) error {
-	if tokenHash == "" {
-		return nil
-	}
-
-	_, err := qtx.RevokeRefreshTokenByHash(ctx, storeq.RevokeRefreshTokenByHashParams{
-		RevokedAt: sql.NullTime{Time: now, Valid: true},
-		TokenHash: tokenHash,
-	})
-	return err
+	return derived
 }

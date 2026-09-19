@@ -34,6 +34,8 @@ func newGraceFixture(t *testing.T, grace time.Duration) (*graceFixture, string) 
 	t.Helper()
 	store, clk, gen := newTombstoneStore(t)
 	store.SetRefreshReuseGrace(grace)
+	secretHash := "fixture-only"
+	store.LoadClients([]ClientConfigEntry{{ClientID: "test-client", ClientType: "confidential", ClientSecretHash: &secretHash}})
 	ctx := context.Background()
 
 	user, err := store.CreateUserWithIdentity(ctx, CreateUserWithIdentityInput{
@@ -358,8 +360,8 @@ func TestRefreshReuseGrace_RevokeEndsSiblingsToo(t *testing.T) {
 	}
 }
 
-// The grace audit must name the request that came in under the grace, even
-// when it inserts before the ordinary rotation it raced.
+// The grace audit names the request that actually consumes second. Lookup
+// does not decide which concurrent request is the ordinary redemption.
 func TestRefreshReuseGrace_AuditNamesTheGraceRequestWhateverTheOrder(t *testing.T) {
 	f, child := newGraceFixture(t, testReuseGrace)
 	f.clk.T = f.clk.T.Add(time.Second)
@@ -396,8 +398,8 @@ func TestRefreshReuseGrace_AuditNamesTheGraceRequestWhateverTheOrder(t *testing.
 		}
 		ips = append(ips, ip)
 	}
-	if len(ips) != 1 || ips[0] != "203.0.113.9" {
-		t.Fatalf("grace issued audits from %v, want exactly the replay 203.0.113.9", ips)
+	if len(ips) != 1 || ips[0] != "198.51.100.1" {
+		t.Fatalf("grace issued audits from %v, want the second committed request 198.51.100.1", ips)
 	}
 }
 

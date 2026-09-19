@@ -79,6 +79,9 @@ type Querier interface {
 	InsertUserIdentity(ctx context.Context, arg InsertUserIdentityParams) error
 	IsRefreshFamilyRevoked(ctx context.Context, familyID string) (bool, error)
 	ListPendingDeletionUserIDsBefore(ctx context.Context, cutoff sql.NullTime) ([]string, error)
+	// All rotation/reuse/revoke transactions take the family lock before any row
+	// lock. Hash collisions only serialize unrelated families; no grant is mixed.
+	LockRefreshFamily(ctx context.Context, familyID string) error
 	MarkRefreshTokenUsedAndRevokedByID(ctx context.Context, arg MarkRefreshTokenUsedAndRevokedByIDParams) error
 	// PII redaction on deletion (ADR-002): every encrypted/hashed email/name column
 	// is cleared so no recoverable PII remains for the deleted user.

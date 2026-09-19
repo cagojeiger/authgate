@@ -47,7 +47,7 @@ func TestRefreshFamily_TombstonedOnReuse(t *testing.T) {
 		t.Fatalf("insert reused token: %v", err)
 	}
 
-	if _, err := store.TokenRequestByRefreshToken(ctx, reusedToken); err == nil {
+	if _, err := redeemRefreshForTest(ctx, store, reusedToken); err == nil {
 		t.Fatal("expected invalid refresh token error on reuse")
 	}
 

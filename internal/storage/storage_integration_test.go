@@ -115,7 +115,7 @@ func TestRefreshTokenRotation_Atomicity(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := s.TokenRequestByRefreshToken(ctx, token)
+			_, err := redeemRefreshForTest(ctx, s, token)
 			results <- err
 		}()
 	}

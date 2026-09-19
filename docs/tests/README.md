@@ -85,3 +85,9 @@ UserInfo의 용도·서명·필수 claims·audience·scope와 introspection의 c
 재서명 실패 시 토큰 노출을 막는다. app route 테스트는 UserInfo adapter 연결도 확인한다.
 `app/routes_integration_test.go`는 실제 app 라우트 등록 함수에 real provider와
 PostgreSQL Storage를 연결해 `at+jwt` 허용·`JWT` 거부·openid-only 반환을 확인한다.
+
+`integration_refresh_contract_test.go`는 잘못된 요청 뒤 재시도, access/refresh
+scope 분리, INSERT rollback, revoke DB 오류의 HTTP 계약을 검증한다.
+`refresh_consumption_integration_test.go`는 조회의 비소비성과 별도 Storage instance의
+발급/폐기 양쪽 순서를 DB 잠금 barrier로 검증한다. 기존 재사용 감사 테스트는
+lookup과 issuance 두 callback을 모두 실행하며, grace 테스트는 confidential client를 사용한다.

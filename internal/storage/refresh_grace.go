@@ -2,8 +2,6 @@ package storage
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"time"
 
 	"github.com/zitadel/oidc/v3/pkg/oidc"
@@ -45,11 +43,15 @@ const (
 // replay bring back a session its owner ended, or the redemption already has
 // refreshReuseGraceMaxIssued children. Either refuses (graceRefuse).
 //
-// This runs twice: provisionally when the token is presented, and again under
-// the redeemed row's lock right before the child is inserted
-// (lockAndCheckGraceChild), which is what makes the cap exact.
+// This runs only under the family and parent row locks during issuance.
 func (s *Storage) refreshReuseGraceDecision(ctx context.Context, qtx *storeq.Queries, rt *RefreshTokenModel, now time.Time) (refreshReuseGrace, error) {
 	if s.refreshReuseGrace <= 0 || rt.UsedAt == nil || rt.RevokedAt == nil || !rt.RevokedAt.Equal(*rt.UsedAt) {
+		return graceNone, nil
+	}
+	// RFC 9700 §4.14.2: public clients must detect replay. Only clients
+	// authenticated with a secret may opt into the bounded compatibility grace.
+	client, err := s.ResolveClient(ctx, rt.ClientID)
+	if err != nil || client.AuthMethod() == oidc.AuthMethodNone {
 		return graceNone, nil
 	}
 	if now.Sub(*rt.UsedAt) > s.refreshReuseGrace {
@@ -91,58 +93,6 @@ func (s *Storage) countRedemptionChildren(ctx context.Context, qtx *storeq.Queri
 // server_error, which invites the retry that trips reuse detection.
 func errRefreshGrantRefused() error {
 	return oidc.ErrInvalidGrant().WithParent(op.ErrInvalidRefreshToken)
-}
-
-// lockAndCheckGraceChild locks the refresh token being rotated and returns its
-// id (the new child's parent) and whether the child is issued under the reuse
-// grace. The lock is held until the caller's transaction ends, so requests
-// redeeming the same token insert one at a time and each sees the children
-// committed before it.
-//
-// The rotation is re-checked under the lock (account state, resource binding,
-// and the full grace decision including the cap) when the request came through
-// the grace (graceRequested) or the redemption already has a child. The first
-// child of an ordinary rotation passes without it. A refusal inserts nothing.
-//
-// A missing row is refused: the token was redeemed a moment ago, so it can only
-// have been deleted since (an account purge), and minting from it would start
-// an unrelated family.
-func (s *Storage) lockAndCheckGraceChild(ctx context.Context, tx *sql.Tx, qtx *storeq.Queries, tokenHash string, graceRequested bool, now time.Time) (string, bool, error) {
-	rt, err := loadRefreshTokenForUpdate(ctx, qtx, tokenHash)
-	if errors.Is(err, op.ErrInvalidRefreshToken) {
-		return "", false, errRefreshGrantRefused()
-	}
-	if err != nil {
-		return "", false, err
-	}
-	if rt.UsedAt == nil {
-		return rt.ID, false, nil
-	}
-	children, err := s.countRedemptionChildren(ctx, qtx, rt)
-	if err != nil {
-		return "", false, err
-	}
-	if !graceRequested && children == 0 {
-		return rt.ID, false, nil
-	}
-	if err := s.validateRefreshTokenRequest(ctx, tx, rt, now); err != nil {
-		// Keep an OAuth error as it is (e.g. an inactive account); anything
-		// else would reach the client as 500 from this step.
-		var oerr *oidc.Error
-		if errors.As(err, &oerr) {
-			return "", false, err
-		}
-		return "", false, errRefreshGrantRefused()
-	}
-	grace, err := s.refreshReuseGraceDecision(ctx, qtx, rt, now)
-	if err != nil {
-		return "", false, err
-	}
-	if grace != graceIssue {
-		s.auditRefreshReuseGrace(ctx, rt.UserID, rt.FamilyID, "refused")
-		return "", false, errRefreshGrantRefused()
-	}
-	return rt.ID, graceRequested, nil
 }
 
 // auditRefreshReuseGrace records a redemption handled by the reuse grace with

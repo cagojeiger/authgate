@@ -168,7 +168,7 @@ family revoke와 거의 동시에 진행되던 rotation이 끼워넣는 새 토�
 나머지는 "이미 사용된 토큰"이 되어, 유예가 없으면 위 규칙대로 family 전체가 폐기되고 모든 세션이 로그아웃된다.
 (2026-09-11 프로덕션: 같은 토큰이 2ms 간격으로 두 번 제출돼 family가 폐기됨.)
 
-`REFRESH_TOKEN_REUSE_GRACE_SEC`(기본 5초) 안에 다시 제출된 토큰은 폐기하지 않고 **같은 family에 새 토큰을 하나 더 발급**한다.
+**client secret으로 인증한 confidential client만** `REFRESH_TOKEN_REUSE_GRACE_SEC`(기본 5초) 안에 다시 제출된 토큰은 폐기하지 않고 **같은 family에 새 토큰을 하나 더 발급**한다.
 기존 세션의 토큰도, 새로 받은 세션의 토큰도 모두 계속 쓸 수 있다.
 
 유예는 아래를 **모두** 만족할 때만 적용된다.
@@ -199,7 +199,7 @@ family revoke와 거의 동시에 진행되던 rotation이 끼워넣는 새 토�
 - 토큰을 탈취한 공격자가 정상 교환 **직후 유예 시간 안에** 제출하면 재사용 탐지 없이 토큰을 받는다(감사에는 남는다).
 - 유예로 받은 토큰도 교환되면 자기 유예 창을 가진다. 공격자가 교환 타이밍을 계속 맞추면 토큰을 여러 개 모을 수 있지만,
   유효한 토큰 하나 이상의 권한은 생기지 않으며, 유예 밖에서 오래된 토큰이 한 번이라도 제출되면 family 전체가 폐기된다.
-- 유예를 끄려면 `REFRESH_TOKEN_REUSE_GRACE_SEC=0`. Auth0(Reuse Interval), Okta(grace period)도 같은 방식을 쓴다.
+- 유예를 끄려면 `REFRESH_TOKEN_REUSE_GRACE_SEC=0`. Public client(CIMD/MCP 포함)는 이 설정과 무관하게 즉시 재사용 탐지와 family 폐기를 적용한다. 동시 갱신은 client에서 직렬화해야 한다.
 
 ## 계정 상태별 토큰 동작
 
@@ -436,3 +436,33 @@ Introspection은 provider의 client 인증을 항상 거친다. 인증한 client
 반환한다. DB에서 이미 확정한 grant 소비는 서명/응답 실패로 되돌리지 않는다.
 기존 `at+jwt` 토큰은 유효 기간 내 계속 사용할 수 있다. 과거 재서명 실패로 발급된
 `typ=JWT` access token은 거절하며 재인증이 필요하다. ID token의 `at_hash` 재결합은 유지한다.
+
+### Refresh grant의 확정 경계
+
+`TokenRequestByRefreshToken`은 만료·resource·계정 접근 조건을 조회하며 토큰을
+소비하거나 재사용 탐지로 family를 폐기하지 않는다. Provider의 client/scope 검증
+이후 `CreateAccessAndRefreshTokens`에서 family advisory transaction lock → parent
+row lock 순서로 잠그고, 현재 상태·계정 정책·scope 상한을 다시 검사한다.
+정상 소비의 `used_at/revoked_at`와 child INSERT는 같은 transaction에서 확정한다.
+INSERT/commit 실패 시 모두 rollback되므로 같은 토큰으로 정상 재시도가 가능하다.
+DB commit 뒤 서명/응답 실패는 소비를 되돌리지 않으며 public client는 재인증해야 한다.
+
+교체 refresh token의 scopes는 항상 원본 grant의 scopes를 보존한다
+([RFC 6749 §6](https://www.rfc-editor.org/rfc/rfc6749.html#section-6)).
+`scope=openid`로 좁힌 refresh 요청은 이번 access token만 축소한다. 다음 갱신에서
+scope를 생략하면 원본 grant의 scopes를 적용한다.
+
+명시적 revoke와 replay 탐지도 같은 family lock을 사용한다. 폐기가 먼저 확정되면
+후속 child 발급은 실패하고, 발급이 먼저 확정되면 폐기가 그 child까지 포함한다.
+이 잠금은 PostgreSQL transaction에 속하므로 서로 다른 Storage instance/프로세스에도
+적용된다. 재사용 탐지 시 family 폐기·tombstone·감사 기록은 함께 commit한다.
+
+Public client에는 [RFC 9700 §4.14.2](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2)의
+rotation 기반 replay 탐지를 적용한다. 기존 5초 유예의 public-client 호환 동작은
+종료한다. Confidential client의 유예와 child 상한은 로컬 호환 정책이며, 모든
+client에 동일한 엄격 재사용 탐지를 제공한다고 설명하지 않는다.
+
+[RFC 7009 §2.1–2.2.1](https://www.rfc-editor.org/rfc/rfc7009.html#section-2.1)에 따라
+정상 폐기/알 수 없는 토큰은 200으로 답한다. DB 오류로 폐기하지 못한 경우는
+`server_error`(500)이며 성공으로 응답하지 않는다. 다른 client의 grant는 폐기하지 않는다.
+이미 발급된 stateless access token의 잔여 수명은 새 refresh 발급 차단과 별개다.

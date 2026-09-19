@@ -214,6 +214,17 @@ func (q *Queries) IsRefreshFamilyRevoked(ctx context.Context, familyID string) (
 	return revoked, err
 }
 
+const lockRefreshFamily = `-- name: LockRefreshFamily :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
+`
+
+// All rotation/reuse/revoke transactions take the family lock before any row
+// lock. Hash collisions only serialize unrelated families; no grant is mixed.
+func (q *Queries) LockRefreshFamily(ctx context.Context, familyID string) error {
+	_, err := q.db.ExecContext(ctx, lockRefreshFamily, familyID)
+	return err
+}
+
 const markRefreshTokenUsedAndRevokedByID = `-- name: MarkRefreshTokenUsedAndRevokedByID :exec
 UPDATE refresh_tokens
 SET used_at = $1, revoked_at = $1
