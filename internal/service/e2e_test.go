@@ -7,10 +7,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/zitadel/oidc/v3/pkg/oidc"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/zitadel/oidc/v3/pkg/oidc"
 
 	"github.com/kangheeyong/authgate/internal/clock"
 	"github.com/kangheeyong/authgate/internal/idgen"
