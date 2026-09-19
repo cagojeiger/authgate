@@ -34,7 +34,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported via [GitHub private vulnerability reporting](https://github.com/cagojeiger/authgate/security/advisories/new) or by opening a GitHub issue.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported via [GitHub private vulnerability reporting](https://github.com/project-jelly/authgate/security/advisories/new) or by opening a GitHub issue.
 
 All complaints will be reviewed and investigated promptly and fairly.
 

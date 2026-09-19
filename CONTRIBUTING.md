@@ -3,7 +3,7 @@
 ## Getting started
 
 ```bash
-git clone https://github.com/cagojeiger/authgate.git
+git clone https://github.com/project-jelly/authgate.git
 cd authgate
 
 # Run unit tests (no Docker required)
@@ -24,7 +24,7 @@ docker compose up --build
 
 ## Reporting bugs
 
-Use [GitHub Issues](https://github.com/cagojeiger/authgate/issues).
+Use [GitHub Issues](https://github.com/project-jelly/authgate/issues).
 
 **Security vulnerabilities** — do NOT file a public issue.
 See [SECURITY.md](SECURITY.md) for the private reporting channel.

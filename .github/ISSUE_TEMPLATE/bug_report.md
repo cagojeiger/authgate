@@ -5,7 +5,7 @@ labels: bug
 ---
 
 > **Security issue?** Do NOT file a public issue.
-> Use [GitHub private vulnerability reporting](https://github.com/cagojeiger/authgate/security/advisories/new) instead.
+> Use [GitHub private vulnerability reporting](https://github.com/project-jelly/authgate/security/advisories/new) instead.
 
 ## Describe the bug
 

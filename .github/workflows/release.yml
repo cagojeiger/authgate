@@ -53,8 +53,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/cagojeiger/authgate:${{ steps.version.outputs.version }}
-            ghcr.io/cagojeiger/authgate:latest
+            ghcr.io/${{ github.repository_owner }}/authgate:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository_owner }}/authgate:latest
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
 
@@ -62,9 +62,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          owner_type=$(gh api "/repos/${{ github.repository }}" --jq '.owner.type')
+          if [[ "$owner_type" == "Organization" ]]; then
+            packages_path="/orgs/${{ github.repository_owner }}/packages"
+          else
+            packages_path="/users/${{ github.repository_owner }}/packages"
+          fi
+
           mapfile -t version_ids < <(
             gh api --paginate \
-              "/users/${{ github.repository_owner }}/packages/container/authgate/versions?per_page=100" \
+              "$packages_path/container/authgate/versions?per_page=100" \
               --jq '.[] | select(((.metadata.container.tags // []) | index("latest")) | not) | .id'
           )
 
@@ -75,5 +82,5 @@ jobs:
 
           for version_id in "${version_ids[@]:versions_to_keep}"; do
             gh api --method DELETE \
-              "/users/${{ github.repository_owner }}/packages/container/authgate/versions/${version_id}"
+              "$packages_path/container/authgate/versions/${version_id}"
           done

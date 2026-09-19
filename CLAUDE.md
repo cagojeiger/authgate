@@ -80,8 +80,8 @@ git push -u origin release/vX.Y.Z
 1. `vX.Y.Z` git 태그 생성
 2. GitHub Release 생성 (릴리즈 노트 자동)
 3. GHCR 이미지 빌드 + 푸시
-   - `ghcr.io/cagojeiger/authgate:vX.Y.Z`
-   - `ghcr.io/cagojeiger/authgate:latest`
+   - `ghcr.io/project-jelly/authgate:vX.Y.Z`
+   - `ghcr.io/project-jelly/authgate:latest`
 4. 오래된 이미지 자동 정리 (최신 20개 유지)
 
 ### 버전 규칙
